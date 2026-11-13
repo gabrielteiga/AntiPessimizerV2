@@ -1,0 +1,9 @@
+/bin/
+/dcu/
+/logs/
+/__history/
+/__recovery/
+*.dproj.local
+*.identcache
+*.stat
+*.dsk

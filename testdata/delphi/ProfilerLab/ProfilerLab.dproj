@@ -1,0 +1,60 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" DefaultTargets="Build">
+  <PropertyGroup>
+    <ProjectGuid>{772EBB77-E1CE-49E3-80FC-9C8796784898}</ProjectGuid>
+    <ProjectVersion>19.0</ProjectVersion>
+    <FrameworkType>None</FrameworkType>
+    <MainSource>ProfilerLab.dpr</MainSource>
+    <Base>True</Base>
+    <Config Condition="'$(Config)'==''">Symbols</Config>
+    <Platform Condition="'$(Platform)'==''">Win64</Platform>
+    <TargetedPlatforms>2</TargetedPlatforms>
+    <AppType>Console</AppType>
+    <DCC_ConsoleTarget>true</DCC_ConsoleTarget>
+    <DCC_Namespace>System;Winapi;$(DCC_Namespace)</DCC_Namespace>
+    <DCC_UsePackage></DCC_UsePackage>
+    <DCC_ExeOutput>.\bin\$(Config)</DCC_ExeOutput>
+    <DCC_DcuOutput>.\dcu\$(Config)</DCC_DcuOutput>
+    <DCC_Optimize>true</DCC_Optimize>
+    <DCC_DebugDCUs>false</DCC_DebugDCUs>
+    <DCC_GenerateStackFrames>true</DCC_GenerateStackFrames>
+    <DCC_IntegerOverflowCheck>true</DCC_IntegerOverflowCheck>
+    <DCC_RangeChecking>true</DCC_RangeChecking>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Config)'=='Symbols'">
+    <Cfg_1>true</Cfg_1>
+    <CfgParent>Base</CfgParent>
+    <DCC_DebugInformation>2</DCC_DebugInformation>
+    <DCC_LocalDebugSymbols>true</DCC_LocalDebugSymbols>
+    <DCC_DebugInfoInExe>true</DCC_DebugInfoInExe>
+    <DCC_RemoteDebug>true</DCC_RemoteDebug>
+    <DCC_MapFile>3</DCC_MapFile>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Config)'=='NoSymbols'">
+    <Cfg_2>true</Cfg_2>
+    <CfgParent>Base</CfgParent>
+    <DCC_DebugInformation>0</DCC_DebugInformation>
+    <DCC_LocalDebugSymbols>false</DCC_LocalDebugSymbols>
+    <DCC_SymbolReferenceInfo>0</DCC_SymbolReferenceInfo>
+    <DCC_DebugInfoInExe>false</DCC_DebugInfoInExe>
+    <DCC_RemoteDebug>false</DCC_RemoteDebug>
+    <DCC_MapFile>0</DCC_MapFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource></DelphiCompile>
+    <DCCReference Include="LabWorkload.pas"/>
+    <BuildConfiguration Include="Base"><Key>Base</Key></BuildConfiguration>
+    <BuildConfiguration Include="Symbols"><Key>Cfg_1</Key><CfgParent>Base</CfgParent></BuildConfiguration>
+    <BuildConfiguration Include="NoSymbols"><Key>Cfg_2</Key><CfgParent>Base</CfgParent></BuildConfiguration>
+  </ItemGroup>
+  <ProjectExtensions>
+    <Borland.Personality>Delphi.Personality.12</Borland.Personality>
+    <Borland.ProjectType>Console</Borland.ProjectType>
+    <BorlandProject>
+      <Delphi.Personality>
+        <Source><Source Name="MainSource">ProfilerLab.dpr</Source></Source>
+      </Delphi.Personality>
+      <Platforms><Platform value="Win64">True</Platform></Platforms>
+    </BorlandProject>
+  </ProjectExtensions>
+  <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets"/>
+</Project>
