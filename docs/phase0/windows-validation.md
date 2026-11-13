@@ -104,5 +104,6 @@ comandos e resultados. Só incorporar dependências após validar esses spikes.
 - [ ] Transporte local e UI avaliados, ADRs aceitos.
 - [ ] Snapshot v1 congelado com exemplos e semântica verificados.
 
-Até lá, permitir apenas pesquisa independente; não declarar o MVP viável nem
-avançar silenciosamente para o agregador e viewer de produção.
+O núcleo portável da Fase 1 avançou a pedido do usuário, com fonte sintética e
+viewer de terminal. Isso não conclui este gate nem comprova o MVP no Windows;
+coleta real, símbolos Delphi e GUI continuam sujeitos às evidências acima.

@@ -1,15 +1,20 @@
 # Plano incremental e análise
 
-## Escopo desta entrega
+## Estado atual e sequência ajustada
 
-A especificação foi lida integralmente. A solicitação atual prioriza pesquisa e
-viabilidade na Fase 0. A sugestão da seção 13.1 inclui agregador, fake e streaming,
-que pertencem à Fase 1; ficam para depois do gate técnico, não são autorização
-para antecipar todas essas funcionalidades. O nome do produto permanece aberto.
+Após a pesquisa inicial, o usuário solicitou continuidade da implementação Go.
+O núcleo portável da Fase 1 foi desenvolvido enquanto os experimentos Windows
+permanecem pendentes. A Fase 0 não foi declarada concluída: o avanço independente
+não comprova viabilidade de ETW, TD32 ou UI no alvo real.
 
-O repositório estava vazio, com branch `work` sem commits, sem AGENTS.md ou
-convenções próprias. Não há código existente a migrar. A base atual contém apenas
-um experimento de inspeção PE e documentação; não há packages de produção vazios.
+Implementado: modelos/validação de snapshots, índice de procedimentos por RVA,
+agregador por janela com top-N, histórico limitado, fonte sintética determinística,
+stream JSON e collector/viewer de terminal separados. Testes cobrem cancelamento,
+backpressure, protocolos, limites, ASLR e acesso concorrente ao histórico.
+
+Nenhum hook, integração IA ou GUI foi antecipado. O próximo incremento deve
+atacar simbolização TD32/TDS seguindo a JCL vendorizada no AntiPessimizer e validar
+a fixture Delphi real; a coleta ETW permanece um spike Windows separado.
 
 ## Matriz alvo
 
@@ -25,9 +30,9 @@ ao laboratório permanecem pendentes.
 | 0B | Laboratório Delphi + spike ETW em Go para PID/TID/IP; primeiro sem stacks | Eventos reais, associação correta ao target, encerramento e permissões verificadas |
 | 0C | Módulos/rundown, RVA e uma estratégia real de símbolos | Hotspot conhecido resolvido; fallback e ASLR demonstrados; formato de símbolos identificado |
 | 0D | Experimentos de custo, Named Pipes e UI; congelar snapshot v1 | Baseline comparável, impacto e latência medidos, perdas visíveis; ADRs aceitos |
-| 1A | Tipos mínimos e validador do snapshot; fake determinístico | Semântica, sequência, versões, dados ausentes e fronteiras testados |
-| 1B | Agregador puro e histórico limitado | Janelas vazias/tardias, overflow, top-N estável, imutabilidade, limites; benchmarks |
-| 1C | Stream sintético com consumidor de teste | Cancelamento, cliente lento, desconexão, race detector |
+| 1A, implementada | Tipos mínimos e validador do snapshot; fake determinístico | Semântica, sequência, versões, dados ausentes e fronteiras testados |
+| 1B, implementada | Agregador puro e histórico limitado | Janelas vazias/tardias, overflow, top-N estável, imutabilidade, limites; benchmarks |
+| 1C, implementada para replay | Stream sintético com consumidor de teste | Cancelamento, cliente lento, desconexão, race detector |
 | 2 | Collector CLI + fonte real validada + transporte | Start/stop, término do target, reconexão, perdas, memória limitada e telemetria |
 | 3 | Viewer independente, começando pela tabela e status | Renderização com carga sintética, reconexão, coalescência e latência medida |
 | 4 | Ampliar cobertura dos símbolos Delphi e diagnóstico | Fixtures reais versionadas/licenciadas, formatos corrompidos, comparação de janelas |

@@ -84,4 +84,6 @@ execução em Windows 10 e Windows 11 x64; registrar builds exatos e compilar
 a fixture fornecida com suas duas configurações. Executar
 [roteiro Windows](windows-validation.md), começando por consumo ETW em Go e
 correlação com rotinas conhecidas. Nenhum teste Windows foi marcado como passado.
-Nenhuma funcionalidade da Fase 1 foi iniciada.
+Atualização: a Fase 1 portável foi implementada a pedido do usuário. Ver
+[arquitetura](../architecture.md) e [resultados](../performance.md). Os bloqueios
+de execução Windows desta Fase 0 permanecem.

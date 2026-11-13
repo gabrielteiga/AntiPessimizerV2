@@ -1,6 +1,8 @@
 # ADR 0002 — Snapshot e semântica
 
-Estado: proposta v0; congelar v1 ao terminar Fase 0.
+Estado: v1 implementada para o núcleo portável e replay sintético.
+Detalhes normativos em [protocol.md](../protocol.md). A integração ETW ainda
+pode exigir evolução versionada após o gate Windows.
 
 JSON UTF-8 inicialmente, pela inspeção fácil e testabilidade, sem ligar contrato
 a transporte. Documento completo por janela, com sequência uint64 por sessão,
@@ -9,7 +11,7 @@ Endereços e IDs de 64 bits serão strings hexadecimais para evitar perda em lei
 que representem números como float64. Session ID novo a cada reinício.
 
 Janela [início,fim), duração monotônica; amostra no fim pertence à próxima janela.
-Definir tolerância de atraso no experimento: não alterar snapshot já publicado;
+No replay, watermark encerra a janela, sem tolerância adicional: não alterar snapshot já publicado;
 eventos tardios não incorporados têm contador separado. Manter referências de
 módulos válidas para o timestamp do evento e identificação binária por hash.
 
@@ -30,6 +32,6 @@ Janelas vazias são válidas; nenhuma amostra não significa processo ocioso sem
 confirmar saúde da fonte. Resolver desconhecido preserva módulo/RVA e motivo.
 Snapshots pertencem ao collector e são imutáveis após publicação.
 
-Antes de congelar: exemplos válidos/inválidos, tamanho máximo, limites de
-cardinalidade, overflow e política de compatibilidade. Versão major desconhecida
+Implementados testes válidos/inválidos, limite de frame 8 MiB, até 4096 hotspots,
+checagem de overflow e compatibilidade por versão. Versão major desconhecida
 será rejeitada; campos opcionais novos podem ser ignorados.

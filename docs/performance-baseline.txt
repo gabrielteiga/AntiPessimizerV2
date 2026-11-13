@@ -1,0 +1,27 @@
+goos: linux
+goarch: amd64
+pkg: github.com/gabrielteiga/AntiPessimizerV2/internal/aggregation
+cpu: AMD EPYC 9V74 80-Core Processor
+BenchmarkWindow1000-4   	    6525	    199567 ns/op	   12477 B/op	       4 allocs/op
+BenchmarkWindow1000-4   	    6225	    189638 ns/op	   12477 B/op	       4 allocs/op
+BenchmarkWindow1000-4   	    5868	    203869 ns/op	   12477 B/op	       4 allocs/op
+PASS
+ok  	github.com/gabrielteiga/AntiPessimizerV2/internal/aggregation	3.747s
+goos: linux
+goarch: amd64
+pkg: github.com/gabrielteiga/AntiPessimizerV2/internal/symbols
+cpu: AMD EPYC 9V74 80-Core Processor
+BenchmarkResolve10000-4   	 5527258	       228.6 ns/op	      63 B/op	       3 allocs/op
+BenchmarkResolve10000-4   	 5215374	       227.2 ns/op	      63 B/op	       3 allocs/op
+BenchmarkResolve10000-4   	 4554866	       220.8 ns/op	      63 B/op	       3 allocs/op
+PASS
+ok  	github.com/gabrielteiga/AntiPessimizerV2/internal/symbols	4.201s
+goos: linux
+goarch: amd64
+pkg: github.com/gabrielteiga/AntiPessimizerV2/internal/stream
+cpu: AMD EPYC 9V74 80-Core Processor
+BenchmarkEncodeSnapshot-4   	  760776	      1540 ns/op	    1088 B/op	       3 allocs/op
+BenchmarkEncodeSnapshot-4   	  757912	      1556 ns/op	    1088 B/op	       3 allocs/op
+BenchmarkEncodeSnapshot-4   	  715224	      1534 ns/op	    1088 B/op	       3 allocs/op
+PASS
+ok  	github.com/gabrielteiga/AntiPessimizerV2/internal/stream	4.402s
