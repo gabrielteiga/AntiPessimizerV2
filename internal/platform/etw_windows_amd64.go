@@ -149,7 +149,10 @@ func Capture(ctx context.Context, pid uint32, emit func(Sample)) error {
 	p.Node.Size = uint32(unsafe.Sizeof(p))
 	p.Node.Clock = 1
 	p.Node.Flags = 0x20000
-	p.Node.GUID = windows.GUID{Data1: 0x9e814aad, Data2: 0x3204, Data3: 0x11d2, Data4: [8]byte{0x9a, 0x82, 0, 0x60, 8, 0xa8, 0x69, 0x39}}
+	p.Node.GUID, err = windows.GenerateGUID()
+	if err != nil {
+		return err
+	}
 	p.BufferSize = 64
 	p.Minimum = 64
 	p.Maximum = 128
