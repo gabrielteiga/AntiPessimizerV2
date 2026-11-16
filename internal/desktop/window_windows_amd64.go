@@ -709,6 +709,7 @@ func (a *window) draw() {
 
 func (a *window) syncColumns() {
 	headers := a.model.Headers()
+	changedMode := a.tableColumns != len(headers)
 	widths := []int32{90, 80, 90, 180, 420, 160, 100, 180}
 	if len(a.model.Metrics) > 0 {
 		widths = []int32{100, 140, 170, 140, 170, 90, 160, 180, 420, 160, 180, 90, 130}
@@ -718,7 +719,11 @@ func (a *window) syncColumns() {
 		a.tableColumns--
 	}
 	for i, name := range headers {
-		col := column{Mask: 7, Width: widths[i], Text: windows.StringToUTF16Ptr(name)}
+		col := column{Mask: 4, Text: windows.StringToUTF16Ptr(name)}
+		if changedMode {
+			col.Mask = 7
+			col.Width = widths[i]
+		}
 		if i >= a.tableColumns {
 			send.Call(a.table, 0x1061, uintptr(i), uintptr(unsafe.Pointer(&col)))
 			a.tableColumns++

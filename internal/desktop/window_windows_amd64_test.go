@@ -58,10 +58,15 @@ func TestNativeInstrumentedWindowSmoke(t *testing.T) {
 		if count != 2 || columns != 13 || windows.UTF16ToString(buffer[:]) != "15.000000" {
 			return fmt.Errorf("native controls did not expose metrics: rows=%d columns=%d average=%q", count, columns, windows.UTF16ToString(buffer[:]))
 		}
+		send.Call(w.table, 0x101e, 1, 239) // user resizes a column before filtering
 		text(w.filter, "child")
 		w.tick()
 		if len(w.model.Rows) != 1 || w.model.Rows[0][8] != "Lab.Child" {
 			return fmt.Errorf("native text filter ignored")
+		}
+		width, _, _ := send.Call(w.table, 0x101d, 1, 0)
+		if width != 239 {
+			return fmt.Errorf("filter reset column width: %d", width)
 		}
 		text(w.filter, "")
 		w.tick()
