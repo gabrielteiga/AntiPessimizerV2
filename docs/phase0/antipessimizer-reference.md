@@ -76,3 +76,13 @@ Busca no PE usa o offset de arquivo da entrada de debug; não carrega a imagem.
 A busca é mais ampla que a heurística JCL de exatamente uma entrada de debug:
 aceita a primeira entrada UNKNOWN válida e mantém prioridade sobre o sidecar.
 Detalhes, diferenças e roteiro de validação em [TD32](../td32.md).
+
+## Conversão para endereço da imagem
+
+Conferidos `ExeLoader.pas` (`InstrumentProcs` e `c_nModuleCodeOffset`) e
+`JclDebug.pas` (`VAFromAddr` e `TJclDebugInfoTD32.GetLocationInfo`): o original
+aplica o viés fixo 0x1000. O loader Go usa BaseOfCode do PE apenas no subconjunto
+explícito de um segmento de código, valida os intervalos e exige a base carregada
+na resolução. A fixture automática posiciona código em 0x5000 para detectar
+regressões que reintroduzam a constante. Não foi estabelecida uma regra geral
+para múltiplos segmentos/seções do Delphi.

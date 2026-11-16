@@ -16,6 +16,10 @@ func FromTD32(id, name string, imageSize uint64, data []byte, segments map[uint1
 	if err != nil {
 		return nil, err
 	}
+	return fromProcedures(id, name, imageSize, ps, segments)
+}
+
+func fromProcedures(id, name string, imageSize uint64, ps []td32.Procedure, segments map[uint16]Segment) (*Index, error) {
 	procedures := make([]Procedure, 0, len(ps))
 	for _, p := range ps {
 		s, ok := segments[p.Segment]

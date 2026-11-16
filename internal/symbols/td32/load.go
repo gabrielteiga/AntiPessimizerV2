@@ -24,11 +24,19 @@ func Load(path string) (procedures []Procedure, source string, err error) {
 		ps, err := Parse(image)
 		return ps, path, err
 	}
+	return LoadPE(image, strings.TrimSuffix(path, filepath.Ext(path))+".tds", path)
+}
+
+// LoadPE searches the supplied immutable PE bytes, then the specified sidecar.
+// imageSource labels embedded results; sidecar is read only if needed.
+func LoadPE(image []byte, sidecar, imageSource string) ([]Procedure, string, error) {
+	if len(image) > 256<<20 {
+		return nil, "", ErrInvalid
+	}
 	ps, embeddedErr := embedded(image)
 	if embeddedErr == nil {
-		return ps, path, nil
+		return ps, imageSource, nil
 	}
-	sidecar := strings.TrimSuffix(path, filepath.Ext(path)) + ".tds"
 	data, err := readBounded(sidecar)
 	if err == nil {
 		ps, err = Parse(data)

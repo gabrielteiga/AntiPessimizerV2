@@ -6,7 +6,8 @@ Profiler Delphi Windows x64 em desenvolvimento, com núcleo em Go baseado no
 **Já funciona:** pipeline portável de amostras, resolução de intervalos de
 procedimentos, snapshots por janela, histórico limitado e dois executáveis
 independentes (collector de demonstração e viewer de terminal).
-**Novo incremento:** leitor mínimo TD32/TDS FB09/FB0A e inspeção de procedimentos.
+**Novo incremento:** leitor TD32/TDS FB09/FB0A, índice a partir do PE e resolução
+de endereços sob ASLR para imagens com um segmento de código.
 **Ainda pendente:** validar símbolos Delphi reais, coleta Windows/ETW, Named Pipes e GUI.
 O modo demo usa dados sintéticos; não monitora processos.
 
@@ -94,3 +95,20 @@ segmento, offset, tamanho e nome original, sem demangling. O adapter do índice
 exige mapa de segmentos verificado; não presume RVA = offset + `0x1000`.
 Fixtures atuais são sintéticas: compatibilidade Delphi 10.4 Win64 e associação
 TDS/binário ainda precisam de validação. Veja [limites e formato](docs/td32.md).
+
+## Resolver endereços observados
+
+```sh
+go run ./cmd/symresolve --image caminho/ProfilerLab.exe --base 0x140000000 0x140005020 0x140005030
+```
+
+Os endereços acima são exemplos. `--base` recebe a base efetivamente carregada;
+a base preferida do PE não é usada automaticamente. A saída JSON distingue
+procedimentos resolvidos, endereços da imagem sem símbolo e endereços fora dela.
+O build é identificado pelo SHA-256 da imagem lida.
+
+O modo automático usa a convenção de um segmento de código do original: segmento
+TD32 1 relativo a `BaseOfCode`, com uma única seção executável e limites válidos.
+Layouts diferentes retornam erro; a API de mapa explícito permanece disponível.
+Esta ferramenta inspeciona arquivos e resolve endereços fornecidos, sem coletar
+amostras do processo. A integração com coleta Windows continua em desenvolvimento.

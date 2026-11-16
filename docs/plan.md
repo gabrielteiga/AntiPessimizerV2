@@ -15,7 +15,11 @@ backpressure, protocolos, limites, ASLR e acesso concorrente ao histórico.
 Nenhum hook, integração IA ou GUI foi antecipado. O incremento TD32/TDS agora
 lê FB09/FB0A, diretórios encadeados, nomes e procedimentos, procura símbolos no
 debug directory PE e em `.tds` adjacente e integra intervalos mediante mapa
-explícito de segmentos. Testes sintéticos e fuzz não validam Delphi real.
+explícito de segmentos. Agora `symbols.LoadImage` também constrói o índice a
+partir do PE usando `BaseOfCode` para o subconjunto de um segmento de código,
+identifica o build por SHA-256 e preserva fallback sem símbolos. `symresolve`
+resolve endereços com base carregada explícita. Teste de integração conecta
+PE/TD32 ao agregador. Testes sintéticos e fuzz não validam Delphi real.
 O próximo passo é ampliar a simbolização usando o código original como referência
 e testes automatizados dos comportamentos esperados. A conferência com fixture
 Delphi real fica registrada como evidência adicional de integração, sem exigir
