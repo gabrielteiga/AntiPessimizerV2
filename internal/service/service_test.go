@@ -70,12 +70,31 @@ func TestRPC(t *testing.T) {
 	if _, err = Call(ctx, path, Request{Op: "start", Start: StartOptions{Demo: true, WindowMS: 10}}); err != nil {
 		t.Fatal(err)
 	}
+	deadline := time.Now().Add(2 * time.Second)
+	for c.Status().Sequence < 3 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if c.Status().Sequence < 3 {
+		t.Fatal("no demo snapshots")
+	}
 	if _, err = Call(ctx, path, Request{Op: "stop"}); err != nil {
 		t.Fatal(err)
 	}
 	r, err := Call(ctx, path, Request{Op: "status"})
 	if err != nil || r.Status.State != "stopped" {
 		t.Fatal(r, err)
+	}
+	history, err := Call(ctx, path, Request{Op: "history", From: time.Now().Add(-time.Minute), To: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history.History) != int(c.Status().Sequence) {
+		t.Fatalf("history length %d, sequence %d", len(history.History), c.Status().Sequence)
+	}
+	for i, s := range history.History {
+		if s.Sequence != uint64(i+1) {
+			t.Fatal("duplicated or missing snapshot", s.Sequence)
+		}
 	}
 	if _, err = Call(ctx, path, Request{Op: "unknown"}); err == nil {
 		t.Fatal("unknown operation accepted")
