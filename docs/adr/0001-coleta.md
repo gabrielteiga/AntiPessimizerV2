@@ -1,6 +1,7 @@
 # ADR 0001 — Amostragem externa
 
-Estado: proposta, bloqueada por experimento Windows.
+Estado: implementada, validada automaticamente em Windows para carga própria.
+Compatibilidade específica Delphi e medição de overhead final permanecem abertas.
 
 Preferir ETW CPU sampling como primeira fonte. Não escolher uma biblioteca Go
 antes de provar coleta, ownership de sessões e callbacks, cancelamento e perdas.
@@ -25,3 +26,13 @@ por processo servem como baseline, mas não produzem hotspots. SuspendThread nã
 
 Aceitar somente após o roteiro Windows produzir atividade real, latência,
 impacto, perdas e fechamento limpo em processo Delphi de laboratório.
+
+
+Implementação: bindings Go/WinAPI, sessão system logger de GUID/nome exclusivos,
+ProcessTrace em goroutine owned, schema clássico com validação de versão e
+fronteiras. Timestamp é convertido pelo consumidor ETW para FILETIME antes de
+entrar no domínio. PID + criação é verificado no handle. A fila de ingestão tem
+8192 entradas e contador separado; callback atualiza lifecycle antes da fila.
+Query/stop recupera perdas globais da sessão; detectar perda interrompe coleta.
+Shutdown para sessão e drena ProcessTrace antes do snapshot final parcial.
+Não há SuspendThread, hooks ou stack walking neste escopo.

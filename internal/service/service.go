@@ -199,3 +199,15 @@ func (c *Controller) Stop() error {
 	return nil
 }
 func (c *Controller) String() string { return fmt.Sprint(c.Status()) }
+
+// View returns lifecycle and latest data from the same session under one lock.
+func (c *Controller) View() (Status, *profiling.Snapshot) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	status := c.state
+	if c.latest == nil {
+		return status, nil
+	}
+	s := c.latest.Clone()
+	return status, &s
+}

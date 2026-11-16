@@ -34,3 +34,23 @@ jobs:
         env:
           AP_GUI_SMOKE: '1'
         run: go test -v -count=1 -timeout=30s ./internal/desktop -run TestNativeWindowSmoke
+
+      - if: runner.os == 'Windows'
+        name: Windows executable end-to-end
+        run: ./scripts/test-windows-e2e.ps1
+
+  package:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.4'
+          cache: false
+      - run: ./scripts/package.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AntiPessimizer-Windows-amd64
+          path: dist/
+          if-no-files-found: error

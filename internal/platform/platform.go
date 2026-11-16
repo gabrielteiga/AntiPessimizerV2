@@ -19,3 +19,10 @@ type Sample struct {
 	IP     uint64
 	Module Module
 }
+
+// Health reports cumulative system-wide ETW session counters, not target losses.
+type Health struct {
+	Known                   bool
+	EventsLost, BuffersLost uint64
+	CorrelationUncertain    bool
+}

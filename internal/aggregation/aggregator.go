@@ -55,7 +55,8 @@ func New(c Config) (*Aggregator, error) {
 	}
 	return &Aggregator{config: c, start: c.Start, counts: make(map[key]uint64), quality: profiling.Quality{SourceLossKnown: c.SourceLossKnown}}, nil
 }
-func (a *Aggregator) End() time.Time { return a.start.Add(a.config.Width) }
+func (a *Aggregator) Start() time.Time { return a.start }
+func (a *Aggregator) End() time.Time   { return a.start.Add(a.config.Width) }
 func (a *Aggregator) Add(s profiling.Sample) error {
 	if s.At.IsZero() || s.ThreadID == 0 {
 		return errors.New("invalid sample time/thread")

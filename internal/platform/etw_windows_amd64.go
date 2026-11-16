@@ -79,6 +79,15 @@ var callback = windows.NewCallback(func(r *eventRecord) uintptr {
 		return 0
 	}
 	c := v.(*consumer)
+	if r.Header.Provider == (windows.GUID{Data1: 0x6a399ae0, Data2: 0x4bc6, Data3: 0x4de9, Data4: [8]byte{0x87, 0x0b, 0x36, 0x57, 0xf8, 0x94, 0x7e, 0x7e}}) {
+		select {
+		case c.fault <- struct{}{}:
+		default:
+		}
+		clear(c.state.Threads)
+		c.state.Modules = nil
+		return 0
+	}
 	// Only 64-bit classic records; no unsafe decoding of unknown schemas.
 	if r.Header.Flags&0x20 != 0 || r.Data == nil {
 		return 0
@@ -104,6 +113,7 @@ var callback = windows.NewCallback(func(r *eventRecord) uintptr {
 type consumer struct {
 	state KernelState
 	emit  func(Sample)
+	fault chan struct{}
 }
 
 func profilePrivilege() (func(), error) {
@@ -129,7 +139,11 @@ func profilePrivilege() (func(), error) {
 
 // Capture creates and owns a uniquely named kernel ETW session. It never stops
 // a pre-existing session. emit must be nonblocking. No process is suspended.
-func Capture(ctx context.Context, pid uint32, emit func(Sample)) error {
+func Capture(ctx context.Context, expected Process, emit func(Sample), health func(Health)) error {
+	pid := expected.PID
+	if pid == 0 || expected.Start.IsZero() {
+		return fmt.Errorf("missing target process identity")
+	}
 	restore, err := profilePrivilege()
 	if err != nil {
 		return err
@@ -140,6 +154,13 @@ func Capture(ctx context.Context, pid uint32, emit func(Sample)) error {
 		return err
 	}
 	defer windows.CloseHandle(target)
+	var created, exited, kernel, user windows.Filetime
+	if err = windows.GetProcessTimes(target, &created, &exited, &kernel, &user); err != nil {
+		return err
+	}
+	if !fileTime(created).Equal(expected.Start) {
+		return fmt.Errorf("target PID was reused; select the process again")
+	}
 	var nonce [12]byte
 	if _, err = rand.Read(nonce[:]); err != nil {
 		return err
@@ -165,13 +186,22 @@ func Capture(ctx context.Context, pid uint32, emit func(Sample)) error {
 	if rc != 0 {
 		return fmt.Errorf("StartTrace: %w", windows.Errno(rc))
 	}
-	defer controlTrace.Call(uintptr(session), uintptr(unsafe.Pointer(name)), uintptr(unsafe.Pointer(&p)), 1)
+	var stopOnce sync.Once
+	var uncertain atomic.Bool
+	stopSession := func() {
+		stopOnce.Do(func() {
+			code, _, _ := controlTrace.Call(uintptr(session), uintptr(unsafe.Pointer(name)), uintptr(unsafe.Pointer(&p)), 1)
+			health(Health{Known: code == 0, EventsLost: uint64(p.Lost), BuffersLost: uint64(p.LogLost) + uint64(p.RealLost), CorrelationUncertain: uncertain.Load() || p.Lost > 0 || p.LogLost > 0 || p.RealLost > 0})
+		})
+	}
+	defer stopSession()
 	threads, modules, err := initial(pid)
 	if err != nil {
 		return err
 	}
 	id := uintptr(nextConsumer.Add(1))
-	consumers.Store(id, &consumer{KernelState{pid, threads, modules}, emit})
+	fault := make(chan struct{}, 1)
+	consumers.Store(id, &consumer{state: KernelState{pid, threads, modules}, emit: emit, fault: fault})
 	defer consumers.Delete(id)
 	log := logfile{Name: name, Mode: 0x10000100, Callback: callback, Context: id}
 	trace, _, callErr := openTrace.Call(uintptr(unsafe.Pointer(&log)))
@@ -183,6 +213,34 @@ func Capture(ctx context.Context, pid uint32, emit func(Sample)) error {
 	defer closeConsumer()
 	done := make(chan uint32, 1)
 	go func() { rc, _, _ := processTrace.Call(uintptr(unsafe.Pointer(&trace)), 1, 0, 0); done <- uint32(rc) }()
+	var latest Health
+	queryHealth := func() bool {
+		q := p
+		code, _, _ := controlTrace.Call(uintptr(session), uintptr(unsafe.Pointer(name)), uintptr(unsafe.Pointer(&q)), 0)
+		latest.Known = code == 0
+		if latest.Known {
+			latest.EventsLost = uint64(q.Lost)
+			latest.BuffersLost = uint64(q.LogLost) + uint64(q.RealLost)
+		}
+		if latest.EventsLost > 0 || latest.BuffersLost > 0 {
+			latest.CorrelationUncertain = true
+			uncertain.Store(true)
+		}
+		health(latest)
+		return latest.CorrelationUncertain
+	}
+	queryHealth()
+	drain := func() {
+		stopSession()
+		timer := time.NewTimer(5 * time.Second)
+		defer timer.Stop()
+		select {
+		case <-done:
+		case <-timer.C:
+			closeConsumer()
+			<-done
+		}
+	}
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -195,10 +253,22 @@ func Capture(ctx context.Context, pid uint32, emit func(Sample)) error {
 			}
 			return nil
 		case <-ctx.Done():
+			queryHealth()
+			drain()
+			return ctx.Err()
+		case <-fault:
+			latest.CorrelationUncertain = true
+			uncertain.Store(true)
+			health(latest)
 			closeConsumer()
 			<-done
-			return ctx.Err()
+			return fmt.Errorf("ETW lost lifecycle events; correlation is uncertain and collection stopped")
 		case <-ticker.C:
+			if queryHealth() {
+				closeConsumer()
+				<-done
+				return fmt.Errorf("ETW session lost events or buffers; collection stopped to avoid incorrect symbols")
+			}
 			status, e := windows.WaitForSingleObject(target, 0)
 			if e != nil {
 				closeConsumer()
@@ -206,8 +276,7 @@ func Capture(ctx context.Context, pid uint32, emit func(Sample)) error {
 				return e
 			}
 			if status == windows.WAIT_OBJECT_0 {
-				closeConsumer()
-				<-done
+				drain()
 				return nil
 			}
 		}

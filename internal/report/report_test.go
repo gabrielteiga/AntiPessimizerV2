@@ -57,3 +57,13 @@ func TestArchiveComparisonAndFilters(t *testing.T) {
 		t.Fatal("duplicate accepted")
 	}
 }
+
+func TestComparisonRejectsUnstableUnknownImages(t *testing.T) {
+	a := fixture(t, "a", 1, 10, time.Second)
+	b := fixture(t, "b", 1, 10, time.Second)
+	a.Hotspots[0].ModuleID = "runtime:1000:1000"
+	b.Hotspots[0].ModuleID = a.Hotspots[0].ModuleID
+	if _, err := Compare([]profiling.Snapshot{a}, []profiling.Snapshot{b}); err == nil {
+		t.Fatal("ASLR-dependent identities compared across sessions")
+	}
+}

@@ -111,3 +111,25 @@ func BenchmarkWindow1000(b *testing.B) {
 		}
 	}
 }
+
+func TestPartialWindowRequiresPositiveDuration(t *testing.T) {
+	c := config()
+	a, err := New(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.ClosePartial(a.Start()); err == nil {
+		t.Fatal("zero-duration window accepted")
+	}
+	end := a.Start().Add(c.Width / 2)
+	snapshot, err := a.ClosePartial(end)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snapshot.WindowEnd.Equal(end) || !snapshot.WindowStart.Equal(c.Start) {
+		t.Fatal(snapshot)
+	}
+	if err := snapshot.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -46,3 +46,24 @@ func FuzzKernelDecode(f *testing.F) {
 		}
 	})
 }
+
+func TestDelayedEventsDoNotUseNewModuleOrDeleteNewThread(t *testing.T) {
+	now := time.Now()
+	s := KernelState{PID: 42, Threads: map[uint32]time.Time{7: now}, Modules: []Module{{Base: 0x5000, Size: 100, Path: "new.dll", Loaded: now.Add(time.Second)}}}
+	profile := make([]byte, 16)
+	binary.LittleEndian.PutUint64(profile, 0x5020)
+	binary.LittleEndian.PutUint32(profile[8:], 7)
+	sample, ok := s.Feed("profile", 46, 2, now, profile)
+	if !ok || sample.Module.Path != "" {
+		t.Fatal("old IP attributed to new module", sample)
+	}
+	// An old thread-end record must not erase the later instance with this TID.
+	thread := make([]byte, 8)
+	binary.LittleEndian.PutUint32(thread, 42)
+	binary.LittleEndian.PutUint32(thread[4:], 7)
+	s.Threads[7] = now.Add(time.Second)
+	s.Feed("thread", 2, 3, now, thread)
+	if _, ok := s.Threads[7]; !ok {
+		t.Fatal("old lifecycle deleted later thread")
+	}
+}

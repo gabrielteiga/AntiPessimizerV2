@@ -130,7 +130,9 @@ func handle(ctx context.Context, conn net.Conn, c *Controller) {
 		err = c.Stop()
 	case "status":
 	case "latest":
-		r.Snapshot = c.Latest()
+		status, snapshot := c.View()
+		r.Status = &status
+		r.Snapshot = snapshot
 	case "history":
 		r.History, err = c.History(q.From, q.To, q.Module, q.Thread)
 		if err == nil {
@@ -171,7 +173,9 @@ func handle(ctx context.Context, conn net.Conn, c *Controller) {
 		r.Error = err.Error()
 	}
 	s := c.Status()
-	r.Status = &s
+	if r.Status == nil {
+		r.Status = &s
+	}
 	if err := transport.Write(conn, r); err != nil {
 		return
 	}

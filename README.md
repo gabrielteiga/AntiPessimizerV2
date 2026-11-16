@@ -1,114 +1,91 @@
 # AntiPessimizerV2
 
-Profiler Delphi Windows x64 em desenvolvimento, com núcleo em Go baseado no
-[AntiPessimizer](https://github.com/Hoshoyo/AntiPessimizer).
+Profiler de aplicações Delphi **Windows x64**, implementado em Go a partir dos
+comportamentos do [AntiPessimizer](https://github.com/Hoshoyo/AntiPessimizer).
+Collector e viewer são processos independentes. A coleta é por amostragem ETW:
+o ranking mede amostras de CPU por procedimento/thread, não chamadas exatas ou
+tempo inclusivo/exclusivo de instrumentação.
 
-**Já funciona:** pipeline portável de amostras, resolução de intervalos de
-procedimentos, snapshots por janela, histórico limitado e dois executáveis
-independentes (collector de demonstração e viewer de terminal).
-**Novo incremento:** leitor TD32/TDS FB09/FB0A, índice a partir do PE e resolução
-de endereços sob ASLR para imagens com um segmento de código.
-**Ainda pendente:** validar símbolos Delphi reais, coleta Windows/ETW, Named Pipes e GUI.
-O modo demo usa dados sintéticos; não monitora processos.
+## Windows
 
-## Executar o incremento atual
-
-Go 1.27.4, sem dependências externas. Na raiz do repositório:
-
-```sh
-go run ./cmd/collector --demo --windows 8 --samples 1000 | go run ./cmd/viewer
-```
-
-As janelas alternam hotspots conhecidos e incluem endereços sem símbolo.
-Para filtrar uma thread e reduzir o ranking:
-
-```sh
-go run ./cmd/collector --demo --top 2 | go run ./cmd/viewer --thread 102
-```
-
-Também é possível guardar o stream e reproduzi-lo:
-
-```sh
-go run ./cmd/collector --demo > snapshots.ndjson
-go run ./cmd/viewer < snapshots.ndjson
-```
-
-Em Windows use o Command Prompt (`cmd.exe`) para pipes/redirecionamento sem a
-conversão de encoding de versões antigas do PowerShell:
+Os builds aprovados do [GitHub Actions](https://github.com/gabrielteiga/AntiPessimizerV2/actions)
+geram o artifact `AntiPessimizer-Windows-amd64`, com executáveis, instruções,
+licenças e checksums. Extraia o pacote e use `Start-Profiler.cmd`. O launcher
+solicita elevação para o collector quando necessário para ETW; o viewer usa
+Named Pipe local restrito ao mesmo usuário. Também é possível iniciar separado:
 
 ```bat
-go build -o collector.exe ./cmd/collector
-go build -o viewer.exe ./cmd/viewer
-collector.exe --demo --windows 8 | viewer.exe
+collector.exe --serve
+viewer.exe --gui
 ```
 
-O collector exige `--demo` até existir um adapter real. PID/TIDs e timestamps do
-demo são fictícios. Há backpressure síncrono e limites de memória; Ctrl+C encerra
-o replay. O protocolo e as limitações estão em [docs/protocol.md](docs/protocol.md).
+No viewer: atualize a lista de processos, selecione o alvo e use **Iniciar**.
+**Parar** encerra a sessão preservando o histórico. **Demo** valida o fluxo sem
+monitorar processo. A tabela virtual aceita filtros por texto/TID, ordenação
+por coluna, visão por thread e intervalo. A barra navega por janelas retidas ou
+por um arquivo aberto. O gráfico mostra contagem de amostras por janela.
 
-## Validar e medir
+A caixa de caminho permite salvar NDJSON, reproduzir arquivo e comparar um arquivo
+com a série atual. Comparações mostram contagens e variação em amostras/s e exigem
+identidades de binário compatíveis. Fechar o viewer não encerra o collector.
+
+## Automação e arquivos
+
+```bat
+viewer.exe --op processes
+viewer.exe --op start --pid 1234
+viewer.exe --op status
+viewer.exe --op stop
+viewer.exe --save session.ndjson --seconds 30
+viewer.exe --replay session.ndjson
+viewer.exe --replay before.ndjson --compare after.ndjson
+```
+
+`viewer --op subscribe` escreve snapshots NDJSON e reconecta após desconexão;
+encerra se a sessão mudar, para não misturar sessões em um arquivo.
+`--address` seleciona outro Named Pipe local. Arquivos existentes não são
+sobrescritos pelo comando de salvar. Mais detalhes em [docs/live.md](docs/live.md).
+
+## Símbolos Delphi
+
+TD32/TDS FB09/FB0A: nomes, procedimentos LPROC32/GPROC32, diretórios encadeados,
+símbolos embutidos ou `.tds` adjacente. Nomes `_ZN` suportados são apresentados
+como nomes Delphi legíveis; a ferramenta de dump preserva os nomes originais.
+
+```bat
+td32dump.exe caminho\ProfilerLab.exe
+symresolve.exe --image caminho\ProfilerLab.exe --base 0x140000000 0x140005020
+```
+
+A conversão automática cobre segmento TD32 1 numa única seção executável,
+derivando RVA de `BaseOfCode`, sem constante `0x1000`. Outros layouts e símbolos
+ausentes mantêm módulo/endereço desconhecido na coleta. Os arquivos EXE/TDS devem
+ser do mesmo build; ainda não há autenticação de correspondência de TDS externo.
+A validação do parser usa casos derivados da JCL original; não comprova todos os
+formatos emitidos pelo Delphi 10.4. [Formato e limites](docs/td32.md).
+
+## Desenvolvimento e validação
+
+Go 1.27.4; dependências `x/sys/windows` e `go-winio`; sem CGO no build dos apps.
+Windows amd64 é o alvo. Linux executa testes do núcleo e do transporte de teste.
 
 ```sh
 go test ./...
-go test -race ./...
 go vet ./...
-go test -run '^$' -bench . -benchmem ./internal/aggregation ./internal/symbols ./internal/stream
+go test -race ./...
+GOOS=windows GOARCH=amd64 go vet ./...
+GOOS=windows GOARCH=amd64 go build ./cmd/...
+go run ./cmd/collector --demo --windows 8 | go run ./cmd/viewer
 ```
 
-`-race` requer compilador C/plataforma suportada. CI configurado para testes/build
-Linux e Windows, com race detector no Linux; execução remota ainda não confirmada.
-Resultados locais e benchmarks estão em [docs/performance.md](docs/performance.md).
+No Windows, `scripts/package.ps1` gera `dist/`. O CI executa coleta ETW sobre
+uma carga própria, testes dos executáveis via Named Pipe e uma janela nativa
+consumindo snapshots. PRs só entram na `main` após checks aprovados. Não se exige
+validação manual intermediária do usuário.
 
-No cloud atual:
-
-```sh
-export PATH=/workspace/toolchains/go/bin:$PATH
-export GOCACHE=/workspace/.cache/go-build GOMODCACHE=/workspace/.cache/go-mod
-```
-
-## Programa Delphi e inspeção PE
-
-Abra [ProfilerLab.dproj](testdata/delphi/ProfilerLab/ProfilerLab.dproj) no Delphi
-10.4, selecione Win64 e compile. O [guia](testdata/delphi/ProfilerLab/README.md)
-inclui carga serial/paralela, logs, autotestes e builds com/sem símbolos.
-A compilação dessa fixture continua pendente no Windows 10/11.
-
-```sh
-go run ./experiments/peprobe caminho/ProfilerLab.exe
-```
-
-O comando lê PE e imprime arquitetura, hash e metadados; não resolve TD32.
-
-Veja [arquitetura](docs/architecture.md), [plano](docs/plan.md),
-[especificação](docs/ESPECIFICACAO_GO_PROFILER.md) e
-[análise do código original](docs/phase0/antipessimizer-reference.md).
-
-## Inspecionar símbolos TD32/TDS
-
-```sh
-go run ./cmd/td32dump caminho/ProfilerLab.exe
-go run ./cmd/td32dump caminho/ProfilerLab.tds
-```
-
-Busca primeiro o debug directory do PE e depois `.tds` adjacente. A saída preserva
-segmento, offset, tamanho e nome original, sem demangling. O adapter do índice
-exige mapa de segmentos verificado; não presume RVA = offset + `0x1000`.
-Fixtures atuais são sintéticas: compatibilidade Delphi 10.4 Win64 e associação
-TDS/binário ainda precisam de validação. Veja [limites e formato](docs/td32.md).
-
-## Resolver endereços observados
-
-```sh
-go run ./cmd/symresolve --image caminho/ProfilerLab.exe --base 0x140000000 0x140005020 0x140005030
-```
-
-Os endereços acima são exemplos. `--base` recebe a base efetivamente carregada;
-a base preferida do PE não é usada automaticamente. A saída JSON distingue
-procedimentos resolvidos, endereços da imagem sem símbolo e endereços fora dela.
-O build é identificado pelo SHA-256 da imagem lida.
-
-O modo automático usa a convenção de um segmento de código do original: segmento
-TD32 1 relativo a `BaseOfCode`, com uma única seção executável e limites válidos.
-Layouts diferentes retornam erro; a API de mapa explícito permanece disponível.
-Esta ferramenta inspeciona arquivos e resolve endereços fornecidos, sem coletar
-amostras do processo. A integração com coleta Windows continua em desenvolvimento.
+Limites conhecidos: sampling folha, sem pilhas; correlação depende dos eventos
+ETW; perdas globais da sessão não podem ser atribuídas integralmente ao alvo;
+layouts TD32 adicionais precisam de cobertura; overhead/latência no ambiente
+Delphi final ainda não têm medição. Lacunas permanecem explícitas, sem bloquear
+trabalho automatizável. [Plano](docs/plan.md), [especificação](docs/ESPECIFICACAO_GO_PROFILER.md),
+[referência original](docs/phase0/antipessimizer-reference.md).
