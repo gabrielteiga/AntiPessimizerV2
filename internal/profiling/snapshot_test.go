@@ -47,3 +47,21 @@ func TestSum(t *testing.T) {
 		t.Fatal("overflow accepted")
 	}
 }
+
+func TestOptionalPascalUnitValidation(t *testing.T) {
+	loc := Location{ModuleID: "id", Module: "lab.exe", Procedure: "Hot", Unit: "LabWorkload", RVA: "0x0000000000001000", Status: "resolved"}
+	if err := loc.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	loc.Unit = "bad\nunit"
+	if err := loc.Validate(); err == nil {
+		t.Fatal("control characters accepted")
+	}
+	loc.Unit = "LabWorkload"
+	loc.Status = "unknown"
+	loc.Procedure = ""
+	loc.Reason = "no_symbol"
+	if err := loc.Validate(); err == nil {
+		t.Fatal("unknown procedure claimed a Pascal unit")
+	}
+}

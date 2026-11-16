@@ -51,3 +51,18 @@ func DisplayName(raw string) string {
 	}
 	return name
 }
+
+// DisplayUnit uses the snapshot-safe display length without interpreting Pascal
+// unit names as mangled procedure names.
+func DisplayUnit(raw string) string {
+	if len(raw) <= 256 {
+		return raw
+	}
+	hash := sha256.Sum256([]byte(raw))
+	suffix := fmt.Sprintf("…#%x", hash[:6])
+	end := 256 - len(suffix)
+	for end > 0 && !utf8.RuneStart(raw[end]) {
+		end--
+	}
+	return raw[:end] + suffix
+}

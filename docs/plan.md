@@ -14,6 +14,8 @@ A fixture TDS controlada deriva os endereços do executável Go de laboratório 
 exige hotspot resolvido: valida o encadeamento real, sem alegar que o Delphi
 compilou essa fixture. Compatibilidade completa de variantes Delphi/TDS,
 identidade externa de TDS, custo no ambiente final e pilhas continuam lacunas.
+O incremento de sstModule acrescenta associação explícita a unidades Pascal,
+validada por índice do módulo e contribuição de código no mesmo segmento.
 
 Coleta usa PID + criação verificada no handle e TIDs conforme lifecycle. Perdas
 ETW globais são cumulativas e distintas das perdas na fila de ingestão; detectar

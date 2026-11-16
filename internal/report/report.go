@@ -15,8 +15,8 @@ import (
 )
 
 type Filter struct {
-	Text, Module string
-	Thread       uint32
+	Text, Module, Unit string
+	Thread             uint32
 }
 type Summary struct {
 	Source                                     string        `json:"source"`
@@ -80,7 +80,7 @@ func Summarize(snapshots []profiling.Snapshot, f Filter) (Summary, error) {
 			}
 		}
 		for _, h := range s.Hotspots {
-			if f.Module != "" && h.Module != f.Module || f.Thread != 0 && h.ThreadID != f.Thread || f.Text != "" && !strings.Contains(strings.ToLower(h.Module+" "+h.Procedure+" "+h.RVA), strings.ToLower(f.Text)) {
+			if f.Unit != "" && h.Unit != f.Unit || f.Module != "" && h.Module != f.Module || f.Thread != 0 && h.ThreadID != f.Thread || f.Text != "" && !strings.Contains(strings.ToLower(h.Module+" "+h.Unit+" "+h.Procedure+" "+h.RVA), strings.ToLower(f.Text)) {
 				if err := add(&result.Other, h.Samples); err != nil {
 					return result, err
 				}
@@ -152,9 +152,9 @@ func Read(in io.Reader) ([]profiling.Snapshot, error) {
 }
 
 type Delta struct {
-	Module, ModuleID, RVA, Procedure      string
-	Before, After                         uint64
-	BeforeRate, AfterRate, DeltaPerSecond float64
+	Module, ModuleID, RVA, Procedure, Unit string
+	Before, After                          uint64
+	BeforeRate, AfterRate, DeltaPerSecond  float64
 }
 type Comparison struct {
 	Before, After Summary
@@ -197,7 +197,7 @@ func Compare(a, b []profiling.Snapshot) (Comparison, error) {
 			key := h.ModuleID + ":" + h.RVA
 			d := rows[key]
 			if d == nil {
-				d = &Delta{Module: h.Module, ModuleID: h.ModuleID, RVA: h.RVA, Procedure: h.Procedure}
+				d = &Delta{Module: h.Module, ModuleID: h.ModuleID, RVA: h.RVA, Procedure: h.Procedure, Unit: h.Unit}
 				rows[key] = d
 			}
 			if side == 0 {

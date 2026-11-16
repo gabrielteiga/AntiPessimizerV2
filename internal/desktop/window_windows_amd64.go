@@ -149,7 +149,7 @@ var wndProc = windows.NewCallback(func(hwnd uintptr, msg uint32, w uintptr, nati
 				Header     notifyHeader
 				Index, Sub int32
 			})(nativeParam)
-			if clicked.Sub >= 0 && clicked.Sub < 7 {
+			if clicked.Sub >= 0 && clicked.Sub < 8 {
 				if a.model.SortColumn == int(clicked.Sub) {
 					a.model.Ascending = !a.model.Ascending
 				} else {
@@ -267,7 +267,7 @@ func (a *window) open() error {
 	for i, entry := range []struct {
 		name  string
 		width int32
-	}{{"Amostras", 90}, {"Fração", 80}, {"Thread", 90}, {"Módulo", 180}, {"Procedimento", 420}, {"RVA", 160}, {"Símbolo", 100}} {
+	}{{"Amostras", 90}, {"Fração", 80}, {"Thread", 90}, {"Módulo", 180}, {"Procedimento", 420}, {"RVA", 160}, {"Símbolo", 100}, {"Unidade Pascal", 180}} {
 		col := column{Mask: 0x7, Width: entry.width, Text: windows.StringToUTF16Ptr(entry.name)}
 		send.Call(a.table, 0x1061, uintptr(i), uintptr(unsafe.Pointer(&col)))
 	}
@@ -565,9 +565,9 @@ func (a *window) tick() {
 			text(a.status, err.Error())
 			return
 		}
-		headers := []string{"Amostras", "Fração", "Thread", "Módulo", "Procedimento", "RVA", "Símbolo"}
+		headers := []string{"Amostras", "Fração", "Thread", "Módulo", "Procedimento", "RVA", "Símbolo", "Unidade Pascal"}
 		if a.model.Comparison != nil {
-			headers = []string{"Antes", "Depois", "Δ amostras/s", "Módulo", "Procedimento", "RVA", "Presença"}
+			headers = []string{"Antes", "Depois", "Δ amostras/s", "Módulo", "Procedimento", "RVA", "Presença", "Unidade Pascal"}
 		}
 		for i, h := range headers {
 			col := column{Mask: 4, Text: windows.StringToUTF16Ptr(h)}

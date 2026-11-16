@@ -61,7 +61,7 @@ func (m *Model) Rebuild(seconds int, f report.Filter) error {
 		m.Rows = nil
 		m.Summary = m.Comparison.After
 		for _, d := range m.Comparison.Changes {
-			if f.Text != "" && !strings.Contains(strings.ToLower(d.Module+" "+d.Procedure+" "+d.RVA), strings.ToLower(f.Text)) {
+			if f.Text != "" && !strings.Contains(strings.ToLower(d.Module+" "+d.Unit+" "+d.Procedure+" "+d.RVA), strings.ToLower(f.Text)) {
 				continue
 			}
 			state := "presente"
@@ -70,7 +70,7 @@ func (m *Model) Rebuild(seconds int, f report.Filter) error {
 			} else if d.After == 0 {
 				state = "ausente"
 			}
-			m.Rows = append(m.Rows, []string{strconv.FormatUint(d.Before, 10), strconv.FormatUint(d.After, 10), fmt.Sprintf("%+.3f", d.DeltaPerSecond), d.Module, d.Procedure, d.RVA, state})
+			m.Rows = append(m.Rows, []string{strconv.FormatUint(d.Before, 10), strconv.FormatUint(d.After, 10), fmt.Sprintf("%+.3f", d.DeltaPerSecond), d.Module, d.Procedure, d.RVA, state, d.Unit})
 		}
 		m.sortRows()
 		return nil
@@ -113,7 +113,7 @@ func (m *Model) Rebuild(seconds int, f report.Filter) error {
 			if summary.Accepted > 0 {
 				share = 100 * float64(r.samples) / float64(summary.Accepted)
 			}
-			m.Rows = append(m.Rows, []string{strconv.FormatUint(r.samples, 10), fmt.Sprintf("%.2f%%", share), strconv.FormatUint(uint64(tid), 10), "", fmt.Sprintf("%d procedimentos/endereços", r.procedures), "", "thread"})
+			m.Rows = append(m.Rows, []string{strconv.FormatUint(r.samples, 10), fmt.Sprintf("%.2f%%", share), strconv.FormatUint(uint64(tid), 10), "", fmt.Sprintf("%d procedimentos/endereços", r.procedures), "", "thread", ""})
 		}
 		m.sortRows()
 		return nil
@@ -127,7 +127,7 @@ func (m *Model) Rebuild(seconds int, f report.Filter) error {
 		if summary.Accepted > 0 {
 			share = 100 * float64(h.Samples) / float64(summary.Accepted)
 		}
-		m.Rows = append(m.Rows, []string{strconv.FormatUint(h.Samples, 10), fmt.Sprintf("%.2f%%", share), strconv.FormatUint(uint64(h.ThreadID), 10), h.Module, name, h.RVA, h.Status})
+		m.Rows = append(m.Rows, []string{strconv.FormatUint(h.Samples, 10), fmt.Sprintf("%.2f%%", share), strconv.FormatUint(uint64(h.ThreadID), 10), h.Module, name, h.RVA, h.Status, h.Unit})
 	}
 	m.sortRows()
 	return nil
@@ -161,7 +161,7 @@ func (m *Model) Replace(history []profiling.Snapshot) error {
 }
 func (m *Model) sortRows() {
 	col := m.SortColumn
-	if col < 0 || col >= 7 {
+	if col < 0 || col >= 8 {
 		col = 0
 	}
 	sort.SliceStable(m.Rows, func(i, j int) bool {

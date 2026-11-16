@@ -48,9 +48,10 @@ sobrescritos pelo comando de salvar. Mais detalhes em [docs/live.md](docs/live.m
 
 ## Símbolos Delphi
 
-TD32/TDS FB09/FB0A: nomes, procedimentos LPROC32/GPROC32, diretórios encadeados,
+TD32/TDS FB09/FB0A: nomes, unidades Pascal (sstModule), procedimentos LPROC32/GPROC32, diretórios encadeados,
 símbolos embutidos ou `.tds` adjacente. Nomes `_ZN` suportados são apresentados
-como nomes Delphi legíveis; a ferramenta de dump preserva os nomes originais.
+como nomes Delphi legíveis; unidades aparecem em coluna própria e participam
+da busca por texto. O CLI aceita filtro `--unit NomeDaUnidade`; a ferramenta de dump preserva os nomes originais.
 
 ```bat
 td32dump.exe caminho\ProfilerLab.exe

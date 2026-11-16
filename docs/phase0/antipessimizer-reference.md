@@ -86,3 +86,11 @@ explícito de um segmento de código, valida os intervalos e exige a base carreg
 na resolução. A fixture automática posiciona código em 0x5000 para detectar
 regressões que reintroduzam a constante. Não foi estabelecida uma regra geral
 para múltiplos segmentos/seções do Delphi.
+
+## Associação a unidades Pascal
+
+Conferidos TModuleInfo, TSegmentInfo, TJclTD32ModuleInfo.Create e AnalyseModules
+na JCL vendorizada, além de ExeLoader.ClassifyProcByModule. O Go preserva o índice
+de módulo de cada entrada e associa procedimentos à unidade só após conferir a
+contribuição de código no mesmo segmento. A classificação não depende de uma
+base 0x1000 nem chama o patching do exception handler existente no original.

@@ -67,3 +67,24 @@ func TestComparisonRejectsUnstableUnknownImages(t *testing.T) {
 		t.Fatal("ASLR-dependent identities compared across sessions")
 	}
 }
+
+func TestUnitFiltersPreserveTotalsAndComparison(t *testing.T) {
+	a := fixture(t, "unit", 7, 10, time.Second)
+	a.Hotspots[0].Unit = "Pricing"
+	summary, err := Summarize([]profiling.Snapshot{a}, Filter{Unit: "Pricing"})
+	if err != nil || len(summary.Rows) != 1 {
+		t.Fatal(summary, err)
+	}
+	summary, err = Summarize([]profiling.Snapshot{a}, Filter{Text: "pricing"})
+	if err != nil || len(summary.Rows) != 1 {
+		t.Fatal(summary, err)
+	}
+	summary, err = Summarize([]profiling.Snapshot{a}, Filter{Unit: "Other"})
+	if err != nil || summary.Accepted != 10 || summary.Other != 10 || len(summary.Rows) != 0 {
+		t.Fatal(summary, err)
+	}
+	compared, err := Compare([]profiling.Snapshot{a}, []profiling.Snapshot{a})
+	if err != nil || compared.Changes[0].Unit != "Pricing" {
+		t.Fatal(compared, err)
+	}
+}

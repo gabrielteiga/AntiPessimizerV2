@@ -32,6 +32,7 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 	save := flags.String("save", "", "save retained snapshots to a new NDJSON file")
 	replay := flags.String("replay", "", "read an NDJSON archive")
 	compare := flags.String("compare", "", "compare replay archive with another archive")
+	unit := flags.String("unit", "", "exact Pascal unit name filter")
 	module := flags.String("module", "", "exact module name filter")
 	thread := flags.Uint64("thread", 0, "thread ID filter; 0 means all")
 	if err := flags.Parse(args); err != nil {
@@ -113,10 +114,13 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 			return err
 		}
 		for _, h := range s.Hotspots {
-			if *module != "" && h.Module != *module || *thread != 0 && uint64(h.ThreadID) != *thread {
+			if *unit != "" && h.Unit != *unit || *module != "" && h.Module != *module || *thread != 0 && uint64(h.ThreadID) != *thread {
 				continue
 			}
 			name := h.Procedure
+			if h.Unit != "" {
+				name = h.Unit + "::" + name
+			}
 			if name == "" {
 				name = h.RVA + " (" + h.Reason + ")"
 			}

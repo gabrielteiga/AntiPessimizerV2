@@ -55,7 +55,7 @@ func TestParse(t *testing.T) {
 			if err != nil || len(ps) != 1 {
 				t.Fatalf("%v: %v", ps, err)
 			}
-			if ps[0] != (Procedure{name, 1, 32, 16}) {
+			if ps[0] != (Procedure{name, 1, 32, 16, ""}) {
 				t.Fatal(ps)
 			}
 		}
@@ -104,6 +104,7 @@ func TestLoadTDS(t *testing.T) {
 }
 func FuzzParse(f *testing.F) {
 	f.Add(fixture("Hot"))
+	f.Add(moduleFixture())
 	f.Add([]byte{})
 	f.Add(fixture(strings.Repeat("a", 300)))
 	f.Fuzz(func(t *testing.T, b []byte) { Parse(b) })
@@ -180,7 +181,7 @@ func TestMixedProcedureRecords(t *testing.T) {
 	if err != nil || len(ps) != 2 {
 		t.Fatalf("%v %v", ps, err)
 	}
-	if ps[0] != (Procedure{"Hot", 1, 32, 16}) || ps[1] != (Procedure{"Hot", 2, 64, 8}) {
+	if ps[0] != (Procedure{"Hot", 1, 32, 16, ""}) || ps[1] != (Procedure{"Hot", 2, 64, 8, ""}) {
 		t.Fatal(ps)
 	}
 	// A corrupt later procedure must not leak the first procedure as partial data.
