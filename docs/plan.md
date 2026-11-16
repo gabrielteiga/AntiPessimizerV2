@@ -2,29 +2,26 @@
 
 ## Estado atual e sequência ajustada
 
-Após a pesquisa inicial, o usuário solicitou continuidade da implementação Go.
-O núcleo portável da Fase 1 foi desenvolvido enquanto os experimentos Windows
-permanecem pendentes. A Fase 0 não foi declarada concluída: o avanço independente
-não comprova viabilidade de ETW, TD32 ou UI no alvo real.
+O fluxo principal está implementado: processo alvo Windows amd64 → sampling
+ETW → resolução PE/TD32 → agregação por janela → histórico → Named Pipe → viewer
+Win32 independente. O viewer oferece processo/start/stop, tabela virtual, filtros,
+threads, gráfico, navegação de histórico, salvar/replay e comparação.
 
-Implementado: modelos/validação de snapshots, índice de procedimentos por RVA,
-agregador por janela com top-N, histórico limitado, fonte sintética determinística,
-stream JSON e collector/viewer de terminal separados. Testes cobrem cancelamento,
-backpressure, protocolos, limites, ASLR e acesso concorrente ao histórico.
+O CI Windows executa captura real contra carga própria, janela consumindo dados
+do serviço e teste dos executáveis incluindo arquivo e comparação. O package job
+produz artifact Windows com checksums e licenças após os testes aprovarem.
+A fixture TDS controlada deriva os endereços do executável Go de laboratório e
+exige hotspot resolvido: valida o encadeamento real, sem alegar que o Delphi
+compilou essa fixture. Compatibilidade completa de variantes Delphi/TDS,
+identidade externa de TDS, custo no ambiente final e pilhas continuam lacunas.
 
-Nenhum hook, integração IA ou GUI foi antecipado. O incremento TD32/TDS agora
-lê FB09/FB0A, diretórios encadeados, nomes e procedimentos, procura símbolos no
-debug directory PE e em `.tds` adjacente e integra intervalos mediante mapa
-explícito de segmentos. Agora `symbols.LoadImage` também constrói o índice a
-partir do PE usando `BaseOfCode` para o subconjunto de um segmento de código,
-identifica o build por SHA-256 e preserva fallback sem símbolos. `symresolve`
-resolve endereços com base carregada explícita. Teste de integração conecta
-PE/TD32 ao agregador. Testes sintéticos e fuzz não validam Delphi real.
-O próximo passo é ampliar a simbolização usando o código original como referência
-e testes automatizados dos comportamentos esperados. A conferência com fixture
-Delphi real fica registrada como evidência adicional de integração, sem exigir
-compilação ou execução manual pelo usuário durante os incrementos.
-A coleta ETW permanece um spike Windows separado. Veja [TD32](td32.md).
+Coleta usa PID + criação verificada no handle e TIDs conforme lifecycle. Perdas
+ETW globais são cumulativas e distintas das perdas na fila de ingestão; detectar
+perdas de lifecycle interrompe a coleta para não perpetuar correlação duvidosa.
+Snapshots finais registram duração parcial e preservam dados já consistentes.
+
+Novas mudanças passam por branch/PR e precisam do CI aprovado no commit exato
+antes de integrar à main. Windows é o alvo; Linux valida o núcleo portável.
 
 ## Orientação de trabalho e validação (2026-11-16)
 
@@ -64,10 +61,10 @@ ao laboratório permanecem pendentes.
 | 1A, implementada | Tipos mínimos e validador do snapshot; fake determinístico | Semântica, sequência, versões, dados ausentes e fronteiras testados |
 | 1B, implementada | Agregador puro e histórico limitado | Janelas vazias/tardias, overflow, top-N estável, imutabilidade, limites; benchmarks |
 | 1C, implementada para replay | Stream sintético com consumidor de teste | Cancelamento, cliente lento, desconexão, race detector |
-| 2 | Collector CLI + fonte real validada + transporte | Start/stop, término do target, reconexão, perdas, memória limitada e telemetria |
-| 3 | Viewer independente, começando pela tabela e status | Renderização com carga sintética, reconexão, coalescência e latência medida |
+| 2, implementada com CI Windows | Collector CLI + fonte ETW + Named Pipe | Start/stop, término do target, reconexão, perdas, memória limitada e telemetria |
+| 3, implementada com smoke/integração Windows | Viewer Win32 independente | Renderização com carga sintética, reconexão, coalescência e latência medida |
 | 4 | Ampliar cobertura dos símbolos Delphi e diagnóstico | Fixtures reais versionadas/licenciadas, formatos corrompidos, comparação de janelas |
-| 5 | Persistência e comparação entre sessões | Migração de arquivos, compatibilidade e critérios explícitos de comparabilidade |
+| 5, implementada para snapshot v1 | NDJSON e comparação entre sessões | Migração de arquivos, compatibilidade e critérios explícitos de comparabilidade |
 
 0C exige uma estratégia real mínima; a Fase 4 amplia cobertura. Endereços/módulos
 permitem investigar a coleta enquanto a simbolização não está pronta, mas não
@@ -105,10 +102,9 @@ Testes demonstram essas políticas antes de introduzir concorrência em produç�
 | APIs Windows em Go | Erros de layout, ABI e callback | Isolar bindings; validar tamanho/layout amd64 e lifecycle de callbacks em Windows |
 | Licenças das referências | Distribuição indevida | Referenciar comportamento; revisar licença antes de reutilizar código/fixtures |
 
-Dependências atuais: Go e biblioteca padrão. Dependências candidatas, ainda não
-adicionadas: `golang.org/x/sys/windows`, biblioteca ETW após avaliar manutenção,
-licença e callbacks; implementação Named Pipes (avaliar `go-winio`); Fyne e C/CGO
-somente no viewer. Windows e Delphi licenciado são necessários para laboratório.
+Dependências atuais: Go, biblioteca padrão, `golang.org/x/sys/windows` e
+`github.com/Microsoft/go-winio`. Bindings ETW e interface Win32 são próprios em Go;
+sem CGO no build de distribuição. Windows e Delphi licenciado são necessários para laboratório.
 Go 1.27.4 é a versão validada aqui, não uma conclusão sobre versão mínima futura.
 
 ## Qualidade por incremento

@@ -74,3 +74,24 @@ O polling e operações de arquivo executam fora da thread da janela; somente a
 thread Win32 altera controles. Fechar a janela cancela e aguarda os workers,
 sem encerrar implicitamente o collector. O teste `AP_GUI_SMOKE=1` cria e fecha
 uma janela real no job Windows; testes portáveis exercitam o modelo de exibição.
+
+
+## Completude e evidência
+
+O desktop recupera janelas do histórico desde o último fim visto, inclusive após
+reconexão. A barra navega por janelas, também em arquivos maiores que a retenção
+live. Threads agrupa atividade por TID; duplo clique abre os procedimentos daquela
+thread. Clique nos cabeçalhos ordena a tabela. Comparar abre todas as diferenças
+na tabela virtual, com antes/depois e delta em amostras/s, ordenáveis e filtráveis.
+
+Snapshot v1 adiciona campos opcionais `etw_session_loss_known`,
+`etw_session_events_lost_total`, `etw_session_buffers_lost_total` e
+`correlation_uncertain`. Os totais ETW são cumulativos da sessão inteira e não
+alteram `observed = accepted + dropped + late`, referente às amostras do alvo
+recebidas pela agregação. Os contadores de fila são por janela de publicação.
+Interrupção por perda preserva snapshots e status de erro para diagnóstico.
+
+O teste dos executáveis usa `tdsfixture` para construir um TDS sintético dos
+endereços reais de main.hotspot no cpulab. Exige amostras `Lab.Hotspot` resolvidas
+por todo o caminho ETW/TD32/serviço/viewer/arquivo. O original Delphi não é
+executado por esse teste e a fixture não representa todos os seus formatos.

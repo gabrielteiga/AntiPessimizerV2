@@ -1,6 +1,6 @@
 # ADR 0003 — Comunicação local
 
-Estado: Named Pipes preferido, ainda não validado.
+Estado: Named Pipes implementado e validado com executáveis separados no CI Windows.
 
 Escolher pipes locais restritos ao SID autorizado, com negação de clientes
 remotos e proteção contra ocupação indevida do nome. Verificar ACL efetiva, não
@@ -20,5 +20,14 @@ lacunas, sem prometer replay infinito. Cliente lento não bloqueia ingestão.
 
 Validar com dois processos Windows: mensagens fragmentadas, versão inválida,
 payload acima do limite, desconexão no meio do frame, cancelamento, acesso negado,
-cliente lento e reinício. A prova ainda não existe; nenhum endpoint foi criado.
+cliente lento e reinício. O teste dos executáveis cobre start/stop, captura, arquivo/replay e comparação.
 HTTP loopback + SSE é alternativa se pipes não atenderem, exigindo decisão nova.
+
+
+Contrato implementado: uma operação por conexão; subscribe mantém stream.
+Versão 1; limite 8 MiB por frame, 16 conexões, prazos I/O. Cada conexão é seu
+identificador de operação; não há multiplexação, portanto request_id não foi
+necessário. Erros retornam campo error; o contrato não promete códigos estáveis.
+Histórico é paginado em frames de um snapshot e encerrado por done=true.
+SID do proprietário e negação de logon de rede são aplicados no security descriptor.
+O pacote go-winio rejeita clientes remotos e reserva a primeira instância.

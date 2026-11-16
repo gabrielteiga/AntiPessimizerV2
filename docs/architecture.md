@@ -1,32 +1,32 @@
-# Núcleo Go — incremento 1
-
-Fluxo executável:
+# Arquitetura atual
 
 ```
-sampling.Fake -> session.Run -> aggregation.Aggregator -> history.Store
-                                    | snapshot
-                                    v
-                               stream.Write -> stdout | stdin -> cmd/viewer
+Windows ETW callback → lifecycle PID/TID/módulos → fila limitada (8192)
+  → live.Run → symbols.LoadImage (PE/TD32) → aggregation
+  → service.Controller → history.Store
+  → Named Pipe local → desktop (Win32) / viewer CLI
 ```
 
-`profiling` define valores e invariantes. `symbols` resolve intervalos de
-procedimentos. `aggregation` tem um único owner e nenhuma goroutine; relógio de
-publicação é injetado. `history` protege acesso concorrente e retorna cópias.
-`session` define a pequena interface Source no local de consumo e compõe o fluxo.
-`cmd` trata argumentos e I/O. Viewer depende somente do contrato e stream.
+`platform` possui descoberta e bindings Windows; valida a criação do processo no
+handle aberto e encerra a sessão ETW que criou. Callback não faz I/O de símbolos.
+`live` possui goroutine de captura, fila, cache de até 8 imagens, drenagem e janelas.
+`profiling` define invariantes; `aggregation` mantém um owner; `history` entrega
+cópias. `service` possui lifecycle start/stop e histórico bounded; `transport`
+separa framing dos pipes. Clientes lentos recebem coalescência por cliente.
 
-O código é próprio em Go, sem bibliotecas externas. A base comportamental é o
-AntiPessimizer, com correspondência concreta:
+`desktop` é consumidor de RPC sem acesso às APIs de coleta. Poll recupera todas
+as janelas retidas desde o último fim conhecido, incluindo após reconexão; não
+estima ranking somando apenas latest recebido. Controles Win32 são alterados
+somente pela thread da janela. Arquivos usam `stream` e `report`; comparação
+agrupa por imagem/RVA e mantém lacunas, descartes e residual top-N explícitos.
 
-| Original | Núcleo novo |
-|---|---|
-| ExeLoader / TJclTD32ProcSymbolInfo: nome, offset e tamanho | `symbols.Procedure` e `symbols.Index` |
-| ExeLoader.ProcBinarySearch | busca por intervalo, com testes de limites e ASLR |
-| CoreProfiler: resultado por procedimento/thread | `aggregation` por localização e TID, com semântica de sampling |
-| ProfilerSerializeResults + leitor C++ | `stream` com versão, validação e limites |
-| GUI consumindo resultados | viewer de terminal separado, sem API de coleta |
+`sampling.Fake → session.Run` continua exercitando domínio, retenção e stream de
+forma determinística. Serviço demo usa o mesmo transporte do live. Testes Linux
+cobrem núcleo, socket de teste, protocolos, lifecycle e race detector; Windows
+valida ETW e Named Pipes reais e uma janela consumindo snapshots.
 
-Diferenças explícitas: o original instrumenta chamadas e tem contagem/durações;
-este incremento agrega amostras, usa snapshots por janela e não implementa hooks.
-A leitura TD32 da JCL vendorizada continua sendo a referência para o próximo
-incremento de simbolização. O índice atual não implica parser TD32 concluído.
+A referência comportamental é o AntiPessimizer fixado em ab67a710. O original
+instrumenta chamadas; o produto Go usa sampling estatístico com IP folha. Os
+layouts TD32 mínimos seguem a JCL, com validação de slices e fallback de símbolos.
+Dependências externas: x/sys e go-winio; apps sem CGO. Licenças das dependências
+acompanham o artifact Windows; nenhuma fonte JCL foi incorporada.
