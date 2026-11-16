@@ -139,8 +139,10 @@ func Run(ctx context.Context, c aggregation.Config, capture Capture, emit func(p
 				return e
 			}
 		}
-		if e := publish(end); e != nil {
-			return e
+		if end.After(agg.Start()) {
+			if e := publish(end); e != nil {
+				return e
+			}
 		}
 		if errors.Is(err, context.Canceled) {
 			return nil
