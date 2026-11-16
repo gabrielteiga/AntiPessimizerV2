@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/gabrielteiga/AntiPessimizerV2/internal/desktop"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/report"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/service"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/transport"
@@ -21,6 +22,7 @@ import (
 func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 	flags := flag.NewFlagSet("viewer", flag.ContinueOnError)
 	flags.SetOutput(diagnostics)
+	gui := flags.Bool("gui", false, "open native Windows desktop")
 	address := flags.String("address", transport.DefaultAddress(), "local collector endpoint")
 	op := flags.String("op", "", "processes, start, stop, status, latest, history, subscribe")
 	pid := flags.Uint("pid", 0, "target process ID")
@@ -37,6 +39,9 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 	}
 	if flags.NArg() != 0 || *thread > 1<<32-1 || *pid > 1<<32-1 {
 		return errors.New("invalid arguments/thread ID")
+	}
+	if *gui {
+		return desktop.Run(*address)
 	}
 	if *save != "" {
 		return saveHistory(*address, *save, *seconds)

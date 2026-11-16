@@ -56,3 +56,21 @@ por `AP_ETW_INTEGRATION=1` no job Windows. Ela cria somente seu próprio process
 Go de carga e exige amostras do PID correto. Compilação cruzada não substitui esse
 teste. Compatibilidade específica com o compilador Delphi continua sendo uma
 limitação de evidência, sem exigir trabalho manual intermediário do usuário.
+
+## Desktop
+
+`viewer.exe --gui` abre o visualizador Win32 nativo. Ele se conecta ao collector
+independente, lista processos, inicia/para captura ou demo, mostra ranking em
+ListView virtual (LVS_OWNERDATA), filtro por texto/TID e intervalo de 1..120 s.
+O gráfico mostra contagem de amostras por janela; a fração na tabela usa todas as
+amostras aceitas como denominador. Detalhes mantêm RVA/status de simbolização.
+A interface informa descartes, perdas da fila, eventos tardios e atualizações
+omitidas. Ela não mostra overhead estimado sem uma medição específica.
+
+A caixa de caminho serve para salvar um arquivo novo, reproduzir NDJSON ou
+comparar um arquivo com a série atualmente retida. A comparação completa também
+está disponível pelo CLI em JSON. Abrir replay não encerra uma coleta existente.
+O polling e operações de arquivo executam fora da thread da janela; somente a
+thread Win32 altera controles. Fechar a janela cancela e aguarda os workers,
+sem encerrar implicitamente o collector. O teste `AP_GUI_SMOKE=1` cria e fecha
+uma janela real no job Windows; testes portáveis exercitam o modelo de exibição.

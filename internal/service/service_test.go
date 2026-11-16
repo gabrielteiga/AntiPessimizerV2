@@ -49,7 +49,7 @@ func TestLifecycleAndCoalescing(t *testing.T) {
 	}
 }
 func TestRPC(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "collector.sock")
+	path := filepath.Join(t.TempDir(), "private", "collector.sock")
 	if runtime.GOOS == "windows" {
 		path = fmt.Sprintf(`\\.\pipe\antipessimizer-test-%d`, time.Now().UnixNano())
 	}
