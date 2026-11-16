@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -39,19 +40,28 @@ func TestETWControlledWorkload(t *testing.T) {
 	if p.PID != pid || p.Start.IsZero() {
 		t.Fatal(p)
 	}
+	wrong := p
+	wrong.Start = wrong.Start.Add(time.Second)
+	if err := Capture(context.Background(), wrong, func(Sample) {}, func(Health) {}); err == nil || !strings.Contains(err.Error(), "reused") {
+		t.Fatalf("process identity not checked: %v", err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	var count atomic.Uint64
-	err = Capture(ctx, pid, func(s Sample) {
+	var finalHealth atomic.Pointer[Health]
+	err = Capture(ctx, p, func(s Sample) {
 		if s.Thread != 0 && s.IP != 0 {
 			count.Add(1)
 		}
-	})
+	}, func(h Health) { finalHealth.Store(&h) })
 	if err != nil && ctx.Err() == nil {
 		t.Fatal(err)
 	}
 	if count.Load() == 0 {
 		t.Fatal("no sampled instruction pointers from controlled workload", err)
 	}
-	t.Logf("captured %d target samples", count.Load())
+	if h := finalHealth.Load(); h == nil || !h.Known {
+		t.Fatalf("missing ETW session loss accounting: %+v", h)
+	}
+	t.Logf("captured %d target samples; session health %+v", count.Load(), finalHealth.Load())
 }

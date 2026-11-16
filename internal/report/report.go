@@ -44,6 +44,7 @@ func Summarize(snapshots []profiling.Snapshot, f Filter) (Summary, error) {
 	var session string
 	var sequence uint64
 	var end time.Time
+	var target profiling.Target
 	for _, s := range snapshots {
 		if err := s.Validate(); err != nil {
 			return result, err
@@ -51,7 +52,7 @@ func Summarize(snapshots []profiling.Snapshot, f Filter) (Summary, error) {
 		if session != "" && (s.SessionID != session || s.Sequence <= sequence || s.WindowStart.Before(end)) {
 			return result, errors.New("incompatible session/window order")
 		}
-		if session != "" && (s.Source != result.Source || s.Target.Image != result.Image) {
+		if session != "" && (s.Source != result.Source || s.Target != target) {
 			return result, errors.New("source or target changed")
 		}
 		if sequence != 0 {
@@ -59,6 +60,7 @@ func Summarize(snapshots []profiling.Snapshot, f Filter) (Summary, error) {
 				return result, err
 			}
 		}
+		target = s.Target
 		session = s.SessionID
 		sequence = s.Sequence
 		end = s.WindowEnd
@@ -175,6 +177,15 @@ func Compare(a, b []profiling.Snapshot) (Comparison, error) {
 		return result, errors.New("comparison requires same source/target and nonempty durations")
 	}
 	// Compare procedure activity across threads; TIDs are not stable across sessions.
+	if a[0].SessionID != b[0].SessionID {
+		for _, s := range []Summary{x, y} {
+			for _, h := range s.Rows {
+				if !strings.HasPrefix(h.ModuleID, "sha256:") && h.ModuleID != "synthetic-lab-v1" {
+					return result, errors.New("cross-session comparison requires stable image build identities")
+				}
+			}
+		}
+	}
 	rows := map[string]*Delta{}
 	builds := map[string]string{}
 	for side, s := range []Summary{x, y} {

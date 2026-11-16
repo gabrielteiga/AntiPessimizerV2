@@ -13,8 +13,12 @@ func TestRunJoinsCaptureAndFlushesPartial(t *testing.T) {
 	start := time.Now().Add(-100 * time.Millisecond)
 	c := aggregation.Config{SessionID: "live-test", Target: profiling.Target{PID: 7, Start: start, Image: "lab.exe"}, Source: "external", Start: start, Width: time.Second, Capacity: 10, TopN: 10}
 	ended := false
-	capture := func(ctx context.Context, pid uint32, emit func(platform.Sample)) error {
+	capture := func(ctx context.Context, target platform.Process, emit func(platform.Sample), health func(platform.Health)) error {
 		defer func() { ended = true }()
+		if target.PID != 7 || !target.Start.Equal(start) {
+			t.Error("target identity lost")
+		}
+		health(platform.Health{Known: true, EventsLost: 3, BuffersLost: 1, CorrelationUncertain: true})
 		emit(platform.Sample{At: start, Thread: 1, IP: 0x1234})
 		return nil
 	}
@@ -24,5 +28,22 @@ func TestRunJoinsCaptureAndFlushesPartial(t *testing.T) {
 	}
 	if !ended || len(got) != 1 || got[0].Quality.Accepted != 1 || !got[0].WindowEnd.Before(start.Add(time.Second)) {
 		t.Fatal(got)
+	}
+}
+
+func TestHealthCountersAreNotTargetLoss(t *testing.T) {
+	start := time.Now().Add(-time.Millisecond)
+	c := aggregation.Config{SessionID: "loss", Target: profiling.Target{PID: 1, Start: start, Image: "lab.exe"}, Source: "external", Start: start, Width: time.Second, Capacity: 1, TopN: 1}
+	capture := func(ctx context.Context, target platform.Process, emit func(platform.Sample), health func(platform.Health)) error {
+		health(platform.Health{Known: true, EventsLost: 7, CorrelationUncertain: true})
+		return nil
+	}
+	if err := Run(context.Background(), c, capture, func(s profiling.Snapshot) error {
+		if s.Quality.SourceLossKnown || s.Quality.SourceLost != 0 || s.Quality.ETWEventsLost != 7 || !s.Quality.CorrelationUncertain {
+			t.Errorf("%+v", s.Quality)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }

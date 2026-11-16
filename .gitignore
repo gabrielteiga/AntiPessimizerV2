@@ -3,3 +3,5 @@
 /viewer
 /*.exe
 /snapshots.ndjson
+
+/dist/

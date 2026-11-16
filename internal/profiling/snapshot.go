@@ -71,13 +71,17 @@ type Hotspot struct {
 	Samples  uint64 `json:"sample_count"`
 }
 type Quality struct {
-	IngestLost      uint64 `json:"samples_lost_ingest_queue,omitempty"`
-	Observed        uint64 `json:"samples_observed"`
-	Accepted        uint64 `json:"samples_accepted"`
-	Dropped         uint64 `json:"samples_dropped_capacity"`
-	Late            uint64 `json:"samples_late"`
-	SourceLossKnown bool   `json:"source_loss_known"`
-	SourceLost      uint64 `json:"source_samples_lost"`
+	ETWLossKnown         bool   `json:"etw_session_loss_known,omitempty"`
+	ETWEventsLost        uint64 `json:"etw_session_events_lost_total,omitempty"`
+	ETWBuffersLost       uint64 `json:"etw_session_buffers_lost_total,omitempty"`
+	CorrelationUncertain bool   `json:"correlation_uncertain,omitempty"`
+	IngestLost           uint64 `json:"samples_lost_ingest_queue,omitempty"`
+	Observed             uint64 `json:"samples_observed"`
+	Accepted             uint64 `json:"samples_accepted"`
+	Dropped              uint64 `json:"samples_dropped_capacity"`
+	Late                 uint64 `json:"samples_late"`
+	SourceLossKnown      bool   `json:"source_loss_known"`
+	SourceLost           uint64 `json:"source_samples_lost"`
 }
 type Snapshot struct {
 	SchemaVersion int       `json:"schema_version"`
