@@ -25,6 +25,9 @@ func (s *KernelState) Feed(kind string, opcode, version uint8, at time.Time, b [
 			return Sample{}, false
 		}
 		pid, tid := u32(b), u32(b[4:])
+		if born, ok := s.Threads[tid]; ok && at.Before(born) {
+			return Sample{}, false
+		}
 		if opcode == 1 || opcode == 3 {
 			delete(s.Threads, tid)
 			if pid == s.PID {
@@ -44,6 +47,9 @@ func (s *KernelState) Feed(kind string, opcode, version uint8, at time.Time, b [
 		}
 		for i := len(s.Modules) - 1; i >= 0; i-- {
 			if s.Modules[i].Base == base {
+				if at.Before(s.Modules[i].Loaded) {
+					return Sample{}, false
+				}
 				s.Modules = append(s.Modules[:i], s.Modules[i+1:]...)
 			}
 		}
@@ -73,7 +79,7 @@ func (s *KernelState) Feed(kind string, opcode, version uint8, at time.Time, b [
 		}
 		sample := Sample{At: at, Thread: tid, IP: u64(b)}
 		for _, m := range s.Modules {
-			if sample.IP >= m.Base && sample.IP-m.Base < m.Size {
+			if sample.IP >= m.Base && sample.IP-m.Base < m.Size && !at.Before(m.Loaded) {
 				sample.Module = m
 				break
 			}
