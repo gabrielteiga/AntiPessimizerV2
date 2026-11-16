@@ -45,6 +45,24 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Archive comparison failed' }
     if ($comparison.Before.Accepted -le 0) { throw 'Archive contains no samples' }
     foreach ($change in $comparison.Changes) { if ($change.DeltaPerSecond -ne 0) { throw 'Identical archives differ' } }
+    # A second session must release ETW automatically when its owned target exits.
+    $lab = Start-Process (Join-Path $dir "cpulab.exe") -ArgumentList @('--duration','3s') -PassThru
+    $second = Request @('--op','start','--pid',"$($lab.Id)",'--window-ms','250')
+    if ($second.status.session_id -eq $latest.status.session_id) { throw 'Session identity reused on restart' }
+    $lab.WaitForExit()
+    $stopped = $false
+    for ($i=0; $i -lt 60; $i++) {
+        $status = Request @('--op','status')
+        if ($status.status.state -eq 'error') { throw $status.status.error }
+        if ($status.status.state -eq 'stopped') { $stopped=$true; break }
+        Start-Sleep -Milliseconds 100
+    }
+    if (!$stopped) { throw 'Collector did not finish after target exit' }
+    $last = Request @('--op','latest')
+    if ($last.snapshot.target.pid -ne $lab.Id -or $last.snapshot.sequence -lt 1) { throw 'Missing final snapshot after exit' }
+    $null = Request @('--op','start','--demo')
+    $null = Request @('--op','stop')
+    Write-Host 'PASS: natural target exit drains ETW and permits a fresh session'
     Write-Host "PASS: Windows ETW -> TD32 Lab.Hotspot -> collector -> named pipe -> viewer -> archive -> comparison ($($comparison.Before.Accepted) samples)"
 } finally {
     if ($lab -and !$lab.HasExited) { Stop-Process -Id $lab.Id -Force }
