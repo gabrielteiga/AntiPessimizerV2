@@ -90,3 +90,18 @@ layouts TD32 adicionais precisam de cobertura; overhead/latência no ambiente
 Delphi final ainda não têm medição. Lacunas permanecem explícitas, sem bloquear
 trabalho automatizável. [Plano](docs/plan.md), [especificação](docs/ESPECIFICACAO_GO_PROFILER.md),
 [referência original](docs/phase0/antipessimizer-reference.md).
+
+## Instrumentação: contagens, tempos e médias
+
+A adaptação agora exige também as métricas instrumentadas do original. O núcleo
+Go de entrada/saída calcula chamadas, tempos inclusivos/exclusivos e médias,
+incluindo recursão, threads, Clear e unwind. O contrato pode ser exercitado por:
+
+```sh
+go run ./cmd/instrument-replay --input testdata/instrumentation/nested.ndjson
+```
+
+A fixture é sintética. O comando valida eventos explícitos e exporta as métricas;
+os hooks x64 em processos Delphi e sua ligação à interface ainda são a próxima
+etapa. O coletor ETW continua mostrando contagens de amostras. Veja o [estado e
+plano da instrumentação](docs/instrumentation.md).

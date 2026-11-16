@@ -46,6 +46,20 @@ o método e a semântica das métricas: amostragem não comprova contagem exata 
 chamadas ou duração por chamada da instrumentação do original. O demo e o leitor
 isolado de símbolos ainda não constituem esse funcionamento principal.
 
+## Instrumentação exigida pelo usuário
+
+Contagem de chamadas, tempos inclusivos/exclusivos e médias passam a ser
+requisitos, conforme a solicitação posterior à auditoria de fidelidade. A seção
+anterior da especificação que chamava instrumentação de futuro opcional deixa
+de definir essa prioridade. Sampling ETW mantém sua semântica própria.
+
+O primeiro núcleo instrumentado está implementado com seleção de procedimentos,
+pilhas por instância de thread, recursão conforme saved previous-inclusive da
+referência, unwind, Clear, perdas e métricas/medias derivadas de eventos explícitos.
+O CLI instrument-replay e os testes automatizados validam o contrato. O produtor
+nativo/hook x64 e sua ligação ao serviço/UI ainda são os próximos gates de
+paridade, detalhados em [instrumentation.md](instrumentation.md).
+
 ## Matriz alvo
 
 Confirmada pelo usuário: Delphi 10.4, Windows 10/11. O alvo é Win64 conforme

@@ -1,7 +1,7 @@
 param([string]$Output = "dist")
 $ErrorActionPreference = "Stop"
 New-Item -ItemType Directory -Force $Output | Out-Null
-foreach ($command in @("collector", "viewer", "td32dump", "symresolve")) {
+foreach ($command in @("collector", "viewer", "td32dump", "symresolve", "instrument-replay")) {
     go build -trimpath -o (Join-Path $Output "$command.exe") "./cmd/$command"
     if ($LASTEXITCODE -ne 0) { throw "Build failed: $command" }
 }
