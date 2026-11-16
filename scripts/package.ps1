@@ -11,7 +11,7 @@ Copy-Item scripts/Start-Profiler.ps1 (Join-Path $Output "Start-Profiler.ps1")
 '@echo off', 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Start-Profiler.ps1"' | Set-Content -Encoding ascii (Join-Path $Output "Start-Profiler.cmd")
 $licenses = Join-Path $Output "licenses"
 New-Item -ItemType Directory -Force $licenses | Out-Null
-foreach ($module in @("github.com/Microsoft/go-winio", "golang.org/x/sys")) {
+foreach ($module in @("github.com/Microsoft/go-winio", "golang.org/x/sys", "golang.org/x/arch")) {
     $moduleDir = go list -m -f '{{.Dir}}' $module
     if ($LASTEXITCODE -ne 0) { throw "Cannot locate license: $module" }
     Copy-Item (Join-Path $moduleDir "LICENSE") (Join-Path $licenses (($module -replace '/', '-') + '.txt'))
