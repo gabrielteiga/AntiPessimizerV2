@@ -111,6 +111,8 @@ func TestCaptureErrorPreservesSnapshotsAndAllowsRestart(t *testing.T) {
 	}
 	c.Capture = func(ctx context.Context, target platform.Process, emit func(platform.Sample), health func(platform.Health)) error {
 		emit(platform.Sample{At: time.Now(), Thread: 7, IP: 0x1000})
+		// Give the controlled capture a positive duration even on a coarse Windows clock.
+		time.Sleep(20 * time.Millisecond)
 		return errors.New("controlled capture failure")
 	}
 	if err := c.Start(context.Background(), StartOptions{PID: 7}); err != nil {
