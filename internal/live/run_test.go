@@ -47,3 +47,24 @@ func TestHealthCountersAreNotTargetLoss(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestOutOfOrderCPUBufferDelivery(t *testing.T) {
+	start := time.Now().Add(-100 * time.Millisecond)
+	c := aggregation.Config{SessionID: "reorder", Target: profiling.Target{PID: 1, Start: start, Image: "lab.exe"}, Source: "external", Start: start, Width: 20 * time.Millisecond, Capacity: 10, TopN: 10}
+	capture := func(ctx context.Context, target platform.Process, emit func(platform.Sample), health func(platform.Health)) error {
+		emit(platform.Sample{At: start.Add(25 * time.Millisecond), Thread: 1, IP: 0x1234})
+		emit(platform.Sample{At: start.Add(5 * time.Millisecond), Thread: 1, IP: 0x1234})
+		return nil
+	}
+	var accepted, late uint64
+	if err := Run(context.Background(), c, capture, func(s profiling.Snapshot) error {
+		accepted += s.Quality.Accepted
+		late += s.Quality.Late
+		return s.Validate()
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if accepted != 2 || late != 0 {
+		t.Fatalf("accepted=%d late=%d", accepted, late)
+	}
+}

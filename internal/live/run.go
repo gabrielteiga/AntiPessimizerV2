@@ -2,6 +2,7 @@
 package live
 
 import (
+	"container/heap"
 	"context"
 	"errors"
 	"fmt"
@@ -109,65 +110,69 @@ func Run(ctx context.Context, c aggregation.Config, capture Capture, emit func(p
 		}
 		return agg.Add(profiling.Sample{At: s.At, ThreadID: s.Thread, Location: resolve(s)})
 	}
+	pending := &sampleHeap{}
+	enqueue := func(s platform.Sample) {
+		if pending.Len() >= 8192 {
+			dropped.Add(1)
+			return
+		}
+		heap.Push(pending, s)
+	}
+	flush := func(cutoff time.Time, all bool) error {
+		for pending.Len() > 0 && (all || !(*pending)[0].At.After(cutoff)) {
+			if err := add(heap.Pop(pending).(platform.Sample)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	finish := func(err error) error {
+		for len(queue) > 0 {
+			enqueue(<-queue)
+		}
+		if e := flush(time.Time{}, true); e != nil {
+			return e
+		}
+		end := time.Now()
+		for !end.Before(agg.End()) {
+			if e := publish(time.Time{}); e != nil {
+				return e
+			}
+		}
+		if e := publish(end); e != nil {
+			return e
+		}
+		if errors.Is(err, context.Canceled) {
+			return nil
+		}
+		return err
+	}
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		select {
 		case s := <-queue:
-			if err := add(s); err != nil {
-				return err
-			}
+			enqueue(s)
 		case <-ticker.C:
 			// ETW flushes buffers every second. Hold windows for two seconds before
 			// publishing; arrivals after this allowance are counted as late.
-			for time.Now().After(agg.End().Add(2 * time.Second)) {
+			cutoff := time.Now().Add(-2 * time.Second)
+			if err := flush(cutoff, false); err != nil {
+				return err
+			}
+			for cutoff.After(agg.End()) {
 				if err := publish(time.Time{}); err != nil {
 					return err
 				}
 			}
 		case err := <-done:
 			finished = true
-			for len(queue) > 0 {
-				if e := add(<-queue); e != nil {
-					return e
-				}
-			}
-			end := time.Now()
-			for !end.Before(agg.End()) {
-				if e := publish(time.Time{}); e != nil {
-					return e
-				}
-			}
-			if e := publish(end); e != nil {
-				return e
-			}
-			if errors.Is(err, context.Canceled) {
-				return nil
-			}
-			return err
+			return finish(err)
 		case <-ctx.Done():
-			// Keep draining until Capture releases its ETW handles.
 			cancel()
 			err := <-done
 			finished = true
-			for len(queue) > 0 {
-				if e := add(<-queue); e != nil {
-					return e
-				}
-			}
-			end := time.Now()
-			for !end.Before(agg.End()) {
-				if e := publish(time.Time{}); e != nil {
-					return e
-				}
-			}
-			if e := publish(end); e != nil {
-				return e
-			}
-			if errors.Is(err, context.Canceled) {
-				return nil
-			}
-			return err
+			return finish(err)
 		}
 	}
 }
