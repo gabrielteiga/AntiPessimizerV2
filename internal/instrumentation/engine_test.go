@@ -242,3 +242,27 @@ func TestClearRejectsDelayedThreadCreation(t *testing.T) {
 	check(t, e.Enter(8, 1, 21))
 	check(t, e.Exit(8, 1, 25))
 }
+
+func TestClearCannotMoveBehindEndedOrLostThreads(t *testing.T) {
+	for _, lost := range []bool{false, true} {
+		e := engine(t)
+		check(t, e.Enter(7, 1, 100))
+		check(t, e.Exit(7, 1, 110))
+		if lost {
+			check(t, e.MarkLoss())
+		} else {
+			check(t, e.EndThread(7, 120))
+		}
+		before, err := e.Snapshot()
+		check(t, err)
+		if err := e.Clear(50); err == nil {
+			t.Fatal("clear crossed an already observed event after lifecycle cleanup")
+		}
+		after, err := e.Snapshot()
+		check(t, err)
+		if !reflect.DeepEqual(before, after) {
+			t.Fatal("failed clear modified retained results")
+		}
+		check(t, e.Clear(130))
+	}
+}

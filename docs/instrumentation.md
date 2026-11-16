@@ -63,7 +63,9 @@ DHUnwindExceptionBlock e ProfilerClearResults da revisão ab67a710 do Hoshoyo.
   Não se adivinha exceção nem profundidade a partir de uma amostra de IP.
 - Fim de thread com frames abertos registra abandono e incomplete=true, sem
   fabricar saídas/tempos. Perda de eventos invalida todas as pilhas, preserva os
-  totais concluídos como parciais e exige reestabelecer lifecycle antes de continuar.
+  totais concluídos como parciais e exige reestabelecer lifecycle antes de continuar. Quando há âncoras da mesma instância retidas, é necessário
+  Clear antes de reiniciar essa instância; os totais parciais podem ser exportados
+  antes da limpeza.
 
 A contagem só pode ser anunciada como completa com captura íntegra. Uma perda
 não significa zero chamadas. O flag incomplete permanece até um Clear explícito.
@@ -79,7 +81,8 @@ metadado declarado pelo produtor; o replay não atesta a procedência do arquivo
 
 Eventos `thread_start`, `enter`, `exit`, `unwind`, `thread_end`, `clear`, `loss` e
 `snapshot` têm ticks em string decimal, thread_id/procedure_id quando aplicáveis.
-Tick de thread_start também identifica a instância da thread. Timestamp é
+Tick de thread_start também identifica a instância da thread. O watermark global
+para Clear preserva o maior tick observado mesmo após fim de thread/perda. Timestamp é
 monotônico por thread; eventos globais não podem anteceder eventos já observados.
 Após Clear, eventos atrasados de criação de thread não entram na nova época.
 
