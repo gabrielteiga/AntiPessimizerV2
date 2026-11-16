@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"github.com/gabrielteiga/AntiPessimizerV2/internal/platform"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/transport"
 	"path/filepath"
 	"runtime"
@@ -98,5 +100,35 @@ func TestRPC(t *testing.T) {
 	}
 	if _, err = Call(ctx, path, Request{Op: "unknown"}); err == nil {
 		t.Fatal("unknown operation accepted")
+	}
+}
+
+func TestCaptureErrorPreservesSnapshotsAndAllowsRestart(t *testing.T) {
+	c := New()
+	start := time.Now().Add(-time.Second)
+	c.Inspect = func(pid uint32) (platform.Process, error) {
+		return platform.Process{PID: pid, Start: start, Name: "owned.exe"}, nil
+	}
+	c.Capture = func(ctx context.Context, target platform.Process, emit func(platform.Sample), health func(platform.Health)) error {
+		emit(platform.Sample{At: time.Now(), Thread: 7, IP: 0x1000})
+		return errors.New("controlled capture failure")
+	}
+	if err := c.Start(context.Background(), StartOptions{PID: 7}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for c.Status().State != "error" && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if c.Status().State != "error" || c.Latest() == nil {
+		t.Fatalf("status=%+v latest=%v", c.Status(), c.Latest())
+	}
+	old := c.Status().SessionID
+	if err := c.Start(context.Background(), StartOptions{Demo: true}); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Stop()
+	if c.Status().SessionID == old || c.Status().Error != "" {
+		t.Fatal("restart inherited previous identity/error", c.Status())
 	}
 }
