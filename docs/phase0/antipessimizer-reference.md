@@ -102,3 +102,13 @@ com a revisão original fixada. Ela identifica alinhamento no subconjunto TD32 e
 na apresentação por procedimento/thread, mas registra diferenças importantes no
 motor (ETW versus instrumentação), seleção/lançamento, protocolo e arquivos.
 Testes Windows verdes não são apresentados como prova de paridade do original.
+
+## Contabilidade e preparação x64 instrumentadas
+
+A solicitação posterior do usuário torna obrigatórios calls, elapsed e médias.
+O núcleo Go usa eventos explícitos e preserva saved previous-inclusive, Clear e
+unwind confirmado de CoreProfiler, com contadores parciais/perdas explícitos.
+O planejador x64 consulta UdisDisasmAtLeastAndPatchRelatives/UdisCheckJumpback,
+rejeita prólogos com controle de fluxo e verifica retorno de branches ao prefixo.
+Nenhum desses componentes isolados implica que o injector/relay/unwind do Delphi
+já tenha sido portado. Estado e testes estão em [instrumentation.md](../instrumentation.md).

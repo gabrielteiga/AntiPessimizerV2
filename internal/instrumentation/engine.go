@@ -41,6 +41,7 @@ type thread struct {
 const MaxOpenCalls = 65536
 
 type Engine struct {
+	latest           uint64
 	floor            uint64
 	open             uint64
 	config           Config
@@ -114,6 +115,7 @@ func (e *Engine) StartThread(id uint32, instance uint64) error {
 		}
 	}
 	e.threads[id] = &thread{instance: instance, last: instance, depth: map[uint32]int{}}
+	e.observe(instance)
 	return nil
 }
 func (e *Engine) Enter(id, proc uint32, tick uint64) error {
@@ -138,6 +140,7 @@ func (e *Engine) Enter(id, proc uint32, tick uint64) error {
 	t.depth[proc]++
 	e.open++
 	t.last = tick
+	e.observe(tick)
 	return nil
 }
 func (e *Engine) Exit(id, proc uint32, tick uint64) error {
@@ -212,6 +215,7 @@ func (e *Engine) closeFrames(t *thread, keep int, tick uint64, unwound bool) err
 	e.open -= uint64(len(t.stack) - keep)
 	t.stack = stack[:keep]
 	t.last = tick
+	e.observe(tick)
 	return nil
 }
 
@@ -231,6 +235,7 @@ func (e *Engine) EndThread(id uint32, tick uint64) error {
 		e.incomplete = true
 	}
 	delete(e.threads, id)
+	e.observe(tick)
 	return nil
 }
 
@@ -255,6 +260,9 @@ func (e *Engine) MarkLoss() error {
 // Clear follows the original reset policy: active frames restart at the clear
 // tick, then count when they exit. Identity, selection and stack nesting remain.
 func (e *Engine) Clear(tick uint64) error {
+	if tick < e.latest {
+		return errors.New("clear predates an observed event")
+	}
 	if e.epoch == math.MaxUint64 {
 		return errors.New("clear epoch overflow")
 	}
@@ -274,6 +282,7 @@ func (e *Engine) Clear(tick uint64) error {
 		t.last = tick
 	}
 	e.floor = tick
+	e.observe(tick)
 	e.epoch++
 	e.abandoned = 0
 	e.incomplete = false
@@ -327,4 +336,10 @@ func (e *Engine) Snapshot() (Snapshot, error) {
 		return a.ProcedureID < b.ProcedureID
 	})
 	return s, nil
+}
+
+func (e *Engine) observe(tick uint64) {
+	if tick > e.latest {
+		e.latest = tick
+	}
 }

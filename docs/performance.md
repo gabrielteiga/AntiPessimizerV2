@@ -50,3 +50,17 @@ Quando houver coleta Windows: comparação com/sem profiler no mesmo EXE Delphi,
 perdas do provider, simbolização real, memória ao longo de uma sessão e latência.
 Antes da fonte contínua: fila limitada e política de perda/coalescência explícita;
 o replay atual usa backpressure síncrono e não promete desempenho em tempo real.
+
+## Núcleo de contabilidade instrumentada
+
+Medição local deste incremento, Linux amd64, Go 1.27.4, Intel Xeon Platinum
+8573C, GOMAXPROCS observado no benchmark: 2. Comando:
+
+```
+go test -run '^$' -bench BenchmarkNestedPair -benchmem -benchtime=100ms ./internal/instrumentation
+```
+
+Uma iteração é a sequência A-enter, B-enter, B-exit, A-exit com timestamps
+injetados: 931,4 ns/op, 240 B/op, 3 alocações/op na execução registrada.
+É custo do consumidor Go de eventos, não de hooks, relógio nativo, transporte ou
+captura no processo Delphi. Não comprova overhead do profiler no alvo.

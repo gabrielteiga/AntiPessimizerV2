@@ -63,7 +63,9 @@ DHUnwindExceptionBlock e ProfilerClearResults da revisão ab67a710 do Hoshoyo.
   Não se adivinha exceção nem profundidade a partir de uma amostra de IP.
 - Fim de thread com frames abertos registra abandono e incomplete=true, sem
   fabricar saídas/tempos. Perda de eventos invalida todas as pilhas, preserva os
-  totais concluídos como parciais e exige reestabelecer lifecycle antes de continuar.
+  totais concluídos como parciais e exige reestabelecer lifecycle antes de continuar. Quando há âncoras da mesma instância retidas, é necessário
+  Clear antes de reiniciar essa instância; os totais parciais podem ser exportados
+  antes da limpeza.
 
 A contagem só pode ser anunciada como completa com captura íntegra. Uma perda
 não significa zero chamadas. O flag incomplete permanece até um Clear explícito.
@@ -79,7 +81,8 @@ metadado declarado pelo produtor; o replay não atesta a procedência do arquivo
 
 Eventos `thread_start`, `enter`, `exit`, `unwind`, `thread_end`, `clear`, `loss` e
 `snapshot` têm ticks em string decimal, thread_id/procedure_id quando aplicáveis.
-Tick de thread_start também identifica a instância da thread. Timestamp é
+Tick de thread_start também identifica a instância da thread. O watermark global
+para Clear preserva o maior tick observado mesmo após fim de thread/perda. Timestamp é
 monotônico por thread; eventos globais não podem anteceder eventos já observados.
 Após Clear, eventos atrasados de criação de thread não entram na nova época.
 
@@ -126,3 +129,35 @@ Próximos gates obrigatórios:
 Nenhum gate nativo é declarado cumprido pelo replay sintético. A exigência de
 qualidade vale também para código que altera memória: ele não entra na main
 antes da evidência Windows correspondente e dos testes de regressão aprovados.
+
+## Planejador x64 (etapa seguinte)
+
+`internal/instrumentation/x64.Build` constrói um plano a partir dos bytes de um
+procedimento conhecido e dos endereços de origem/trampolim/relay. Não abre processos,
+aloca código de produção, instala hooks ou modifica seus bytes de entrada.
+A referência direta é UdisDisasmAtLeastAndPatchRelatives/UdisCheckJumpback e
+InstrumentFunction no original. O decoder é x/arch/x86/x86asm v0.23.0, em Go.
+
+O plano usa salto indireto absoluto de 14 bytes sem clobber de registrador,
+instruções inteiras e salto de volta ao início do corpo preservado. Ajusta
+operandos RIP-relative disp32 positivos e negativos e exige distância compatível.
+O prólogo aceita somente operações comuns explicitamente listadas; rejeita
+CALL/JMP/RET e demais transferências, instruções não suportadas, regiões pequenas,
+endereços fora do user space Windows x64 suportado, sobreposições e acesso RIP
+à área substituída. O corpo inteiro é decodificado incrementalmente para detectar
+branches relativos de volta ao prólogo; saltos indiretos no corpo são rejeitados.
+Bytes inválidos ou truncados fazem falhar o plano inteiro, sem escrita parcial.
+
+Diferenças deliberadas: o original usa patch/relay de 15 bytes e convenções de
+registradores próprias. O plano Go não copia esse relay. Só construir os bytes
+não implementa a captura de retorno. Prefixos/instruções CET e layouts não
+suportados são rejeitados; não se presume que qualquer função seja instrumentável.
+A análise local não prova ausência de entradas/saltos de outras funções ao meio
+do prólogo, nem valida jump tables embutidas. Isso continua gate de instalação.
+
+Testes Windows alocam **somente uma página própria de código sintético**, com
+fases RW e RX separadas. Exercitam o código original, o trampolim com leitura
+RIP-relative, o redirecionamento de entrada e a restauração, conferindo retornos
+42/99 esperados. As chamadas estão quiescentes durante as escritas; não é teste
+de patching concorrente, DLL injetada, exceções Delphi ou ABI do relay de hooks.
+Esses gates permanecem obrigatórios antes de expor instrumentação live.
