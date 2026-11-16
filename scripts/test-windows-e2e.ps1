@@ -30,7 +30,7 @@ try {
     for ($i=0; $i -lt 60; $i++) {
         $latest = Request @('--op','latest')
         if ($latest.status.state -eq 'error') { throw $latest.status.error }
-        $resolved = @($latest.snapshot.hotspots | Where-Object { $_.procedure -eq 'Lab.Hotspot' -and $_.symbol_status -eq 'resolved' -and $_.sample_count -gt 0 })
+        $resolved = @($latest.snapshot.hotspots | Where-Object { $_.procedure -eq 'Lab.Hotspot' -and $_.unit -eq 'LabWorkload' -and $_.symbol_status -eq 'resolved' -and $_.sample_count -gt 0 })
         if ($resolved.Count -gt 0) { $sampled=$true; break }
         Start-Sleep -Milliseconds 200
     }

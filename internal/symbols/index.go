@@ -13,6 +13,7 @@ import (
 type Procedure struct {
 	Name      string
 	RVA, Size uint64
+	Unit      string
 }
 type Index struct {
 	id, name   string
@@ -36,6 +37,7 @@ func New(id, name string, size uint64, procedures []Procedure) (*Index, error) {
 		loc.Status = "resolved"
 		loc.Reason = ""
 		loc.Procedure = p.Name
+		loc.Unit = p.Unit
 		if err := loc.Validate(); err != nil {
 			return nil, err
 		}
@@ -61,6 +63,7 @@ func (x *Index) Resolve(base, address uint64) (profiling.Location, bool) {
 		if rva-p.RVA < p.Size {
 			loc.RVA = fmt.Sprintf("0x%016x", p.RVA)
 			loc.Procedure = p.Name
+			loc.Unit = p.Unit
 			loc.Status = "resolved"
 			loc.Reason = ""
 		}

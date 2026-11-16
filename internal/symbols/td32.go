@@ -26,7 +26,7 @@ func fromProcedures(id, name string, imageSize uint64, ps []td32.Procedure, segm
 		if !ok || s.RVA >= imageSize || s.Size > imageSize-s.RVA || uint64(p.Offset) >= s.Size || uint64(p.Size) > s.Size-uint64(p.Offset) {
 			return nil, fmt.Errorf("TD32 procedure %q: invalid or unmapped segment %d", p.Name, p.Segment)
 		}
-		procedures = append(procedures, Procedure{Name: DisplayName(p.Name), RVA: s.RVA + uint64(p.Offset), Size: uint64(p.Size)})
+		procedures = append(procedures, Procedure{Unit: DisplayUnit(p.Unit), Name: DisplayName(p.Name), RVA: s.RVA + uint64(p.Offset), Size: uint64(p.Size)})
 	}
 	return New(id, name, imageSize, procedures)
 }

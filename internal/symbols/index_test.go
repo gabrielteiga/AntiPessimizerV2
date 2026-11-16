@@ -6,7 +6,7 @@ import (
 )
 
 func TestResolveIntervalsAndASLR(t *testing.T) {
-	ps := []Procedure{{"B", 0x2000, 0x10}, {"A", 0x1000, 0x10}}
+	ps := []Procedure{{"B", 0x2000, 0x10, ""}, {"A", 0x1000, 0x10, ""}}
 	idx, err := New("hash", "lab.exe", 0x4000, ps)
 	if err != nil {
 		t.Fatal(err)
@@ -36,7 +36,7 @@ func TestResolveIntervalsAndASLR(t *testing.T) {
 	}
 }
 func TestInvalidRanges(t *testing.T) {
-	for _, ps := range [][]Procedure{{{"A", 0, 0}}, {{"A", 0xfff, 2}}, {{"A", 1, 10}, {"B", 5, 10}}, {{"A", 0, 10}, {"B", 0, 10}}, {{"", 0, 1}}} {
+	for _, ps := range [][]Procedure{{{"A", 0, 0, ""}}, {{"A", 0xfff, 2, ""}}, {{"A", 1, 10, ""}, {"B", 5, 10, ""}}, {{"A", 0, 10, ""}, {"B", 0, 10, ""}}, {{"", 0, 1, ""}}} {
 		if _, err := New("hash", "lab.exe", 0x1000, ps); err == nil {
 			t.Fatalf("accepted %+v", ps)
 		}
@@ -53,7 +53,7 @@ func TestInvalidRanges(t *testing.T) {
 func BenchmarkResolve10000(b *testing.B) {
 	ps := make([]Procedure, 10000)
 	for i := range ps {
-		ps[i] = Procedure{fmt.Sprintf("P%d", i), uint64(i * 16), 16}
+		ps[i] = Procedure{fmt.Sprintf("P%d", i), uint64(i * 16), 16, ""}
 	}
 	idx, _ := New("hash", "lab.exe", 160000, ps)
 	b.ReportAllocs()
@@ -62,5 +62,20 @@ func BenchmarkResolve10000(b *testing.B) {
 		if _, ok := idx.Resolve(0x140000000, 0x140000000+uint64(i%10000*16+1)); !ok {
 			b.Fatal("not resolved")
 		}
+	}
+}
+
+func TestPascalUnitResolution(t *testing.T) {
+	index, err := New("id", "lab.exe", 0x6000, []Procedure{{Name: "Hot", Unit: "LabWorkload", RVA: 0x5020, Size: 16}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	loc, ok := index.Resolve(0x7ff000000000, 0x7ff000005028)
+	if !ok || loc.Unit != "LabWorkload" || loc.Module != "lab.exe" {
+		t.Fatal(loc)
+	}
+	unknown, _ := index.Resolve(0x7ff000000000, 0x7ff000005030)
+	if unknown.Unit != "" {
+		t.Fatal("unit leaked outside procedure", unknown)
 	}
 }

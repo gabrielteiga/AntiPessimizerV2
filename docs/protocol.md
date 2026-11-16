@@ -95,3 +95,9 @@ são drenados antes da ordenação final e publicação parcial.
 podem ser atribuídos integralmente ao PID alvo. `correlation_uncertain` acompanha
 falha de lifecycle detectada e a captura é interrompida. O PID é verificado junto
 à criação no handle; eventos antigos não substituem módulos/threads mais novos.
+
+`hotspots[].unit` é uma extensão opcional do snapshot v1 para unidade Pascal,
+distinta de module (imagem EXE/DLL). Texto segue as mesmas restrições de 256 bytes
+sem controles. Endereços não resolvidos não afirmam uma unidade. Leitores antigos
+podem ignorar o campo; arquivos sem ele continuam válidos. Filtros de unidade
+movem amostras excluídas para o residual, preservando o total aceito.

@@ -19,11 +19,13 @@ type Procedure struct {
 	Name         string
 	Segment      uint16
 	Offset, Size uint32
+	Unit         string
 }
 
 type entry struct {
-	kind uint16
-	data []byte
+	kind   uint16
+	module uint16
+	data   []byte
 }
 
 func u16(b []byte) uint16 { return binary.LittleEndian.Uint16(b) }
@@ -94,7 +96,7 @@ func Parse(data []byte) ([]Procedure, error) {
 			if payloadBytes > 256<<20 {
 				return nil, ErrInvalid
 			}
-			entries = append(entries, entry{u16(e), payload})
+			entries = append(entries, entry{kind: u16(e), module: u16(e[2:]), data: payload})
 		}
 		off = u32(h[8:])
 		if off == 0 {
@@ -132,6 +134,10 @@ func Parse(data []byte) ([]Procedure, error) {
 			}
 		}
 	}
+	modules, err := parseModules(entries, names)
+	if err != nil {
+		return nil, err
+	}
 	var result []Procedure
 	for _, e := range entries {
 		if e.kind == 0x125 {
@@ -159,12 +165,15 @@ func Parse(data []byte) ([]Procedure, error) {
 				if idx == 0 || idx >= uint64(len(names)) || names[idx] == "" {
 					return nil, ErrInvalid
 				}
-				p := Procedure{names[idx], u16(r[32:]), u32(r[28:]), u32(r[16:])}
+				p := Procedure{Name: names[idx], Segment: u16(r[32:]), Offset: u32(r[28:]), Size: u32(r[16:])}
 				if p.Segment == 0 || p.Size == 0 || uint64(p.Offset)+uint64(p.Size) > 1<<32 {
 					return nil, ErrInvalid
 				}
 				if len(result) >= 1<<20 {
 					return nil, ErrInvalid
+				}
+				if m, ok := modules[e.module]; ok {
+					p.Unit = m.unitFor(p)
 				}
 				result = append(result, p)
 			}

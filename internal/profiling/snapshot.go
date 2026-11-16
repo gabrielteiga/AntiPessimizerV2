@@ -16,6 +16,7 @@ const MaxRows = 4096
 // Location identifies a procedure start RVA, or the observed RVA when unresolved.
 // ModuleID identifies the image build, not its ASLR-dependent load address.
 type Location struct {
+	Unit      string `json:"unit,omitempty"`
 	ModuleID  string `json:"module_id"`
 	Module    string `json:"module"`
 	RVA       string `json:"rva"`
@@ -25,7 +26,7 @@ type Location struct {
 }
 
 func (l Location) Validate() error {
-	for _, s := range []string{l.ModuleID, l.Module, l.Procedure, l.Reason} {
+	for _, s := range []string{l.ModuleID, l.Module, l.Procedure, l.Unit, l.Reason} {
 		if len(s) > 256 || strings.IndexFunc(s, unicode.IsControl) >= 0 {
 			return errors.New("invalid location text")
 		}
@@ -41,7 +42,7 @@ func (l Location) Validate() error {
 	if l.Status == "resolved" && l.Procedure != "" && l.Reason == "" {
 		return nil
 	}
-	if l.Status == "unknown" && l.Procedure == "" && l.Reason != "" {
+	if l.Status == "unknown" && l.Unit == "" && l.Procedure == "" && l.Reason != "" {
 		return nil
 	}
 	return errors.New("inconsistent symbol status")

@@ -12,7 +12,7 @@ func TestFixtureAddressMapping(t *testing.T) {
 		t.Fatal(err)
 	}
 	ps, err := td32.Parse(b)
-	if err != nil || len(ps) != 1 || ps[0].Name != "Lab.Hotspot" || ps[0].Offset != 32 || ps[0].Size != 96 {
+	if err != nil || len(ps) != 1 || ps[0].Name != "Lab.Hotspot" || ps[0].Offset != 32 || ps[0].Size != 96 || ps[0].Unit != "LabWorkload" {
 		t.Fatal(ps, err)
 	}
 	for _, text := range []string{"", "100 20 T main.hotspot", "140005000 0 T main.hotspot"} {
