@@ -12,6 +12,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/gabrielteiga/AntiPessimizerV2/internal/instrumentation"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/platform"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/profiling"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/report"
@@ -84,6 +85,8 @@ type paint struct {
 	Reserved           [32]byte
 }
 type update struct {
+	Metrics    []instrumentation.Record
+	Live       bool
 	Comparison *report.Comparison
 	Response   service.Response
 	Error      error
@@ -92,6 +95,10 @@ type update struct {
 	Note       string
 }
 type window struct {
+	inspect                                                                                                                   func(*window) error // smoke-test observation on the UI thread before destruction
+	inspection                                                                                                                error
+	initialPath                                                                                                               string
+	tableColumns                                                                                                              int
 	threads, cursor                                                                                                           uintptr
 	hwnd, processes, start, stop, demo, refresh, filter, thread, seconds, path, save, replay, compare, status, table, details uintptr
 	address                                                                                                                   string
@@ -130,11 +137,11 @@ var wndProc = windows.NewCallback(func(hwnd uintptr, msg uint32, w uintptr, nati
 		a.tick()
 		return 0
 	case 0x0114: // WM_HSCROLL: browse retained/archive windows
-		if l == a.cursor && len(a.model.History) > 0 {
+		if l == a.cursor && a.model.HistoryLength() > 0 {
 			pos, _, _ := send.Call(a.cursor, 0x400, 0, 0)
-			if int(pos) < len(a.model.History) {
-				a.model.At = a.model.History[pos].Sequence
-				if int(pos) == len(a.model.History)-1 {
+			if int(pos) < a.model.HistoryLength() {
+				a.model.At = a.model.SequenceAt(int(pos))
+				if int(pos) == a.model.HistoryLength()-1 {
 					a.model.At = 0
 					a.model.Comparison = nil
 				}
@@ -149,12 +156,15 @@ var wndProc = windows.NewCallback(func(hwnd uintptr, msg uint32, w uintptr, nati
 				Header     notifyHeader
 				Index, Sub int32
 			})(nativeParam)
-			if clicked.Sub >= 0 && clicked.Sub < 8 {
+			if clicked.Sub >= 0 && int(clicked.Sub) < len(a.model.Headers()) {
 				if a.model.SortColumn == int(clicked.Sub) {
 					a.model.Ascending = !a.model.Ascending
 				} else {
 					a.model.SortColumn = int(clicked.Sub)
 					a.model.Ascending = clicked.Sub >= 2
+					if len(a.model.Metrics) > 0 {
+						a.model.Ascending = clicked.Sub >= 7 && clicked.Sub <= 10
+					}
 				}
 				a.lastBuild = ""
 			}
@@ -218,21 +228,21 @@ func child(parent uintptr, class, label string, style uint32, id int) uintptr {
 	send.Call(h, 0x30, font, 1)
 	return h
 }
-func Run(address string) error { return run(address, nil) }
-func run(address string, inspect func(*window) error) error {
+func Run(address string) error                              { return run(address, nil) }
+func RunArchive(address, path string) error                 { return runArchive(address, path, nil) }
+func run(address string, inspect func(*window) error) error { return runArchive(address, "", inspect) }
+func runArchive(address, path string, inspect func(*window) error) error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	a := &window{address: address, ctx: ctx, cancel: cancel, updates: make(chan update, 8), width: 1180, height: 760}
+	a := &window{inspect: inspect, initialPath: path, address: address, ctx: ctx, cancel: cancel, updates: make(chan update, 8), width: 1180, height: 760}
+	a.offline.Store(path != "")
 	active = a
 	defer func() { active = nil }()
 	windows.NewLazySystemDLL("comctl32.dll").NewProc("InitCommonControls").Call()
 	if err := a.open(); err != nil {
 		return err
-	}
-	if inspect != nil {
-		return inspect(a)
 	}
 	return nil
 }
@@ -264,13 +274,7 @@ func (a *window) open() error {
 	a.status = child(a.hwnd, "STATIC", "Conectando ao collector...", 0, 9)
 	a.table = child(a.hwnd, "SysListView32", "", 0x00811005, 10)
 	send.Call(a.table, 0x1036, 0, 0x10021)
-	for i, entry := range []struct {
-		name  string
-		width int32
-	}{{"Amostras", 90}, {"Fração", 80}, {"Thread", 90}, {"Módulo", 180}, {"Procedimento", 420}, {"RVA", 160}, {"Símbolo", 100}, {"Unidade Pascal", 180}} {
-		col := column{Mask: 0x7, Width: entry.width, Text: windows.StringToUTF16Ptr(entry.name)}
-		send.Call(a.table, 0x1061, uintptr(i), uintptr(unsafe.Pointer(&col)))
-	}
+	a.syncColumns()
 	a.path = child(a.hwnd, "EDIT", "session.ndjson", 0x00810080, 11)
 	a.save = child(a.hwnd, "BUTTON", "Salvar histórico", 0x10000, 12)
 	a.replay = child(a.hwnd, "BUTTON", "Abrir arquivo", 0x10000, 13)
@@ -282,7 +286,12 @@ func (a *window) open() error {
 	user.NewProc("SetTimer").Call(a.hwnd, 1, 250, 0)
 	a.wg.Add(1)
 	go a.poll()
-	a.request(service.Request{Op: "processes"})
+	if a.initialPath != "" {
+		text(a.path, a.initialPath)
+		a.command(13)
+	} else {
+		a.request(service.Request{Op: "processes"})
+	}
 	if os.Getenv("AP_GUI_SMOKE") == "1" {
 		user.NewProc("SetTimer").Call(a.hwnd, 2, 1500, 0)
 	}
@@ -297,13 +306,16 @@ func (a *window) open() error {
 			break
 		}
 		if m.Message == 0x113 && m.WParam == 2 {
+			if a.inspect != nil {
+				a.inspection = a.inspect(a)
+			}
 			destroy.Call(a.hwnd)
 			continue
 		}
 		user.NewProc("TranslateMessage").Call(uintptr(unsafe.Pointer(&m)))
 		user.NewProc("DispatchMessageW").Call(uintptr(unsafe.Pointer(&m)))
 	}
-	return nil
+	return a.inspection
 }
 func (a *window) layout() {
 	pos := func(h uintptr, x, y, w, hgt int32) {
@@ -347,7 +359,7 @@ func (a *window) request(q service.Request) {
 	go func() {
 		defer a.wg.Done()
 		r, err := service.Call(a.ctx, a.address, q)
-		a.send(update{Response: r, Error: err})
+		a.send(update{Response: r, Error: err, Live: true})
 	}()
 }
 func (a *window) poll() {
@@ -365,7 +377,7 @@ func (a *window) poll() {
 			if !a.offline.Load() {
 				r, err := service.Call(a.ctx, a.address, service.Request{Op: "latest"})
 				if err != nil {
-					a.send(update{Error: err})
+					a.send(update{Error: err, Live: true})
 					continue
 				}
 				if latest := r.Snapshot; latest != nil && (latest.SessionID != session || latest.Sequence > last) {
@@ -375,18 +387,18 @@ func (a *window) poll() {
 					}
 					history, e := service.Call(a.ctx, a.address, service.Request{Op: "history", From: from, To: latest.WindowEnd})
 					if e != nil {
-						a.send(update{Error: e})
+						a.send(update{Error: e, Live: true})
 						continue
 					}
 					if len(history.History) > 0 && history.History[0].SessionID == latest.SessionID {
-						a.send(update{Response: r, History: history.History})
+						a.send(update{Response: r, History: history.History, Live: true})
 						session = latest.SessionID
 						last = latest.Sequence
 						previousEnd = latest.WindowEnd
 						continue
 					}
 				}
-				a.send(update{Response: r})
+				a.send(update{Response: r, Live: true})
 			}
 		}
 	}
@@ -404,6 +416,10 @@ func (a *window) command(id int) {
 		a.offline.Store(false)
 		a.model.At = 0
 		a.model.Comparison = nil
+		if len(a.model.Metrics) > 0 {
+			a.model = Model{}
+			a.lastBuild = ""
+		}
 		a.request(service.Request{Op: "start", Start: service.StartOptions{PID: a.targets[selected].PID}})
 	case 4:
 		a.request(service.Request{Op: "stop"})
@@ -411,8 +427,15 @@ func (a *window) command(id int) {
 		a.offline.Store(false)
 		a.model.At = 0
 		a.model.Comparison = nil
+		if len(a.model.Metrics) > 0 {
+			a.model = Model{}
+			a.lastBuild = ""
+		}
 		a.request(service.Request{Op: "start", Start: service.StartOptions{Demo: true}})
 	case 16:
+		if len(a.model.Metrics) > 0 {
+			return
+		}
 		a.model.Comparison = nil
 		a.model.Threads = !a.model.Threads
 		a.lastBuild = ""
@@ -424,12 +447,17 @@ func (a *window) command(id int) {
 	case 12, 13, 14:
 		path := value(a.path)
 		snapshot := append([]profiling.Snapshot(nil), a.model.History...)
+		metrics := append([]instrumentation.Record(nil), a.model.Metrics...)
+		if id == 14 && len(metrics) > 0 {
+			text(a.status, "Comparação disponível apenas para arquivos de amostragem.")
+			return
+		}
 		offline := a.offline.Load()
 		a.wg.Add(1)
-		go func() { defer a.wg.Done(); a.file(id, path, snapshot, offline) }()
+		go func() { defer a.wg.Done(); a.file(id, path, snapshot, metrics, offline) }()
 	}
 }
-func (a *window) file(op int, path string, current []profiling.Snapshot, offline bool) {
+func (a *window) file(op int, path string, current []profiling.Snapshot, metrics []instrumentation.Record, offline bool) {
 	fail := func(err error) { a.send(update{Error: err}) }
 	if op == 12 {
 		if !offline {
@@ -441,7 +469,7 @@ func (a *window) file(op int, path string, current []profiling.Snapshot, offline
 			}
 			current = r.History
 		}
-		if len(current) == 0 {
+		if len(current) == 0 && len(metrics) == 0 {
 			fail(fmt.Errorf("nenhum snapshot para salvar"))
 			return
 		}
@@ -453,6 +481,13 @@ func (a *window) file(op int, path string, current []profiling.Snapshot, offline
 		for _, s := range current {
 			if err = stream.Write(f, s); err != nil {
 				break
+			}
+		}
+		if len(metrics) > 0 {
+			for _, r := range metrics {
+				if err = instrumentation.WriteRecord(f, r); err != nil {
+					break
+				}
 			}
 		}
 		if err == nil {
@@ -475,7 +510,7 @@ func (a *window) file(op int, path string, current []profiling.Snapshot, offline
 		fail(err)
 		return
 	}
-	archive, err := report.Read(f)
+	archive, instrumented, err := readArchive(f)
 	f.Close()
 	if err != nil {
 		fail(err)
@@ -483,7 +518,11 @@ func (a *window) file(op int, path string, current []profiling.Snapshot, offline
 	}
 	if op == 13 {
 		a.offline.Store(true)
-		a.send(update{History: archive, Offline: true, Note: "REPLAY: " + path})
+		a.send(update{History: archive, Metrics: instrumented, Offline: true, Note: "REPLAY: " + path})
+		return
+	}
+	if len(instrumented) > 0 {
+		fail(fmt.Errorf("comparação exige dois arquivos de amostragem"))
 		return
 	}
 	comparison, err := report.Compare(archive, current)
@@ -498,6 +537,9 @@ func (a *window) tick() {
 	for draining := true; draining; {
 		select {
 		case u := <-a.updates:
+			if u.Live && a.offline.Load() && u.Response.Processes == nil {
+				continue
+			}
 			if u.Error != nil {
 				text(a.status, "Erro / desconectado: "+u.Error.Error())
 				continue
@@ -512,11 +554,20 @@ func (a *window) tick() {
 			}
 			if u.Offline {
 				a.model = Model{}
-				if err := a.model.Replace(u.History); err != nil {
+				var err error
+				if len(u.Metrics) > 0 {
+					err = a.model.ReplaceMetrics(u.Metrics)
+				} else {
+					err = a.model.Replace(u.History)
+				}
+				if err != nil {
 					text(a.status, err.Error())
 					continue
 				}
-				text(a.status, "REPLAY — use a barra para navegar pelas janelas")
+				text(a.status, "REPLAY — use a barra para navegar pelos snapshots")
+				if r, ok := a.model.CurrentMetrics(); ok {
+					text(a.status, fmt.Sprintf("REPLAY | instrumentação | %s | PID %d | %s", r.Source, r.Target.PID, r.Target.Image))
+				}
 				a.lastBuild = ""
 			}
 			if u.Note != "" {
@@ -565,22 +616,27 @@ func (a *window) tick() {
 			text(a.status, err.Error())
 			return
 		}
-		headers := []string{"Amostras", "Fração", "Thread", "Módulo", "Procedimento", "RVA", "Símbolo", "Unidade Pascal"}
-		if a.model.Comparison != nil {
-			headers = []string{"Antes", "Depois", "Δ amostras/s", "Módulo", "Procedimento", "RVA", "Presença", "Unidade Pascal"}
+		a.syncColumns()
+		enabled := uintptr(1)
+		if len(a.model.Metrics) > 0 {
+			enabled = 0
 		}
-		for i, h := range headers {
-			col := column{Mask: 4, Text: windows.StringToUTF16Ptr(h)}
-			send.Call(a.table, 0x1060, uintptr(i), uintptr(unsafe.Pointer(&col)))
+		for _, h := range []uintptr{a.seconds, a.threads, a.compare} {
+			user.NewProc("EnableWindow").Call(h, enabled)
+		}
+		if a.model.Threads {
+			text(a.threads, "Procedimentos")
+		} else {
+			text(a.threads, "Threads")
 		}
 		a.lastBuild = key
 		a.lastSequence = a.model.Last
-		if len(a.model.History) > 0 {
-			send.Call(a.cursor, 0x408, 0, uintptr(len(a.model.History)-1)) // TBM_SETRANGEMAX
-			pos := len(a.model.History) - 1
+		if count := a.model.HistoryLength(); count > 0 {
+			send.Call(a.cursor, 0x408, 0, uintptr(count-1)) // TBM_SETRANGEMAX
+			pos := count - 1
 			if a.model.At != 0 {
-				for i, s := range a.model.History {
-					if s.Sequence >= a.model.At {
+				for i := 0; i < count; i++ {
+					if a.model.SequenceAt(i) >= a.model.At {
 						pos = i
 						break
 					}
@@ -597,6 +653,12 @@ func (a *window) draw() {
 	var p paint
 	dc, _, _ := user.NewProc("BeginPaint").Call(a.hwnd, uintptr(unsafe.Pointer(&p)))
 	defer user.NewProc("EndPaint").Call(a.hwnd, uintptr(unsafe.Pointer(&p)))
+	if r, ok := a.model.CurrentMetrics(); ok {
+		label := fmt.Sprintf("REPLAY | instrumentação | %s | snapshot %d | Clear %d | abertas %d | abandonadas %d | incompleto=%t | omitidos %d", r.Source, r.Sequence, r.Metrics.Epoch, r.Metrics.OpenCalls, r.Metrics.AbandonedCalls, r.Metrics.Incomplete, a.model.Omitted)
+		chars := windows.StringToUTF16(label)
+		gdi.NewProc("TextOutW").Call(dc, 12, uintptr(a.height-122), uintptr(unsafe.Pointer(&chars[0])), uintptr(len(chars)-1))
+		return
+	}
 	s := a.model.Summary
 	label := fmt.Sprintf("%d amostras | residual %d | descartes %d | fila %d | tardias %d | atualizações omitidas %d", s.Accepted, s.Other, s.Dropped, s.IngestLost, s.Late, a.model.Omitted)
 	if len(a.model.History) > 0 {
@@ -642,5 +704,26 @@ func (a *window) draw() {
 			points[i] = point{12 + int32(i)*(a.width-24)/int32(len(history)-1), a.height - 64 - int32(float64(v.Quality.Accepted)/float64(maximum)*30)}
 		}
 		gdi.NewProc("Polyline").Call(dc, uintptr(unsafe.Pointer(&points[0])), uintptr(len(points)))
+	}
+}
+
+func (a *window) syncColumns() {
+	headers := a.model.Headers()
+	widths := []int32{90, 80, 90, 180, 420, 160, 100, 180}
+	if len(a.model.Metrics) > 0 {
+		widths = []int32{100, 140, 170, 140, 170, 90, 160, 180, 420, 160, 180, 90, 130}
+	}
+	for a.tableColumns > len(headers) {
+		send.Call(a.table, 0x101c, uintptr(a.tableColumns-1), 0)
+		a.tableColumns--
+	}
+	for i, name := range headers {
+		col := column{Mask: 7, Width: widths[i], Text: windows.StringToUTF16Ptr(name)}
+		if i >= a.tableColumns {
+			send.Call(a.table, 0x1061, uintptr(i), uintptr(unsafe.Pointer(&col)))
+			a.tableColumns++
+		} else {
+			send.Call(a.table, 0x1060, uintptr(i), uintptr(unsafe.Pointer(&col)))
+		}
 	}
 }

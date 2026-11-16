@@ -25,10 +25,43 @@ A fixture declara source/clock synthetic e tem resultado conhecido:
 | Lab.Parent | 2 | 40 ms | 30 ms | 20 ms | 15 ms |
 | Lab.Child | 1 | 10 ms | 10 ms | 10 ms | 10 ms |
 
-O CI Windows executa esse contrato e exige as contagens e médias esperadas,
-além de manter os testes reais ETW/Named Pipes/interface. O pacote Windows passa
-a incluir instrument-replay.exe. O viewer sampling ainda não consome esses frames;
-um modo instrumentado no serviço/interface será conectado ao adaptador nativo.
+O viewer já lê os resultados em modo instrumentado, tanto no terminal quanto na
+janela Windows. As colunas seguem `src/gui.cpp` do Hoshoyo: chamadas, exclusivo,
+média exclusiva, inclusivo e média inclusiva. Também apresenta thread/instância,
+módulo, procedimento, unidade, RVA, unwind e frames ativos. Tempos são exibidos em
+milissegundos; os arquivos preservam ticks, nanos e médias em nanos.
+
+```sh
+go run ./cmd/instrument-replay --input testdata/instrumentation/nested.ndjson > metrics.ndjson
+go run ./cmd/viewer --instrumentation --replay metrics.ndjson --thread 7 --unit Lab
+```
+
+No pacote Windows, a mesma demonstração usa os executáveis e a fixture incluída:
+
+```bat
+instrument-replay.exe --input instrumentation-demo-events.ndjson > metrics.ndjson
+viewer.exe --instrumentation --replay metrics.ndjson
+viewer.exe --gui --replay metrics.ndjson
+```
+
+**Abrir arquivo** detecta a modalidade pelo protocolo. Filtros por texto e TID,
+ordenação numérica das colunas, barra de navegação e salvar uma cópia estão
+disponíveis. Cada ponto da barra seleciona um snapshot acumulado desde Clear;
+snapshots nunca são somados. Intervalo de sampling, agrupamento por thread e
+comparação de sampling ficam desabilitados nesse modo. A origem declarada,
+Clear, chamadas abertas/abandonadas e incomplete permanecem visíveis. TIDs
+reutilizados conservam linhas separadas por instância.
+
+O leitor rejeita dados de amostragem, versões/campos desconhecidos, conversões ou
+médias inconsistentes, linhas duplicadas, alterações de sessão/relógio/seleção e
+regressão de contagens/perdas sem Clear. Limites: 8 MiB por frame, 64 MiB por
+arquivo, 4096 snapshots e 100000 linhas retidas. A janela em replay não consulta
+o collector para substituir os dados do arquivo.
+
+O CI Windows exige os valores conhecidos nos executáveis independentes e na
+janela nativa, além de manter os testes reais ETW/Named Pipes. O pacote inclui
+instrument-replay.exe. A captura instrumentada ao vivo e sua integração ao
+serviço ainda dependem do produtor nativo; abrir a fixture não mede Delphi.
 
 ## Semântica correspondente à referência
 

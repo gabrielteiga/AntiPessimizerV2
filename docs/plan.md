@@ -56,9 +56,12 @@ de definir essa prioridade. Sampling ETW mantém sua semântica própria.
 O primeiro núcleo instrumentado está implementado com seleção de procedimentos,
 pilhas por instância de thread, recursão conforme saved previous-inclusive da
 referência, unwind, Clear, perdas e métricas/medias derivadas de eventos explícitos.
-O CLI instrument-replay e os testes automatizados validam o contrato. O produtor
-nativo/hook x64 e sua ligação ao serviço/UI ainda são os próximos gates de
-paridade, detalhados em [instrumentation.md](instrumentation.md).
+O CLI instrument-replay e os testes automatizados validam o contrato. O viewer
+terminal/Win32 já consome arquivos instrumentados com as cinco métricas do
+original, filtros, ordenação, navegação e preservação das épocas de Clear. O
+planejador de prólogos x64 tem teste nativo controlado de trampolim/restauração.
+O produtor nativo/hook x64 e sua ligação ao serviço para coleta ao vivo ainda
+são os próximos gates de paridade, detalhados em [instrumentation.md](instrumentation.md).
 
 ## Matriz alvo
 
@@ -118,8 +121,9 @@ Testes demonstram essas políticas antes de introduzir concorrência em produç�
 | APIs Windows em Go | Erros de layout, ABI e callback | Isolar bindings; validar tamanho/layout amd64 e lifecycle de callbacks em Windows |
 | Licenças das referências | Distribuição indevida | Referenciar comportamento; revisar licença antes de reutilizar código/fixtures |
 
-Dependências atuais: Go, biblioteca padrão, `golang.org/x/sys/windows` e
-`github.com/Microsoft/go-winio`. Bindings ETW e interface Win32 são próprios em Go;
+Dependências atuais: Go, biblioteca padrão, `golang.org/x/sys/windows`,
+`github.com/Microsoft/go-winio` e `golang.org/x/arch/x86/x86asm` para decodificação
+dos prólogos x64. Bindings ETW e interface Win32 são próprios em Go;
 sem CGO no build de distribuição. Windows e Delphi licenciado são necessários para laboratório.
 Go 1.27.4 é a versão validada aqui, não uma conclusão sobre versão mínima futura.
 

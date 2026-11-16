@@ -23,6 +23,7 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 	flags := flag.NewFlagSet("viewer", flag.ContinueOnError)
 	flags.SetOutput(diagnostics)
 	gui := flags.Bool("gui", false, "open native Windows desktop")
+	instrumented := flags.Bool("instrumentation", false, "read explicit call/time metrics instead of CPU samples")
 	address := flags.String("address", transport.DefaultAddress(), "local collector endpoint")
 	op := flags.String("op", "", "processes, start, stop, status, latest, history, subscribe")
 	pid := flags.Uint("pid", 0, "target process ID")
@@ -41,7 +42,16 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 	if flags.NArg() != 0 || *thread > 1<<32-1 || *pid > 1<<32-1 {
 		return errors.New("invalid arguments/thread ID")
 	}
+	if *instrumented && (*op != "" || *save != "" || *compare != "" || *demo || *pid != 0) {
+		return errors.New("instrumentation replay cannot be combined with sampling control, save or compare")
+	}
 	if *gui {
+		if *instrumented {
+			return errors.New("GUI detects the archive mode; use --gui --replay without --instrumentation")
+		}
+		if *replay != "" {
+			return desktop.RunArchive(*address, *replay)
+		}
 		return desktop.Run(*address)
 	}
 	if *save != "" {
@@ -91,6 +101,9 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 		}
 		defer f.Close()
 		in = f
+	}
+	if *instrumented {
+		return viewInstrumentation(in, out, report.Filter{Unit: *unit, Module: *module, Thread: uint32(*thread)})
 	}
 	reader := stream.NewReader(in)
 	var previous uint64

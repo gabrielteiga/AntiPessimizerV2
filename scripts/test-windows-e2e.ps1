@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 $dir = Join-Path $env:RUNNER_TEMP ("antipessimizer-e2e-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory $dir | Out-Null
-foreach ($name in @("collector", "viewer")) {
+foreach ($name in @("collector", "viewer", "instrument-replay")) {
     go build -o (Join-Path $dir "$name.exe") "./cmd/$name"
     if ($LASTEXITCODE -ne 0) { throw "Build failed: $name" }
 }
@@ -70,9 +70,18 @@ try {
 }
 
 # Instrumentation accounting is a separate explicit-event contract, not ETW data.
-go run ./cmd/instrument-replay --input ./testdata/instrumentation/nested.ndjson | Set-Content (Join-Path $dir 'instrumentation.json')
+& (Join-Path $dir "instrument-replay.exe") --input ./testdata/instrumentation/nested.ndjson | Set-Content (Join-Path $dir 'instrumentation.json')
 if ($LASTEXITCODE -ne 0) { throw 'Instrumentation event replay failed' }
 $instrumented = Get-Content (Join-Path $dir 'instrumentation.json') -Raw | ConvertFrom-Json
 $parent = @($instrumented.metrics.procedures | Where-Object { $_.procedure -eq 'Lab.Parent' })
 if ($parent.Count -ne 1 -or $parent[0].call_count -ne 2 -or $parent[0].average_inclusive_ns -ne 20000000 -or $parent[0].average_exclusive_ns -ne 15000000) { throw 'Incorrect instrumentation calls/times/averages' }
 Write-Host 'PASS: explicit entry/exit replay preserves call count, inclusive/exclusive totals and averages'
+
+$metricPath = Join-Path $dir 'instrumentation.json'
+$metricView = & $viewer --instrumentation --replay $metricPath --thread 7 --unit Lab
+if ($LASTEXITCODE -ne 0) { throw 'Instrumented viewer replay failed' }
+$displayed = $metricView -join "`n"
+if (!$displayed.Contains('mode=instrumentation source=synthetic') -or !$displayed.Contains('calls=2 exclusive_ms=30.000000 average_exclusive_ms=15.000000 inclusive_ms=40.000000 average_inclusive_ms=20.000000')) { throw 'Call/time/average metrics did not reach the independent viewer' }
+$filtered = & $viewer --instrumentation --replay $metricPath --thread 8
+if ($LASTEXITCODE -ne 0 -or ($filtered -join "`n").Contains('tid=7')) { throw 'Instrumented thread filter failed' }
+Write-Host 'PASS: instrument-replay.exe -> metrics archive -> viewer.exe preserves calls, totals, averages and thread filters'

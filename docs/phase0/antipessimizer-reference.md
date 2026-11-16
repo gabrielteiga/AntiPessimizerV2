@@ -112,3 +112,10 @@ O planejador x64 consulta UdisDisasmAtLeastAndPatchRelatives/UdisCheckJumpback,
 rejeita prólogos com controle de fluxo e verifica retorno de branches ao prefixo.
 Nenhum desses componentes isolados implica que o injector/relay/unwind do Delphi
 já tenha sido portado. Estado e testes estão em [instrumentation.md](../instrumentation.md).
+
+A apresentação instrumentada consulta `src/gui.cpp`: tabela de resultados e
+comparadores de hitcount/elapsed inclusive/exclusive/averages. As cinco métricas
+aparecem no viewer Go de arquivos, com ordenação dos valores numéricos originais
+antes da formatação em ms. O Go preserva precisão inteira da contagem ao ordenar
+e não soma snapshots cumulativos. A validação da janela Windows usa eventos
+explícitos da fixture sintética; não comprova o caminho de captura nativa Delphi.
