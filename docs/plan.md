@@ -16,9 +16,32 @@ Nenhum hook, integração IA ou GUI foi antecipado. O incremento TD32/TDS agora
 lê FB09/FB0A, diretórios encadeados, nomes e procedimentos, procura símbolos no
 debug directory PE e em `.tds` adjacente e integra intervalos mediante mapa
 explícito de segmentos. Testes sintéticos e fuzz não validam Delphi real.
-O próximo passo é compilar a fixture Delphi 10.4 Win64, identificar seu formato
-e verificar nomes/endereço/tamanho e mapa segmento/RVA contra logs e MAP.
+O próximo passo é ampliar a simbolização usando o código original como referência
+e testes automatizados dos comportamentos esperados. A conferência com fixture
+Delphi real fica registrada como evidência adicional de integração, sem exigir
+compilação ou execução manual pelo usuário durante os incrementos.
 A coleta ETW permanece um spike Windows separado. Veja [TD32](td32.md).
+
+## Orientação de trabalho e validação (2026-11-16)
+
+Por orientação do usuário, conduzir o desenvolvimento e a validação de forma
+independente: consultar o AntiPessimizer na revisão fixada para resolver dúvidas,
+transformar seus comportamentos em testes automatizados e executar os testes
+Go a cada incremento. Registrar quais comportamentos foram conferidos na fonte
+e quais foram efetivamente executados. Documentar diferenças deliberadas.
+
+Não solicitar ao usuário compilação, fixtures ou testes manuais durante o
+desenvolvimento. A indisponibilidade do laboratório Delphi/Windows não bloqueia
+trabalho que possa ser implementado e verificado automaticamente. Manter as
+lacunas de integração explícitas, sem apresentar testes sintéticos como execução
+real. Solicitar avaliação manual somente quando o funcionamento principal
+estiver implementado de ponta a ponta conforme o escopo acordado.
+
+O objetivo funcional é localizar e apresentar gargalos por procedimento Delphi,
+com coleta real e visualizador independente. A especificação continua definindo
+o método e a semântica das métricas: amostragem não comprova contagem exata de
+chamadas ou duração por chamada da instrumentação do original. O demo e o leitor
+isolado de símbolos ainda não constituem esse funcionamento principal.
 
 ## Matriz alvo
 

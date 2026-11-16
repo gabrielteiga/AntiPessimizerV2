@@ -71,3 +71,48 @@ func TestLoadImage(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadSourcePriority(t *testing.T) {
+	// CheckDebugData in the reference only falls back to TDS when embedded
+	// debug information is invalid/absent. An invalid unused TDS must not win.
+	for _, tc := range []struct {
+		name                 string
+		badImage, badSidecar bool
+		wantSource           string
+		wantErr              bool
+	}{
+		{"valid embedded ignores invalid sidecar", false, true, "lab.exe", false},
+		{"invalid embedded uses valid sidecar", true, false, "lab.tds", false},
+		{"both invalid return error", true, true, "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			imageData, sidecarData := fixture("Embedded"), fixture("External")
+			if tc.badImage {
+				put32(imageData, len(imageData)-4, 0xffffffff)
+			}
+			if tc.badSidecar {
+				put32(sidecarData, len(sidecarData)-4, 0xffffffff)
+			}
+			dir := t.TempDir()
+			for name, data := range map[string][]byte{"lab.exe": peFixture(t, true, imageData), "lab.tds": sidecarData} {
+				if err := os.WriteFile(filepath.Join(dir, name), data, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ps, source, err := Load(filepath.Join(dir, "lab.exe"))
+			if tc.wantErr {
+				if !errors.Is(err, ErrInvalid) || ps != nil {
+					t.Fatalf("%v %v", ps, err)
+				}
+				return
+			}
+			wantName := "Embedded"
+			if tc.wantSource == "lab.tds" {
+				wantName = "External"
+			}
+			if err != nil || filepath.Base(source) != tc.wantSource || len(ps) != 1 || ps[0].Name != wantName {
+				t.Fatalf("%v %q %v", ps, source, err)
+			}
+		})
+	}
+}

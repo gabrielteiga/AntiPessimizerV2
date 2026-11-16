@@ -134,3 +134,59 @@ func TestChainedDirectoriesAndUnknownRecords(t *testing.T) {
 		t.Fatalf("%v %v", ps, err)
 	}
 }
+
+// JCL AnalyseNames stores length modulo 256 and advances to the NUL at
+// length + 256*k. Check exact rollover points and the following name index.
+func TestNameLengthRollover(t *testing.T) {
+	for _, n := range []int{255, 256, 257, 511, 512, 513} {
+		name := strings.Repeat("x", n)
+		b := fixture(name)
+		namesEnd := len(b) - 8
+		tail := append([]byte(nil), b[namesEnd:]...)
+		b = append(b[:namesEnd], 4, 'N', 'e', 'x', 't', 0)
+		b = append(b, tail...)
+		put32(b, 96, 2)
+		put32(b, 44, uint32(n+12))
+		put32(b, len(b)-4, uint32(len(b)))
+		ps, err := Parse(b)
+		if err != nil || len(ps) != 1 || ps[0].Name != name {
+			t.Fatalf("length %d: %v %v", n, ps, err)
+		}
+		put32(b, 92, 2)
+		ps, err = Parse(b)
+		if err != nil || len(ps) != 1 || ps[0].Name != "Next" {
+			t.Fatalf("following name after %d: %v %v", n, ps, err)
+		}
+	}
+}
+
+// JCL AnalyseAlignSymbols advances by record.Size + sizeof(WORD), including
+// records it does not recognize. A later procedure must retain its own fields.
+func TestMixedProcedureRecords(t *testing.T) {
+	b := fixture("Hot")
+	second := append([]byte(nil), b[52:96]...)
+	put16(second, 2, 0x204) // local procedure after the global one
+	put32(second, 16, 8)
+	put32(second, 28, 64)
+	put16(second, 32, 2)
+	suffix := append([]byte(nil), b[96:]...)
+	b = append(b[:96], 2, 0, 0xff, 0x7f) // unknown record with no payload
+	b = append(b, second...)
+	b = append(b, suffix...)
+	put32(b, 32, 96)
+	put32(b, 40, 144)
+	put32(b, len(b)-4, uint32(len(b)))
+	ps, err := Parse(b)
+	if err != nil || len(ps) != 2 {
+		t.Fatalf("%v %v", ps, err)
+	}
+	if ps[0] != (Procedure{"Hot", 1, 32, 16}) || ps[1] != (Procedure{"Hot", 2, 64, 8}) {
+		t.Fatal(ps)
+	}
+	// A corrupt later procedure must not leak the first procedure as partial data.
+	put32(b, 140, 2)
+	ps, err = Parse(b)
+	if !errors.Is(err, ErrInvalid) || ps != nil {
+		t.Fatalf("partial result: %v %v", ps, err)
+	}
+}
