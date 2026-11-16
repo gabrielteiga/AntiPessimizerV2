@@ -94,3 +94,11 @@ na JCL vendorizada, além de ExeLoader.ClassifyProcByModule. O Go preserva o ín
 de módulo de cada entrada e associa procedimentos à unidade só após conferir a
 contribuição de código no mesmo segmento. A classificação não depende de uma
 base 0x1000 nem chama o patching do exception handler existente no original.
+
+## Auditoria de fidelidade
+
+A [validação de fidelidade](hoshoyo-fidelity-audit.md) compara a base Go fee0a18
+com a revisão original fixada. Ela identifica alinhamento no subconjunto TD32 e
+na apresentação por procedimento/thread, mas registra diferenças importantes no
+motor (ETW versus instrumentação), seleção/lançamento, protocolo e arquivos.
+Testes Windows verdes não são apresentados como prova de paridade do original.
