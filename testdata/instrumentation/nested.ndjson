@@ -1,0 +1,9 @@
+{"protocol":"antipessimizer.instrumentation.events","version":1,"session_id":"instrumentation-contract-demo","target":{"pid":1,"process_start_utc":"2026-01-01T00:00:00Z","image_name":"controlled-fixture.exe"},"clock":"synthetic","clock_frequency_hz":"1000","source":"synthetic","procedures":[{"id":1,"location":{"module_id":"synthetic-lab","module":"controlled-fixture.exe","unit":"Lab","procedure":"Lab.Parent","rva":"0x0000000000001000","symbol_status":"resolved"}},{"id":2,"location":{"module_id":"synthetic-lab","module":"controlled-fixture.exe","unit":"Lab","procedure":"Lab.Child","rva":"0x0000000000002000","symbol_status":"resolved"}}]}
+{"type":"thread_start","thread_id":7,"ticks":"0"}
+{"type":"enter","thread_id":7,"procedure_id":1,"ticks":"10"}
+{"type":"enter","thread_id":7,"procedure_id":2,"ticks":"15"}
+{"type":"exit","thread_id":7,"procedure_id":2,"ticks":"25"}
+{"type":"exit","thread_id":7,"procedure_id":1,"ticks":"40"}
+{"type":"enter","thread_id":7,"procedure_id":1,"ticks":"50"}
+{"type":"exit","thread_id":7,"procedure_id":1,"ticks":"60"}
+{"type":"thread_end","thread_id":7,"ticks":"61"}

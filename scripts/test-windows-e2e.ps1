@@ -68,3 +68,11 @@ try {
     if ($lab -and !$lab.HasExited) { Stop-Process -Id $lab.Id -Force }
     if ($collector -and !$collector.HasExited) { Stop-Process -Id $collector.Id -Force }
 }
+
+# Instrumentation accounting is a separate explicit-event contract, not ETW data.
+go run ./cmd/instrument-replay --input ./testdata/instrumentation/nested.ndjson | Set-Content (Join-Path $dir 'instrumentation.json')
+if ($LASTEXITCODE -ne 0) { throw 'Instrumentation event replay failed' }
+$instrumented = Get-Content (Join-Path $dir 'instrumentation.json') -Raw | ConvertFrom-Json
+$parent = @($instrumented.metrics.procedures | Where-Object { $_.procedure -eq 'Lab.Parent' })
+if ($parent.Count -ne 1 -or $parent[0].call_count -ne 2 -or $parent[0].average_inclusive_ns -ne 20000000 -or $parent[0].average_exclusive_ns -ne 15000000) { throw 'Incorrect instrumentation calls/times/averages' }
+Write-Host 'PASS: explicit entry/exit replay preserves call count, inclusive/exclusive totals and averages'

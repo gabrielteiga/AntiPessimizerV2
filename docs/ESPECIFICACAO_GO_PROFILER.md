@@ -9,6 +9,12 @@
 
 ---
 
+> **Atualização de prioridade:** o usuário passou a exigir contagem de chamadas,
+> tempos inclusivos/exclusivos e médias equivalentes ao original. As referências
+> abaixo a instrumentação como apenas futuro opcional ficam superadas por essa
+> decisão. A execução incremental e os gates de ABI/unwind e testes Windows estão
+> definidos em [instrumentation.md](instrumentation.md).
+
 ## 1. Visão e motivação
 
 Queremos construir uma **ferramenta de monitoramento e diagnóstico de performance em tempo real para aplicações desktop Delphi no Windows**, com a implementação principal em **Go**. O ponto de partida conceitual é o projeto open source [Hoshoyo/AntiPessimizer](https://github.com/Hoshoyo/AntiPessimizer), que identifica gargalos em procedimentos Delphi utilizando símbolos de depuração e instrumentação dinâmica.
