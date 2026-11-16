@@ -71,6 +71,7 @@ type Hotspot struct {
 	Samples  uint64 `json:"sample_count"`
 }
 type Quality struct {
+	IngestLost      uint64 `json:"samples_lost_ingest_queue,omitempty"`
 	Observed        uint64 `json:"samples_observed"`
 	Accepted        uint64 `json:"samples_accepted"`
 	Dropped         uint64 `json:"samples_dropped_capacity"`

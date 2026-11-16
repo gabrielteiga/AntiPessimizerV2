@@ -7,8 +7,11 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"github.com/gabrielteiga/AntiPessimizerV2/internal/service"
+	"github.com/gabrielteiga/AntiPessimizerV2/internal/transport"
 	"io"
 	"os"
+	"os/signal"
 	"time"
 
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/aggregation"
@@ -22,6 +25,8 @@ import (
 func run(ctx context.Context, args []string, out, diagnostics io.Writer) error {
 	flags := flag.NewFlagSet("collector", flag.ContinueOnError)
 	flags.SetOutput(diagnostics)
+	serve := flags.Bool("serve", false, "serve local profiling requests")
+	address := flags.String("address", transport.DefaultAddress(), "local collector endpoint")
 	demo := flags.Bool("demo", false, "use synthetic data; never attaches to a process")
 	windows := flags.Int("windows", 8, "number of synthetic windows (1..10000)")
 	samples := flags.Int("samples", 1000, "samples per synthetic window (0..1000000)")
@@ -32,6 +37,17 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer) error {
 	}
 	if flags.NArg() != 0 {
 		return fmt.Errorf("unexpected positional arguments")
+	}
+	if *serve {
+		if *demo {
+			return fmt.Errorf("start demo through viewer when using --serve")
+		}
+		listener, err := transport.Listen(*address)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(diagnostics, "Collector listening:", *address)
+		return service.Serve(ctx, listener, service.New())
 	}
 	if !*demo {
 		return fmt.Errorf("Windows collection is not implemented yet; use --demo explicitly")
@@ -64,7 +80,17 @@ func main() {
 	// Keep the OS interrupt behavior for this replay CLI: an inherited blocking
 	// stdout cannot be assumed to support Close/deadline cancellation. The library
 	// session accepts contexts; a live Windows adapter will own its cleanup path.
-	if err := run(context.Background(), os.Args[1:], os.Stdout, os.Stderr); err != nil {
+	ctx := context.Background()
+	// Demo retains immediate OS interrupt behavior for inherited blocked stdout.
+	for _, arg := range os.Args[1:] {
+		if arg == "--serve" || arg == "-serve" {
+			var cancel context.CancelFunc
+			ctx, cancel = signal.NotifyContext(ctx, os.Interrupt)
+			defer cancel()
+			break
+		}
+	}
+	if err := run(ctx, os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

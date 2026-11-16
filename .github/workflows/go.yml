@@ -21,3 +21,9 @@ jobs:
       - run: go build ./cmd/...
       - if: runner.os == 'Linux'
         run: go test -race ./...
+
+      - if: runner.os == 'Windows'
+        name: Controlled ETW integration
+        env:
+          AP_ETW_INTEGRATION: '1'
+        run: go test -v -count=1 -timeout=45s ./internal/platform -run TestETWControlledWorkload

@@ -148,3 +148,13 @@ func (a *Aggregator) Close(published time.Time) (profiling.Snapshot, error) {
 	a.quality = profiling.Quality{SourceLossKnown: a.config.SourceLossKnown}
 	return s, nil
 }
+
+// ClosePartial closes the final, shorter window when a live target exits or the
+// user stops collection. Its actual end is recorded; future time is not invented.
+func (a *Aggregator) ClosePartial(end time.Time) (profiling.Snapshot, error) {
+	if !end.After(a.start) || end.After(a.End()) {
+		return profiling.Snapshot{}, errors.New("invalid partial window end")
+	}
+	a.config.Width = end.Sub(a.start)
+	return a.Close(end)
+}

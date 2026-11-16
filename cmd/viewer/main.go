@@ -2,11 +2,18 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/gabrielteiga/AntiPessimizerV2/internal/report"
+	"github.com/gabrielteiga/AntiPessimizerV2/internal/service"
+	"github.com/gabrielteiga/AntiPessimizerV2/internal/transport"
 	"io"
 	"os"
+	"os/signal"
+	"time"
 
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/stream"
 )
@@ -14,13 +21,70 @@ import (
 func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 	flags := flag.NewFlagSet("viewer", flag.ContinueOnError)
 	flags.SetOutput(diagnostics)
+	address := flags.String("address", transport.DefaultAddress(), "local collector endpoint")
+	op := flags.String("op", "", "processes, start, stop, status, latest, history, subscribe")
+	pid := flags.Uint("pid", 0, "target process ID")
+	demo := flags.Bool("demo", false, "start synthetic service session")
+	window := flags.Int("window-ms", 250, "collection window in milliseconds")
+	seconds := flags.Int("seconds", 30, "history interval (1..120 seconds)")
+	save := flags.String("save", "", "save retained snapshots to a new NDJSON file")
+	replay := flags.String("replay", "", "read an NDJSON archive")
+	compare := flags.String("compare", "", "compare replay archive with another archive")
 	module := flags.String("module", "", "exact module name filter")
 	thread := flags.Uint64("thread", 0, "thread ID filter; 0 means all")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if flags.NArg() != 0 || *thread > 1<<32-1 {
+	if flags.NArg() != 0 || *thread > 1<<32-1 || *pid > 1<<32-1 {
 		return errors.New("invalid arguments/thread ID")
+	}
+	if *save != "" {
+		return saveHistory(*address, *save, *seconds)
+	}
+	if *compare != "" {
+		if *replay == "" {
+			return errors.New("--compare requires --replay")
+		}
+		a, err := os.Open(*replay)
+		if err != nil {
+			return err
+		}
+		defer a.Close()
+		b, err := os.Open(*compare)
+		if err != nil {
+			return err
+		}
+		defer b.Close()
+		left, err := report.Read(a)
+		if err != nil {
+			return err
+		}
+		right, err := report.Read(b)
+		if err != nil {
+			return err
+		}
+		result, err := report.Compare(left, right)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(out).Encode(result)
+	}
+	if *op != "" {
+		if *op == "subscribe" {
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+			defer cancel()
+			return subscribe(ctx, *address, out)
+		}
+		now := time.Now()
+		return control(*address, service.Request{Op: *op, Start: service.StartOptions{PID: uint32(*pid), Demo: *demo, WindowMS: *window}, From: now.Add(-time.Duration(*seconds) * time.Second), To: now, Module: *module, Thread: uint32(*thread)}, out)
+	}
+	if *replay != "" {
+		f, err := os.Open(*replay)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		in = f
 	}
 	reader := stream.NewReader(in)
 	var previous uint64
