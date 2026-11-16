@@ -50,6 +50,7 @@ func Call(ctx context.Context, address string, q Request) (Response, error) {
 	if q.Op == "history" {
 		var all []profiling.Snapshot
 		for {
+			r = Response{}
 			if err = transport.Read(conn, &r); err != nil {
 				return r, err
 			}

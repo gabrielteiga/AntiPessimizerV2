@@ -58,10 +58,11 @@ type eventHeader struct {
 	Activity                    windows.GUID
 }
 type eventRecord struct {
-	Header                  eventHeader
-	Buffer                  uint32
-	ExtendedCount, Length   uint16
-	Extended, Data, Context uintptr
+	Header                eventHeader
+	Buffer                uint32
+	ExtendedCount, Length uint16
+	Extended, Data        unsafe.Pointer
+	Context               uintptr
 }
 
 var advapi = windows.NewLazySystemDLL("advapi32.dll")
@@ -72,15 +73,14 @@ var processTrace = advapi.NewProc("ProcessTrace")
 var closeTrace = advapi.NewProc("CloseTrace")
 var consumers sync.Map
 var nextConsumer atomic.Uint64
-var callback = windows.NewCallback(func(ptr uintptr) uintptr {
-	r := (*eventRecord)(unsafe.Pointer(ptr))
+var callback = windows.NewCallback(func(r *eventRecord) uintptr {
 	v, ok := consumers.Load(r.Context)
 	if !ok {
 		return 0
 	}
 	c := v.(*consumer)
 	// Only 64-bit classic records; no unsafe decoding of unknown schemas.
-	if r.Header.Flags&0x20 != 0 || r.Data == 0 {
+	if r.Header.Flags&0x20 != 0 || r.Data == nil {
 		return 0
 	}
 	kind := ""
@@ -95,7 +95,7 @@ var callback = windows.NewCallback(func(ptr uintptr) uintptr {
 		return 0
 	}
 	ft := windows.Filetime{LowDateTime: uint32(r.Header.Timestamp), HighDateTime: uint32(r.Header.Timestamp >> 32)}
-	if sample, ok := c.state.Feed(kind, r.Header.Descriptor.Opcode, r.Header.Descriptor.Version, fileTime(ft), unsafe.Slice((*byte)(unsafe.Pointer(r.Data)), int(r.Length))); ok {
+	if sample, ok := c.state.Feed(kind, r.Header.Descriptor.Opcode, r.Header.Descriptor.Version, fileTime(ft), unsafe.Slice((*byte)(r.Data), int(r.Length))); ok {
 		c.emit(sample)
 	}
 	return 0
@@ -149,7 +149,10 @@ func Capture(ctx context.Context, pid uint32, emit func(Sample)) error {
 	p.Node.Size = uint32(unsafe.Sizeof(p))
 	p.Node.Clock = 1
 	p.Node.Flags = 0x20000
-	p.Node.GUID = windows.GUID{Data1: 0x9e814aad, Data2: 0x3204, Data3: 0x11d2, Data4: [8]byte{0x9a, 0x82, 0, 0x60, 8, 0xa8, 0x69, 0x39}}
+	p.Node.GUID, err = windows.GenerateGUID()
+	if err != nil {
+		return err
+	}
 	p.BufferSize = 64
 	p.Minimum = 64
 	p.Maximum = 128
