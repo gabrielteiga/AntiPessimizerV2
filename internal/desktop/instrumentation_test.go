@@ -6,9 +6,12 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/instrumentation"
+	"github.com/gabrielteiga/AntiPessimizerV2/internal/profiling"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/report"
+	"github.com/gabrielteiga/AntiPessimizerV2/internal/stream"
 )
 
 func metricRecords(t *testing.T) []instrumentation.Record {
@@ -28,6 +31,33 @@ func metricRecords(t *testing.T) []instrumentation.Record {
 		t.Fatal(err)
 	}
 	return records
+}
+
+func TestArchiveProbePreservesSamplingFilesAndModeSwitch(t *testing.T) {
+	records := metricRecords(t)
+	start := records[0].Target.Start
+	s := profiling.Snapshot{SchemaVersion: 1, SessionID: "sampling-file", Sequence: 1, Target: records[0].Target, Mode: "sampling", Source: "synthetic", WindowStart: start, WindowEnd: start.Add(time.Second), Published: start.Add(time.Second), Quality: profiling.Quality{Observed: 42, Accepted: 42}, Hotspots: []profiling.Hotspot{{Location: records[0].Metrics.Rows[0].Location, ThreadID: 7, Samples: 42}}}
+	var wire bytes.Buffer
+	if err := stream.Write(&wire, s); err != nil {
+		t.Fatal(err)
+	}
+	history, metrics, err := readArchive(bytes.NewReader(wire.Bytes()))
+	if err != nil || len(history) != 1 || len(metrics) != 0 {
+		t.Fatalf("sampling file changed mode: %v %v %v", history, metrics, err)
+	}
+	var m Model
+	if err := m.ReplaceMetrics(records); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Replace(history); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Rebuild(10, report.Filter{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Metrics) != 0 || len(m.Headers()) != 8 || m.Summary.Accepted != 42 || len(m.Rows) != 1 || m.Rows[0][0] != "42" {
+		t.Fatal("sampling replay inherited instrumented metrics", m.Rows)
+	}
 }
 
 func TestMetricModelCumulativeCursorClearAndFilters(t *testing.T) {
