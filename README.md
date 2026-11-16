@@ -6,7 +6,8 @@ Profiler Delphi Windows x64 em desenvolvimento, com núcleo em Go baseado no
 **Já funciona:** pipeline portável de amostras, resolução de intervalos de
 procedimentos, snapshots por janela, histórico limitado e dois executáveis
 independentes (collector de demonstração e viewer de terminal).
-**Ainda pendente:** coleta real Windows/ETW, parser TD32/TDS, Named Pipes e GUI.
+**Novo incremento:** leitor mínimo TD32/TDS FB09/FB0A e inspeção de procedimentos.
+**Ainda pendente:** validar símbolos Delphi reais, coleta Windows/ETW, Named Pipes e GUI.
 O modo demo usa dados sintéticos; não monitora processos.
 
 ## Executar o incremento atual
@@ -80,3 +81,16 @@ O comando lê PE e imprime arquitetura, hash e metadados; não resolve TD32.
 Veja [arquitetura](docs/architecture.md), [plano](docs/plan.md),
 [especificação](docs/ESPECIFICACAO_GO_PROFILER.md) e
 [análise do código original](docs/phase0/antipessimizer-reference.md).
+
+## Inspecionar símbolos TD32/TDS
+
+```sh
+go run ./cmd/td32dump caminho/ProfilerLab.exe
+go run ./cmd/td32dump caminho/ProfilerLab.tds
+```
+
+Busca primeiro o debug directory do PE e depois `.tds` adjacente. A saída preserva
+segmento, offset, tamanho e nome original, sem demangling. O adapter do índice
+exige mapa de segmentos verificado; não presume RVA = offset + `0x1000`.
+Fixtures atuais são sintéticas: compatibilidade Delphi 10.4 Win64 e associação
+TDS/binário ainda precisam de validação. Veja [limites e formato](docs/td32.md).

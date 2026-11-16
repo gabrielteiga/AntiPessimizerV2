@@ -64,3 +64,15 @@ Udis86 têm licenças próprias: revisar e preservar avisos antes de incorporar
 código ou tradução substancial. Nesta entrega, o workload Delphi é próprio;
 foram consultados comportamento, chamadas e propriedades de configuração.
 Leitura estática não comprova compilação ou execução da fixture no Delphi 10.4.
+
+## Incremento Go TD32/TDS (2026-11-16)
+
+Consultados diretamente na revisão fixada: `TDirectoryHeader`,
+`TDirectoryEntry`, `TSymbolProcInfo`, `AnalyseNames`, `AnalyseAlignSymbols`,
+`IsTD32DebugInfoValid`, `IsDebugInfoInImage` e `IsDebugInfoInTds`.
+O código Go agora interpreta esse subconjunto com validação de limites e
+preserva Segment (campo ignorado por TJclTD32ProcSymbolInfo no original).
+Busca no PE usa o offset de arquivo da entrada de debug; não carrega a imagem.
+A busca é mais ampla que a heurística JCL de exatamente uma entrada de debug:
+aceita a primeira entrada UNKNOWN válida e mantém prioridade sobre o sidecar.
+Detalhes, diferenças e roteiro de validação em [TD32](../td32.md).

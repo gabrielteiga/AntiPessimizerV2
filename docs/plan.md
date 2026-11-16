@@ -12,9 +12,13 @@ agregador por janela com top-N, histórico limitado, fonte sintética determiní
 stream JSON e collector/viewer de terminal separados. Testes cobrem cancelamento,
 backpressure, protocolos, limites, ASLR e acesso concorrente ao histórico.
 
-Nenhum hook, integração IA ou GUI foi antecipado. O próximo incremento deve
-atacar simbolização TD32/TDS seguindo a JCL vendorizada no AntiPessimizer e validar
-a fixture Delphi real; a coleta ETW permanece um spike Windows separado.
+Nenhum hook, integração IA ou GUI foi antecipado. O incremento TD32/TDS agora
+lê FB09/FB0A, diretórios encadeados, nomes e procedimentos, procura símbolos no
+debug directory PE e em `.tds` adjacente e integra intervalos mediante mapa
+explícito de segmentos. Testes sintéticos e fuzz não validam Delphi real.
+O próximo passo é compilar a fixture Delphi 10.4 Win64, identificar seu formato
+e verificar nomes/endereço/tamanho e mapa segmento/RVA contra logs e MAP.
+A coleta ETW permanece um spike Windows separado. Veja [TD32](td32.md).
 
 ## Matriz alvo
 
