@@ -67,7 +67,8 @@ formatos emitidos pelo Delphi 10.4. [Formato e limites](docs/td32.md).
 
 ## Desenvolvimento e validação
 
-Go 1.27.4; dependências `x/sys/windows` e `go-winio`; sem CGO no build dos apps.
+Go 1.27.4; dependências `x/sys/windows`, `go-winio` e `x/arch/x86/x86asm`;
+sem CGO no build dos apps.
 Windows amd64 é o alvo. Linux executa testes do núcleo e do transporte de teste.
 
 ```sh
@@ -101,7 +102,10 @@ incluindo recursão, threads, Clear e unwind. O contrato pode ser exercitado por
 go run ./cmd/instrument-replay --input testdata/instrumentation/nested.ndjson
 ```
 
-A fixture é sintética. O comando valida eventos explícitos e exporta as métricas;
-os hooks x64 em processos Delphi e sua ligação à interface ainda são a próxima
-etapa. O coletor ETW continua mostrando contagens de amostras. Veja o [estado e
-plano da instrumentação](docs/instrumentation.md).
+A fixture é sintética. O comando valida eventos explícitos e exporta as métricas.
+O viewer aceita o resultado com `--instrumentation --replay metrics.ndjson` no
+terminal e `--gui --replay metrics.ndjson` no Windows. Exibe chamadas, totais e
+médias inclusivas/exclusivas, com filtros, ordenação e navegação por snapshots.
+Os hooks x64 em processos Delphi e a captura instrumentada ao vivo ainda são a
+próxima etapa. O coletor ETW continua mostrando contagens de amostras. Veja o
+[estado e plano da instrumentação](docs/instrumentation.md).

@@ -115,20 +115,8 @@ func Replay(ctx context.Context, in io.Reader, out io.Writer, limits Config) err
 			return err
 		}
 		record := Record{Protocol: MetricsProtocol, Version: 1, SessionID: h.SessionID, Target: h.Target, Source: h.Source, Clock: h.Clock, Sequence: sequence + 1, At: latest, Metrics: snapshot}
-		data, err := json.Marshal(record)
-		if err != nil {
+		if err := WriteRecord(out, record); err != nil {
 			return err
-		}
-		if len(data)+1 > MaxFrameBytes {
-			return errors.New("metrics frame exceeds limit")
-		}
-		data = append(data, '\n')
-		n, err := out.Write(data)
-		if err != nil {
-			return err
-		}
-		if n != len(data) {
-			return io.ErrShortWrite
 		}
 		sequence++
 		dirty = false

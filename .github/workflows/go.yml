@@ -37,7 +37,7 @@ jobs:
         name: Native viewer smoke
         env:
           AP_GUI_SMOKE: '1'
-        run: go test -v -count=1 -timeout=30s ./internal/desktop -run TestNativeWindowSmoke
+        run: go test -v -count=1 -timeout=30s ./internal/desktop -run 'TestNative.*WindowSmoke'
 
       - if: runner.os == 'Windows'
         name: Windows executable end-to-end

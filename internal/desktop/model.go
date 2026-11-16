@@ -9,11 +9,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gabrielteiga/AntiPessimizerV2/internal/instrumentation"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/profiling"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/report"
 )
 
 type Model struct {
+	Metrics    []instrumentation.Record
 	Comparison *report.Comparison
 	At         uint64 // zero follows the latest window
 	SortColumn int
@@ -30,6 +32,9 @@ type Model struct {
 func (m *Model) Append(s profiling.Snapshot) error {
 	if err := s.Validate(); err != nil {
 		return err
+	}
+	if len(m.Metrics) > 0 {
+		*m = Model{}
 	}
 	if s.SessionID != m.Session {
 		m.History = nil
@@ -57,6 +62,9 @@ func (m *Model) Append(s profiling.Snapshot) error {
 	return nil
 }
 func (m *Model) Rebuild(seconds int, f report.Filter) error {
+	if len(m.Metrics) > 0 {
+		return m.rebuildMetrics(f)
+	}
 	if m.Comparison != nil {
 		m.Rows = nil
 		m.Summary = m.Comparison.After
@@ -151,6 +159,7 @@ func (m *Model) Replace(history []profiling.Snapshot) error {
 		}
 	}
 	m.History = clone
+	m.Metrics = nil
 	m.Session = history[0].SessionID
 	m.Last = history[len(history)-1].Sequence
 	m.Omitted = omitted

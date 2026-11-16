@@ -40,6 +40,15 @@ func TestModelFilteringAndSessionReset(t *testing.T) {
 	if len(m.History) != 1 || m.Session != "b" {
 		t.Fatal(m)
 	}
+	if err := m.ReplaceMetrics(metricRecords(t)); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Append(s); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Metrics) != 0 || len(m.Headers()) != 8 || len(m.History) != 1 {
+		t.Fatal("instrumentation state leaked into sampling")
+	}
 }
 
 func TestHistoryRecoveryAndArchiveCursor(t *testing.T) {

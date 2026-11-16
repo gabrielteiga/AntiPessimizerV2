@@ -7,6 +7,8 @@ foreach ($command in @("collector", "viewer", "td32dump", "symresolve", "instrum
 }
 Copy-Item README.md (Join-Path $Output "README.md")
 Copy-Item docs/live.md (Join-Path $Output "USAGE.md")
+Copy-Item docs/instrumentation.md (Join-Path $Output "INSTRUMENTATION.md")
+Copy-Item testdata/instrumentation/nested.ndjson (Join-Path $Output "instrumentation-demo-events.ndjson")
 Copy-Item scripts/Start-Profiler.ps1 (Join-Path $Output "Start-Profiler.ps1")
 '@echo off', 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Start-Profiler.ps1"' | Set-Content -Encoding ascii (Join-Path $Output "Start-Profiler.cmd")
 $licenses = Join-Path $Output "licenses"
