@@ -12,6 +12,8 @@ Copy-Item scripts/Start-Profiler.ps1 (Join-Path $Output "Start-Profiler.ps1")
 $licenses = Join-Path $Output "licenses"
 New-Item -ItemType Directory -Force $licenses | Out-Null
 foreach ($module in @("github.com/Microsoft/go-winio", "golang.org/x/sys", "golang.org/x/arch")) {
+    go mod download $module
+    if ($LASTEXITCODE -ne 0) { throw "Cannot download dependency license: $module" }
     $moduleDir = go list -m -f '{{.Dir}}' $module
     if ($LASTEXITCODE -ne 0) { throw "Cannot locate license: $module" }
     Copy-Item (Join-Path $moduleDir "LICENSE") (Join-Path $licenses (($module -replace '/', '-') + '.txt'))
