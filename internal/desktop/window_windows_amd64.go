@@ -106,7 +106,8 @@ type window struct {
 }
 
 var active *window // only the locked OS UI thread reads/writes this pointer
-var wndProc = windows.NewCallback(func(hwnd uintptr, msg uint32, w, l uintptr) uintptr {
+var wndProc = windows.NewCallback(func(hwnd uintptr, msg uint32, w uintptr, nativeParam unsafe.Pointer) uintptr {
+	l := uintptr(nativeParam)
 	a := active
 	if a == nil {
 		r, _, _ := defWindow.Call(hwnd, uintptr(msg), w, l)
@@ -127,9 +128,9 @@ var wndProc = windows.NewCallback(func(hwnd uintptr, msg uint32, w, l uintptr) u
 		a.tick()
 		return 0
 	case 0x004e: // WM_NOTIFY, virtual ListView text and selection
-		header := (*notifyHeader)(unsafe.Pointer(l))
+		header := (*notifyHeader)(nativeParam)
 		if header.Window == a.table && header.Code == -177 {
-			d := (*displayInfo)(unsafe.Pointer(l))
+			d := (*displayInfo)(nativeParam)
 			i, j := int(d.Item.Index), int(d.Item.Sub)
 			if d.Item.Mask&1 != 0 && d.Item.Text != nil && d.Item.Max > 0 && i >= 0 && i < len(a.model.Rows) && j >= 0 && j < len(a.model.Rows[i]) {
 				chars := windows.StringToUTF16(a.model.Rows[i][j])

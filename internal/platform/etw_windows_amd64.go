@@ -58,10 +58,11 @@ type eventHeader struct {
 	Activity                    windows.GUID
 }
 type eventRecord struct {
-	Header                  eventHeader
-	Buffer                  uint32
-	ExtendedCount, Length   uint16
-	Extended, Data, Context uintptr
+	Header                eventHeader
+	Buffer                uint32
+	ExtendedCount, Length uint16
+	Extended, Data        unsafe.Pointer
+	Context               uintptr
 }
 
 var advapi = windows.NewLazySystemDLL("advapi32.dll")
@@ -72,15 +73,14 @@ var processTrace = advapi.NewProc("ProcessTrace")
 var closeTrace = advapi.NewProc("CloseTrace")
 var consumers sync.Map
 var nextConsumer atomic.Uint64
-var callback = windows.NewCallback(func(ptr uintptr) uintptr {
-	r := (*eventRecord)(unsafe.Pointer(ptr))
+var callback = windows.NewCallback(func(r *eventRecord) uintptr {
 	v, ok := consumers.Load(r.Context)
 	if !ok {
 		return 0
 	}
 	c := v.(*consumer)
 	// Only 64-bit classic records; no unsafe decoding of unknown schemas.
-	if r.Header.Flags&0x20 != 0 || r.Data == 0 {
+	if r.Header.Flags&0x20 != 0 || r.Data == nil {
 		return 0
 	}
 	kind := ""
@@ -95,7 +95,7 @@ var callback = windows.NewCallback(func(ptr uintptr) uintptr {
 		return 0
 	}
 	ft := windows.Filetime{LowDateTime: uint32(r.Header.Timestamp), HighDateTime: uint32(r.Header.Timestamp >> 32)}
-	if sample, ok := c.state.Feed(kind, r.Header.Descriptor.Opcode, r.Header.Descriptor.Version, fileTime(ft), unsafe.Slice((*byte)(unsafe.Pointer(r.Data)), int(r.Length))); ok {
+	if sample, ok := c.state.Feed(kind, r.Header.Descriptor.Opcode, r.Header.Descriptor.Version, fileTime(ft), unsafe.Slice((*byte)(r.Data), int(r.Length))); ok {
 		c.emit(sample)
 	}
 	return 0

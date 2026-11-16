@@ -4,6 +4,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/gabrielteiga/AntiPessimizerV2/internal/symbols"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/symbols/td32"
 	"io"
 	"os"
@@ -17,12 +18,17 @@ func run(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	display := make([]string, len(ps))
+	for i, p := range ps {
+		display[i] = symbols.DisplayName(p.Name)
+	}
 	enc := json.NewEncoder(out)
 	enc.SetIndent("", "  ")
 	return enc.Encode(struct {
-		Source     string
-		Procedures []td32.Procedure
-	}{source, ps})
+		DisplayNames []string
+		Source       string
+		Procedures   []td32.Procedure
+	}{display, source, ps})
 }
 func main() {
 	if err := run(os.Args[1:], os.Stdout); err != nil {
