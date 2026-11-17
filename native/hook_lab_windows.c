@@ -52,7 +52,10 @@ int wmain(int argc,wchar_t **argv) {
  if(size>64) return 3;
  unsigned char original[64]; memcpy(original,(const void *)APHookSum,size);
  APHookProcedure selected={1,(uint32_t)((uintptr_t)APHookSum-base),size};
- if(!APNativeInitHooks(pipe,&selected,1,capacity)) {fputs("native hook installation failed\n",stderr);return 4;}
+ if(!APNativeInitHooks(pipe,&selected,1,capacity)) {
+  if(memcmp(original,(const void *)APHookSum,size) || APHookSum(7,11,13,17,19,23)!=125) return 8;
+  fputs("native hook installation failed\n",stderr);return 4;
+ }
  start_workers=CreateEventW(NULL,TRUE,FALSE,NULL);
  if(!start_workers) return 5;
  HANDLE handles[16]; DWORD result=0;

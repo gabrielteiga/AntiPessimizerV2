@@ -5,8 +5,10 @@ em código nativo. O núcleo de contabilidade, os executáveis do profiler e o
 viewer continuam em Go, sem CGO. Nenhuma função Go é chamada pela pilha nativa
 do alvo. A DLL é uma fronteira C pequena para a futura ligação ao relay Delphi.
 
-Este incremento executa uma carga C própria, compilada com callbacks de função
-do GCC (`-finstrument-functions`). Não injeta DLL nem instala hooks em um EXE
+O laboratório inicial executa uma carga C própria, compilada com callbacks de
+função do GCC (`-finstrument-functions`). O laboratório de instalação abaixo
+acrescenta hooks na inicialização cooperativa de outro executável próprio.
+Nenhum desses caminhos injeta DLL nem instala hooks em um EXE
 Delphi sem modificações. Preservação de ABI pelo relay, exceções Delphi, unwind
 e patching coordenado continuam etapas obrigatórias da instalação dos hooks.
 
@@ -117,3 +119,36 @@ sua vida e são aposentados após quiescência. DLL só é descarregada após Sh
 Esse teste cobre a conexão entre os componentes, mas usa um procedimento
 explicitamente preparado. Não procura epílogos nem instala patches em funções
 Delphi arbitrárias, não trata suas exceções e não comprova CFG/CET/vectorcall.
+
+## Instalação pelo coletor em outro processo
+
+`APHookLab.exe` não contém callbacks de instrumentação do compilador nem chama
+Enter/Exit. Antes de criar os workers, chama APNativeInitHooks para aguardar o
+plano Go. Esse contrato mantém os chamadores quiescentes durante a instalação;
+o laboratório também encerra todos os workers antes de Shutdown.
+
+```bat
+native-lab.exe --install-hooks --workload native-dist\APHookLab.exe --threads 3 --iterations 10 > installed.ndjson
+viewer.exe --instrumentation --replay installed.ndjson
+```
+
+O startup aceita ACK 2 e negocia `APHOOK1`: base carregada, alocação privada
+próxima, capacidade, número de procedimentos, helpers e tamanhos conhecidos.
+O coletor constrói planos PE/leaf e envia `APPLAN1`, imagem, tabela de unwind,
+bytes originais completos e patches. A DLL verifica limites, seleção, metadados,
+alvos dos saltos e igualdade com o código carregado antes de escrever. Seleção
+limitada a 16 procedimentos, 8192 bytes por plano e fonte de até 4096 bytes.
+
+A memória nova passa de RW para RX; o código selecionado só é escrito durante
+a barreira de inicialização. Registra a tabela de unwind antes de publicar os
+patches. Na retirada, restaura bytes e proteção antes de remover a tabela e
+liberar a alocação. Falha de retirada retém recursos e informa erro. O controller
+possui exclusivamente seu filho e encerra o Job em falha/cancelamento.
+
+O Windows exige 10 chamadas por cada uma de 3 threads, argumentos inteiros,
+leitura RIP-relative, retorno e LastError preservados, perda explicitada e
+execução correta após restauração. Também rejeita bytes originais divergentes.
+O teste dos executáveis abre o arquivo resultante no viewer independente.
+Nomes/extensões ainda vêm do manifesto da carga própria. Frames, chamadas,
+exceções, entrada em processo sem cooperação e integração ao vivo permanecem
+pendentes; este comando não mede um Delphi arbitrário.

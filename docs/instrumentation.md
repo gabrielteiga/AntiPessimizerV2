@@ -276,3 +276,14 @@ média coerentes, depois restaura e executa o retorno original. O teste também
 mantém o caminho anterior de probes ligados a uma função assembly preparada.
 Não comprova instalação em procedimentos Delphi arbitrários, chamadas aninhadas,
 exceções, sincronização de threads ativas ou políticas CFG/CET.
+
+
+## Instalação restrita em processo próprio
+
+O controller já instala o plano leaf numa carga própria que mantém seus
+chamadores quiescentes durante a negociação e retirada. O Windows confere
+30 chamadas reais distribuídas em três threads, igualdade com os bytes vivos,
+resultados preservados e restauração ao sair. O arquivo chega ao viewer pelo
+mesmo protocolo de métricas. O fluxo e seus limites estão em
+[native-producer.md](native-producer.md#instalação-pelo-coletor-em-outro-processo).
+Isso não implementa injeção/attach geral ou suporte a frames e exceções Delphi.

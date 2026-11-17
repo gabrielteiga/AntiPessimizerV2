@@ -68,6 +68,12 @@ geral x64, exceções Delphi e serviço para coleta ao vivo ainda são os próxi
 gates de paridade, detalhados em [instrumentation.md](instrumentation.md).
 O plano PE de funções simples já valida seções e diretório de exceções antes de
 aceitar uma função; frames/handlers que exigem unwind seguem rejeitados.
+O coletor já transmite esses planos para uma DLL em outro processo próprio,
+negociando alocação próxima e verificando os bytes esperados antes da instalação.
+O alvo de teste mantém os chamadores quiescentes na inicialização e na retirada.
+Três threads exigem dez chamadas reais cada, resultados e LastError preservados,
+perdas explícitas e restauração completa. Implantação sem cooperação do alvo,
+funções com frames/chamadas/handlers e integração ao vivo ao serviço seguem pendentes.
 
 ## Matriz alvo
 

@@ -3,12 +3,18 @@ package native
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"io"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/instrumentation"
+	"github.com/gabrielteiga/AntiPessimizerV2/internal/transport"
+	"golang.org/x/sys/windows"
 )
 
 func TestNativeProducerInstallsHooksInOwnedProcess(t *testing.T) {
@@ -47,5 +53,82 @@ func TestNativeProducerInstalledHookOverflowIsIncomplete(t *testing.T) {
 	}
 	if !records[len(records)-1].Metrics.Incomplete {
 		t.Fatal("lost installed-hook events advertised exact")
+	}
+}
+
+// Corrupt the expected source in the controller's install request, without
+// changing the file or target. The target must reject before applying a patch.
+type corruptHookSource struct {
+	io.ReadWriter
+	written int
+}
+
+func (w *corruptHookSource) Write(b []byte) (int, error) {
+	const expectedSource = 1 + 24 + hookStride + 8
+	data := append([]byte(nil), b...)
+	if w.written <= expectedSource && w.written+len(data) > expectedSource {
+		data[expectedSource-w.written] ^= 1
+	}
+	n, err := w.ReadWriter.Write(data)
+	w.written += n
+	return n, err
+}
+func TestNativeProducerRejectsDifferentOriginalCode(t *testing.T) {
+	path := filepath.Join(filepath.Dir(labPath(t)), "APHookLab.exe")
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		t.Fatal(err)
+	}
+	address := `\\.\pipe\AntiPessimizer-Hook-Reject-` + hex.EncodeToString(nonce[:])
+	listener, err := transport.Listen(address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	p, job, err := createOwned(path, []string{"--pipe", address, "--threads", "1", "--iterations", "1", "--capacity", "1024"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { windows.WaitForSingleObject(p.Process, windows.INFINITE); listener.Close(); close(done) }()
+	defer func() {
+		windows.TerminateJobObject(job, 1)
+		windows.CloseHandle(job)
+		<-done
+		windows.CloseHandle(p.Process)
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	stopped := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() { windows.TerminateJobObject(job, 1); listener.Close(); close(stopped) })
+	defer func() {
+		if !stop() {
+			<-stopped
+		}
+	}()
+	conn, err := listener.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	r, err := NewReader(conn, p.ProcessId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	image, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := installLeafHooks(&corruptHookSource{ReadWriter: conn}, image, r.Header.Procedures); err == nil {
+		t.Fatal("native installer accepted different original bytes")
+	}
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	var code uint32
+	if err := windows.GetExitCodeProcess(p.Process, &code); err != nil || code != 4 {
+		t.Fatalf("native rejection failed to leave original code intact: exit=%d error=%v", code, err)
 	}
 }
