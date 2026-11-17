@@ -15,6 +15,8 @@ type SelectedProcedure struct {
 	Unit string `json:"unit,omitempty"`
 }
 type LaunchOptions struct {
+	ImageID string // optional expected SHA-256 from symbol selection
+
 	Image, DLL string
 	Args       []string
 	Procedures []SelectedProcedure

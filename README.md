@@ -2,8 +2,10 @@
 
 Profiler de aplicações Delphi **Windows x64**, implementado em Go a partir dos
 comportamentos do [AntiPessimizer](https://github.com/Hoshoyo/AntiPessimizer).
-Collector e viewer são processos independentes. A coleta **ao vivo disponível**
-usa amostragem ETW e mede amostras de CPU por procedimento/thread. O núcleo de
+Collector e viewer são processos independentes. A coleta ao vivo pela interface
+usa amostragem ETW e mede amostras de CPU por procedimento/thread. O comando
+`instrument` também lança um executável próprio para contar chamadas reais no
+subconjunto Win64 sem frame, selecionado por símbolos TD32/TDS. O núcleo de
 instrumentação também calcula chamadas, tempos inclusivos/exclusivos e médias a
 partir de eventos explícitos; seus resultados já podem ser abertos no viewer.
 
@@ -20,11 +22,12 @@ Revisado em 17 de novembro de 2026.
 | Produtor nativo controlado | DLL C com QPC, filas por thread, detecção de perdas e controller Go; integração Windows com carga própria, sem instalação de hooks Delphi |
 | Instalação em processo de teste | Coletor Go instala medidores em funções sem frame, incluindo condições/repetições, de outro processo próprio; testes de três threads, resultados corretos, perdas e restauração do código ao encerrar |
 | Preparação dos hooks x64 | Planejador de prólogos/trampolins, probes Win64/SSE2 e plano restrito para funções simples, com validação de seções e metadados de unwind PE; integração controlada com a DLL e contagem Go, redirecionamento e restauração em memória própria |
-| Captura instrumentada Delphi ao vivo | **Pendente:** instalação geral coordenada, ABI/retornos/exceções Delphi e integração ao serviço/viewer |
+| Lançamento instrumentado | Comando `instrument`, seleção TD32/TDS e DLL carregada antes do ponto de entrada; teste Windows em EXE C sem SDK do profiler, com threads, finalizadores, cancelamento e viewer |
+| Paridade de instrumentação Delphi | **Pendente:** funções com frames/chamadas/handlers, exceções Delphi e integração ao vivo ao serviço/viewer; não foram comprovadas todas as versões Delphi |
 
 A adaptação ainda não tem funcionamento completo equivalente ao AntiPessimizer
-do Hoshoyo. A principal etapa restante é capturar entradas e saídas reais dos
-procedimentos Delphi. O teste do trampolim não comprova a instalação dos hooks
+do Hoshoyo. As principais etapas restantes são ampliar a captura para funções
+com frames/chamadas/exceções Delphi e integrá-la à interface ao vivo. O teste do trampolim não comprova a instalação dos hooks
 em aplicações Delphi; amostras ETW não são contagens de chamadas. O próximo bloco
 inclui seleção dos procedimentos e fluxo de lançamento instrumentado, lifecycle
 e buffer limitado de eventos, integração ao vivo e validação de overhead e
@@ -32,8 +35,8 @@ compatibilidade Delphi. Veja o [plano de instrumentação](docs/instrumentation.
 
 O [laboratório do produtor nativo](docs/native-producer.md) já permite capturar
 chamadas e tempos QPC de uma carga C cooperativa e abri-los no viewer. O helper
-e a carga são compilados separadamente com GCC/MinGW; não integram o pacote
-principal neste incremento. Os probes gerados em Go também são exercitados com
+e as cargas de teste são compilados com GCC/MinGW. O pacote Windows agora inclui
+`instrument.exe` e `AntiPessimizerNative.dll`; as cargas de teste não são distribuídas. Os probes gerados em Go também são exercitados com
 essa DLL, incluindo uma função simples cujo código de entrada é redirecionado
 e restaurado em memória própria. Isso não instrumenta um executável Delphi existente.
 O laboratório `APHookLab.exe` também recebe os medidores pelo coletor, sem
@@ -82,6 +85,27 @@ encerra se a sessão mudar, para não misturar sessões em um arquivo.
 `--address` seleciona outro Named Pipe local. Arquivos existentes não são
 sobrescritos pelo comando de salvar. Mais detalhes em [docs/live.md](docs/live.md).
 
+## Contagem real pelo lançamento instrumentado
+
+```bat
+instrument.exe --image caminho\app.exe --list
+instrument.exe --image caminho\app.exe --unit MinhaUnidade --procedure MinhaUnidade.Calcular > chamadas.ndjson
+viewer.exe --gui --replay chamadas.ndjson
+```
+
+Este comando inicia e possui um **novo processo**. O prazo padrão é um minuto;
+`--timeout 5m` altera o prazo. Cancelamento, erro ou fim do coletor encerram esse
+processo próprio. `--arg valor` passa argumentos ao programa. A DLL distribuída
+é carregada antes do ponto de entrada; o EXE original não é alterado em disco.
+
+O incremento aceita até 16 procedimentos sem frame/chamadas/handlers, incluindo
+condições, repetições e múltiplas saídas. Procedimentos não suportados são
+rejeitados. A validação executada usa um alvo C próprio sem SDK do profiler e
+símbolos TDS sintéticos derivados dos seus endereços; não comprova todos os
+binários Delphi 10.4. A contagem inclui finalizadores anteriores a ExitProcess.
+A janela abre o arquivo após a captura; controle/seleção instrumentados ao vivo
+pela GUI ainda estão pendentes.
+
 ## Símbolos Delphi
 
 TD32/TDS FB09/FB0A: nomes, unidades Pascal (sstModule), procedimentos LPROC32/GPROC32, diretórios encadeados,
@@ -104,7 +128,8 @@ formatos emitidos pelo Delphi 10.4. [Formato e limites](docs/td32.md).
 ## Desenvolvimento e validação
 
 Go 1.27.4; dependências `x/sys/windows`, `go-winio` e `x/arch/x86/x86asm`;
-sem CGO no build dos apps.
+sem CGO no build dos apps. A DLL adaptadora requer GCC/MinGW para build;
+o CI já a compila e inclui os avisos dos runtimes no pacote.
 Windows amd64 é o alvo. Linux executa testes do núcleo e do transporte de teste.
 
 ```sh
@@ -156,5 +181,6 @@ chamadas, totais e médias inclusivas/exclusivas. O modo instrumentado preserva
 thread/instância, épocas de Clear e indicação de chamadas abertas/abandonadas e
 dados incompletos. Os snapshots são acumulados desde Clear e nunca são somados
 durante a navegação. Comparação e intervalo de sampling ficam restritos ao modo
-de amostragem. Captura instrumentada ao vivo permanece pendente; o coletor ETW
-continua mostrando contagens de amostras.
+de amostragem. Controle instrumentado ao vivo pelo serviço/GUI permanece pendente; o comando
+`instrument` já lança e mede o subconjunto descrito acima. O coletor ETW continua
+mostrando contagens de amostras.

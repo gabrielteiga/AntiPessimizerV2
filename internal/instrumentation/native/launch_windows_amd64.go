@@ -64,6 +64,9 @@ func Launch(parent context.Context, o LaunchOptions, out io.Writer) (resultErr e
 	}
 	hash := sha256.Sum256(data)
 	build := "sha256:" + hex.EncodeToString(hash[:])
+	if o.ImageID != "" && o.ImageID != build {
+		return errors.New("executable changed after symbol selection")
+	}
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return err

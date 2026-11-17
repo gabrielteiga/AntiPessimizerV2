@@ -8,8 +8,10 @@ do alvo. A DLL é uma fronteira C pequena para a futura ligação ao relay Delph
 O laboratório inicial executa uma carga C própria, compilada com callbacks de
 função do GCC (`-finstrument-functions`). O laboratório de instalação abaixo
 acrescenta hooks na inicialização cooperativa de outro executável próprio.
-Nenhum desses caminhos injeta DLL nem instala hooks em um EXE
-Delphi sem modificações. Preservação de ABI pelo relay, exceções Delphi, unwind
+Esses laboratórios usam startup cooperativo. O novo comando `instrument` também
+carrega a DLL e instala o plano antes do ponto de entrada de um EXE próprio sem
+SDK do profiler; esse caminho foi validado em C. Compatibilidade geral Delphi
+ainda não foi comprovada. Preservação de ABI pelo relay, exceções Delphi, unwind
 e patching coordenado continuam etapas obrigatórias da instalação dos hooks.
 
 ## Fluxo implementado
@@ -153,5 +155,6 @@ A função medida agora contém condição, repetição e dois retornos. O teste
 os caminhos e exige os mesmos dez eventos completos por thread. A constante
 relativa fica antes da função para verificar deslocamento original negativo.
 Nomes/extensões ainda vêm do manifesto da carga própria. Frames, chamadas,
-exceções, entrada em processo sem cooperação e integração ao vivo permanecem
-pendentes; este comando não mede um Delphi arbitrário.
+exceções e integração ao vivo permanecem pendentes. Para o lançamento sem SDK,
+veja o comando `instrument` em [instrumentation.md](instrumentation.md).
+O laboratório cooperativo não comprova um Delphi arbitrário.

@@ -87,7 +87,7 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer) error {
 	if len(selected) > 16 {
 		return fmt.Errorf("selection has %d procedures; this increment supports at most 16", len(selected))
 	}
-	return native.Launch(ctx, native.LaunchOptions{Image: *path, DLL: *dll, Args: programArgs, Procedures: selected, Capacity: *capacity, Timeout: *timeout}, out)
+	return native.Launch(ctx, native.LaunchOptions{Image: *path, ImageID: image.ID, DLL: *dll, Args: programArgs, Procedures: selected, Capacity: *capacity, Timeout: *timeout}, out)
 }
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
