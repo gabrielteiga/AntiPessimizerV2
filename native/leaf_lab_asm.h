@@ -11,7 +11,7 @@ __asm__(
  ".def APHookSum; .scl 2; .type 32; .endef\n"
  "APHookSum:\n"
  ".rept 16\n nop\n .endr\n"
- "movl $2,%r10d\n"
+ "movl $4096,%r10d\n"
  "1: subq $1,%r10\n jne 1b\n"
  "testq %rcx,%rcx\n jne 2f\n"
  "movq $777,%rax\n ret\n"

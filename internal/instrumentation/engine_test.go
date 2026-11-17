@@ -266,3 +266,19 @@ func TestClearCannotMoveBehindEndedOrLostThreads(t *testing.T) {
 		check(t, e.Clear(130))
 	}
 }
+
+// Calls shorter than QPC's tick period may have identical entry/exit ticks.
+// Preserve the count and a measured zero; never invent a minimum duration.
+func TestCompletedCallsWithinOneClockTick(t *testing.T) {
+	e := engine(t)
+	for i := 0; i < 10; i++ {
+		check(t, e.Enter(7, 1, 100))
+		check(t, e.Exit(7, 1, 100))
+	}
+	check(t, e.EndThread(7, 100))
+	s, err := e.Snapshot()
+	check(t, err)
+	if s.Incomplete || s.OpenCalls != 0 || len(s.Rows) != 1 || s.Rows[0].Calls != 10 || s.Rows[0].InclusiveTicks != 0 || s.Rows[0].ExclusiveTicks != 0 || s.Rows[0].AverageInclusiveNS != 0 || s.Rows[0].AverageExclusiveNS != 0 {
+		t.Fatal("clock quantization lost calls or invented time", s)
+	}
+}
