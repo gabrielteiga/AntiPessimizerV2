@@ -162,3 +162,53 @@ func TestNativeWindowSmoke(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestNativeInstrumentedFollowWindowSmoke(t *testing.T) {
+	if os.Getenv("AP_GUI_SMOKE") != "1" {
+		t.Skip("enabled in Windows CI")
+	}
+	records := metricRecords(t)
+	path := t.TempDir() + "/live.ndjson"
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := instrumentation.WriteRecord(f, records[0]); err != nil {
+		t.Fatal(err)
+	}
+	writeDone := make(chan error, 1)
+	go func() { time.Sleep(450 * time.Millisecond); writeDone <- instrumentation.WriteRecord(f, records[1]) }()
+	if err := runViewer(`\\.\pipe\unused-follow-source`, "", path, func(w *window) error {
+		if len(w.model.Metrics) < 1 || len(w.model.Rows) != 2 || w.model.Rows[0][0] != "2" || w.model.Rows[0][1] != "30.000000" || w.tableColumns != 13 {
+			return fmt.Errorf("growing metrics did not reach native table: %v", w.model.Rows)
+		}
+		if !w.offline.Load() || len(w.model.History) != 0 {
+			return fmt.Errorf("sampling contaminated followed metrics")
+		}
+		w.command(4)
+		if w.followCancel != nil {
+			return fmt.Errorf("stop did not disconnect the follower")
+		}
+		before := w.model.Last
+		next := records[1].Clone()
+		next.Sequence++
+		next.At++
+		if err := instrumentation.WriteRecord(f, next); err != nil {
+			return fmt.Errorf("viewer disconnected collector writer: %w", err)
+		}
+		w.tick()
+		if w.model.Last != before {
+			return fmt.Errorf("stopped follow updated the display")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-writeDone; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte("\n")); err != nil {
+		t.Fatal("closing viewer closed producer file", err)
+	}
+}

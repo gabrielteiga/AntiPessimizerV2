@@ -15,6 +15,9 @@ import (
 )
 
 type Model struct {
+	metricSizes             []int
+	metricBytes, metricRows int
+
 	Metrics    []instrumentation.Record
 	Comparison *report.Comparison
 	At         uint64 // zero follows the latest window

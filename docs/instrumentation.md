@@ -325,3 +325,25 @@ controle continua ETW; a GUI abre os arquivos instrumentados para análise.
 O recorte mantém funções com frame, calls, handlers e formatos não suportados
 rejeitados, até existir relocação/unwind e evidência Windows correspondentes.
 Compatibilidade de todas as versões Delphi e políticas CFG/CET continua pendente.
+
+
+## Janela acompanhando a captura
+
+`instrument --output captura.ndjson` cria um arquivo exclusivo e publica cada
+snapshot diretamente. `viewer --gui --instrumentation --follow captura.ndjson`
+acompanha os novos frames, valida sessão/relógio/contagens e atualiza as cinco
+métricas na tabela Win32. A leitura aguarda a linha completa, sem interpretar
+uma escrita parcial como fim da captura. Truncamento, substituição de arquivo e
+frames inválidos interrompem o acompanhamento preservando os dados anteriores.
+
+A janela possui somente seu handle de leitura e não envia comandos ao coletor.
+Fechar ou **Desconectar** mantém o escritor e a aplicação alvo em execução. O
+histórico mostrado é limitado a 256 snapshots, 100.000 linhas e 64 MiB; a última
+contagem acumulada permanece íntegra. Atualizações de exibição são coalescidas
+sem bloquear a leitura e sem somar snapshots. EOF físico de um arquivo crescente
+significa aguardar, não anunciar que a captura terminou.
+
+Os testes cobrem append parcial, dados inconsistentes, truncamento, cancelamento,
+retenção e uso do escritor após desligar o viewer. O smoke Windows acrescenta
+dados enquanto a janela está aberta, confere contagens/totais/colunas e testa
+Desconectar. O teste de executáveis usa o novo arquivo exclusivo no fluxo real.

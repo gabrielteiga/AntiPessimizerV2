@@ -169,3 +169,10 @@ Próximo trabalho: ampliar para funções com frames/chamadas e tratar unwind/ha
 Delphi com testes reais; integrar seleção/start/stop e snapshots instrumentados ao
 serviço e à GUI. A validação atual de lançamento usa uma carga C própria com TDS
 sintético, não uma prova de paridade de todos os programas Delphi.
+
+
+O viewer Win32 já acompanha um arquivo instrumentado crescente por --follow,
+sem controlar ou encerrar o coletor. Contagens/tempos/médias atualizam na janela,
+com histórico limitado e coalescência. O comando instrument grava diretamente
+por --output, sem sobrescrever arquivos. Ainda falta selecionar/lançar/parar
+instrumentação pelo serviço e GUI, além do suporte a frames/exceções Delphi.

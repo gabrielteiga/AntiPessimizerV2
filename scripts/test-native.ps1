@@ -44,7 +44,7 @@ go build -o (Join-Path $dir 'instrument.exe') ./cmd/instrument
 if ($LASTEXITCODE -ne 0) { throw 'Instrument command build failed' }
 $launchArchive = Join-Path $dir 'unmodified-target-metrics.ndjson'
 $nativeDll = Join-Path (Split-Path $env:AP_NATIVE_LAB) 'AntiPessimizerNative.dll'
-& (Join-Path $dir 'instrument.exe') --image $launchTarget --dll $nativeDll --unit LabWorkload --procedure Lab.Hotspot --arg=--threads --arg=3 --arg=--iterations --arg=10 | Set-Content -Encoding utf8 $launchArchive
+& (Join-Path $dir 'instrument.exe') --image $launchTarget --dll $nativeDll --unit LabWorkload --procedure Lab.Hotspot --arg=--threads --arg=3 --arg=--iterations --arg=10 --output $launchArchive
 if ($LASTEXITCODE -ne 0) { throw 'Unmodified target instrumentation command failed' }
 $last = Get-Content $launchArchive | Select-Object -Last 1 | ConvertFrom-Json
 $rows = @($last.metrics.procedures)
