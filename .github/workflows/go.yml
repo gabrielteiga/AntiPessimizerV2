@@ -22,6 +22,14 @@ jobs:
         run: |
           ./scripts/build-native.ps1 -Output "$env:RUNNER_TEMP/ap-native"
           "AP_NATIVE_LAB=$env:RUNNER_TEMP/ap-native/APNativeLab.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - if: runner.os == 'Linux'
+        name: Verify Go formatting
+        run: |
+          unformatted=$(gofmt -l cmd internal experiments)
+          if [ -n "$unformatted" ]; then
+            gofmt -d cmd internal experiments
+            exit 1
+          fi
       - run: go test ./...
       - run: go vet ./...
       - run: go build ./cmd/...
@@ -34,7 +42,7 @@ jobs:
 
       - if: runner.os == 'Windows'
         name: Controlled x64 code and unwind
-        run: go test -v -count=1 -timeout=30s ./internal/instrumentation/x64 -run 'Test(ControlledNativeTrampolineAndRestore|NativeEntryProbeABIAndVirtualUnwind)$'
+        run: go test -v -count=1 -timeout=30s ./internal/instrumentation/x64 -run 'Test(ControlledNativeTrampolineAndRestore|NativeCallProbesABIAndVirtualUnwind)$'
 
       - if: runner.os == 'Windows'
         name: Controlled ETW integration

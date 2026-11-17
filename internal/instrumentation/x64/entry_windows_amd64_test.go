@@ -11,7 +11,7 @@ import (
 
 // All executable/context/stack memory belongs to this fixture. The helper is
 // native code, not a Go callback. VirtualUnwind operates on a private fake stack.
-func TestNativeEntryProbeABIAndVirtualUnwind(t *testing.T) {
+func TestNativeCallProbesABIAndVirtualUnwind(t *testing.T) {
 	code, err := windows.VirtualAlloc(0, 4096, windows.MEM_RESERVE|windows.MEM_COMMIT, windows.PAGE_READWRITE)
 	if err != nil {
 		t.Fatal(err)
@@ -59,14 +59,22 @@ func TestNativeEntryProbeABIAndVirtualUnwind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	x, err := BuildExitProbe(uint64(code+3072), uint64(code+1024), 43)
+	if err != nil {
+		t.Fatal(err)
+	}
 	write(code, p.Image)
 	write(code+2560, f.Image)
-	var table [24]byte
+	write(code+3072, x.Image)
+	var table [36]byte
 	binary.LittleEndian.PutUint32(table[4:], p.CodeSize)
 	binary.LittleEndian.PutUint32(table[8:], p.UnwindRVA)
 	binary.LittleEndian.PutUint32(table[12:], 2560)
 	binary.LittleEndian.PutUint32(table[16:], 2560+f.CodeSize)
 	binary.LittleEndian.PutUint32(table[20:], 2560+f.UnwindRVA)
+	binary.LittleEndian.PutUint32(table[24:], 3072)
+	binary.LittleEndian.PutUint32(table[28:], 3072+x.CodeSize)
+	binary.LittleEndian.PutUint32(table[32:], 3072+x.UnwindRVA)
 	write(code+512, table[:])
 	// Helper records ECX/RSP, uses all four home slots, and clobbers every
 	// volatile integer register and XMM0..5, as a conforming native helper may.
@@ -93,7 +101,17 @@ func TestNativeEntryProbeABIAndVirtualUnwind(t *testing.T) {
 	helper = append(helper, 0xc3)
 	write(code+1024, helper)
 	// Sum six Win64 arguments (including the two stack arguments).
-	write(code+1536, []byte{0x48, 0x8d, 0x04, 0x11, 0x4c, 0x01, 0xc0, 0x4c, 0x01, 0xc8, 0x48, 0x03, 0x44, 0x24, 40, 0x48, 0x03, 0x44, 0x24, 48, 0xc3})
+	sumCode := []byte{0x48, 0x8d, 0x04, 0x11, 0x4c, 0x01, 0xc0, 0x4c, 0x01, 0xc8, 0x48, 0x03, 0x44, 0x24, 40, 0x48, 0x03, 0x44, 0x24, 48, 0xc3}
+	write(code+1536, sumCode)
+	returning := append([]byte(nil), sumCode[:len(sumCode)-1]...)
+	returning = append(returning, jump(uint64(code+3072))...)
+	write(code+3600, returning)
+	// Return both an integer sentinel and an SSE2 float through the exit helper.
+	returnFloat := []byte{0x66, 0x48, 0x0f, 0x6e, 0xc1, 0x48, 0xb8}
+	binary.LittleEndian.PutUint64(addr[:], 0x44332211)
+	returnFloat = append(returnFloat, addr[:]...)
+	returnFloat = append(returnFloat, jump(uint64(code+3072))...)
+	write(code+3712, returnFloat)
 	// Caller seeds XMM0..5 with six distinct bit patterns before jumping to f.
 	var caller []byte
 	for i := byte(0); i < 6; i++ {
@@ -119,7 +137,7 @@ func TestNativeEntryProbeABIAndVirtualUnwind(t *testing.T) {
 	if ok, _, err := windows.NewLazySystemDLL("kernel32.dll").NewProc("FlushInstructionCache").Call(uintptr(windows.CurrentProcess()), code, 4096); ok == 0 {
 		t.Fatal(err)
 	}
-	if ok, _, err := nt.NewProc("RtlAddFunctionTable").Call(code+512, 2, code); ok == 0 {
+	if ok, _, err := nt.NewProc("RtlAddFunctionTable").Call(code+512, 3, code); ok == 0 {
 		t.Fatal("register unwind table", err)
 	}
 	registered = true
@@ -139,6 +157,15 @@ func TestNativeEntryProbeABIAndVirtualUnwind(t *testing.T) {
 		if binary.LittleEndian.Uint64(lanes[i*16:]) != bits+uint64(i) || binary.LittleEndian.Uint64(lanes[i*16+8:]) != 0 {
 			t.Fatal("native SIMD argument changed", i)
 		}
+	}
+	if got, _, _ := syscall.SyscallN(code+3600, 1, 2, 3, 4, 5, 6); got != 21 {
+		t.Fatalf("native integer result changed by exit helper: %d", got)
+	}
+	if id := binary.LittleEndian.Uint32(read(rw+2048, 4)); id != 43 {
+		t.Fatal("exit helper did not receive procedure ID", id)
+	}
+	if integer, floating, _ := syscall.SyscallN(code+3712, uintptr(bits)); integer != 0x44332211 || uint64(floating) != bits {
+		t.Fatalf("native exit return values changed: RAX=%#x XMM0=%#x", integer, floating)
 	}
 	// Synthetic CONTEXT AMD64 (1232 bytes) on aligned native memory. Exercise
 	// entry, body and both epilogue states without unwinding any Go stack.
@@ -161,5 +188,24 @@ func TestNativeEntryProbeABIAndVirtualUnwind(t *testing.T) {
 			t.Fatalf("native unwind at %d: RSP=%#x RIP=%#x", phase.offset, rsp, rip)
 		}
 	}
-	t.Log("native entry probe preserved Win64 register/stack arguments, home slots and XMM0..5; Windows unwound prologue, body and epilogue contexts")
+
+	exitSP := activeSP + uintptr(x.StackSize)
+	binary.LittleEndian.PutUint64(addr[:], 0x12345678)
+	write(exitSP, addr[:])
+	for _, phase := range []struct {
+		offset uint32
+		sp     uintptr
+	}{{0, exitSP}, {7, activeSP}, {x.HelperReturn, activeSP}, {x.Epilogue, activeSP}, {x.Epilogue + 7, exitSP}} {
+		context := make([]byte, 1232)
+		binary.LittleEndian.PutUint32(context[48:], 0x0010000b)
+		binary.LittleEndian.PutUint64(context[152:], uint64(phase.sp))
+		binary.LittleEndian.PutUint64(context[248:], uint64(code+3072)+uint64(phase.offset))
+		write(rw, context)
+		nt.NewProc("RtlVirtualUnwind").Call(0, code, code+3072+uintptr(phase.offset), code+536, rw, rw+1280, rw+1288, 0)
+		context = read(rw, 1232)
+		if rsp, rip := binary.LittleEndian.Uint64(context[152:]), binary.LittleEndian.Uint64(context[248:]); rsp != uint64(exitSP+8) || rip != 0x12345678 {
+			t.Fatalf("native exit unwind at %d: RSP=%#x RIP=%#x", phase.offset, rsp, rip)
+		}
+	}
+	t.Log("native probes preserved Win64 arguments, SIMD and return values; Windows unwound entry and exit probe contexts")
 }
