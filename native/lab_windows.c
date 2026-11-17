@@ -22,7 +22,9 @@ LAB uint64_t APLabChild(uint64_t a,uint64_t b,uint64_t c,uint64_t d,uint64_t e,u
 LAB uint64_t APLabRecursive(uint64_t n) { return n ? n*APLabRecursive(n-1) : 1; }
 LAB double APLabFloat(double value) { return value*2.0+0.25; }
 LAB uint64_t APLabParent(void) {
-    return APLabChild(1,2,3,4,5,6)+APLabChild(6,5,4,3,2,1)+APLabRecursive(3)+(uint64_t)APLabFloat(3.5);
+    double value=APLabFloat(3.5);
+    if(value!=7.25) {InterlockedExchange(&bad_error,1);return 0;}
+    return APLabChild(1,2,3,4,5,6)+APLabChild(6,5,4,3,2,1)+APLabRecursive(3)+(uint64_t)value;
 }
 static uint32_t id_for(void *function) {
     if (function==(void *)APLabParent) return 1;

@@ -133,9 +133,9 @@ func RunLab(parent context.Context, options LabOptions, out io.Writer) (resultEr
 	go func() { windows.WaitForSingleObject(p.Process, windows.INFINITE); listener.Close(); close(exited) }()
 	defer func() {
 		windows.TerminateJobObject(job, 1)
+		windows.CloseHandle(job)
 		<-exited
 		windows.CloseHandle(p.Process)
-		windows.CloseHandle(job)
 	}()
 	callbackDone := make(chan struct{})
 	stop := context.AfterFunc(ctx, func() { windows.TerminateJobObject(job, 1); listener.Close(); close(callbackDone) })

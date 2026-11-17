@@ -21,7 +21,7 @@ static struct {
     volatile LONG running, stopping, next_ring, io_error;
     _Alignas(8) volatile LONG64 lost;
     DWORD tls;
-    HANDLE pipe, worker;
+    HANDLE pipe, worker, ready;
     Ring *rings;
     APProcedure procedures[AP_SELECTION];
     uint32_t count, capacity, image_size;
@@ -74,6 +74,15 @@ static DWORD WINAPI drain(void *unused) {
         put32(catalog+i*8, state.procedures[i].id); put32(catalog+i*8+4, state.procedures[i].rva);
     }
     if (!write_all(hello, sizeof(hello)) || !write_all(catalog, state.count*8)) return 1;
+    /* A synchronous pipe handle serializes its I/O. Keep hello and ACK on
+       this thread; reading ACK on Init's thread can block the hello write. */
+    unsigned char start_signal=0; DWORD acknowledged=0;
+    if (!ReadFile(state.pipe, &start_signal, 1, &acknowledged, NULL) || acknowledged!=1 || start_signal!=1) {
+        InterlockedExchange(&state.io_error, ERROR_INVALID_DATA);
+        return 1;
+    }
+    InterlockedExchange(&state.running, 1);
+    SetEvent(state.ready);
     uint64_t sequence = 0;
     for (;;) {
         /* If shutdown was observed before this scan, all selected callers are
@@ -170,11 +179,12 @@ AP_API BOOL APNativeInit(const wchar_t *name, const APProcedure *procedures, uin
     if (!state.rings) { TlsFree(state.tls); CloseHandle(state.pipe); return FALSE; }
     state.count=count; state.capacity=capacity; state.frequency=(uint64_t)frequency.QuadPart; state.start=(uint64_t)start.QuadPart;
     state.image_size=nt->OptionalHeader.SizeOfImage; memcpy(state.procedures, procedures, count*sizeof(APProcedure));
+    state.ready=CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (!state.ready) { VirtualFree(state.rings, 0, MEM_RELEASE); state.rings=NULL; TlsFree(state.tls); CloseHandle(state.pipe); return FALSE; }
     state.worker=CreateThread(NULL, 0, drain, NULL, 0, NULL);
-    if (!state.worker) { VirtualFree(state.rings, 0, MEM_RELEASE); state.rings=NULL; TlsFree(state.tls); CloseHandle(state.pipe); return FALSE; }
-    unsigned char start_signal=0; DWORD n=0;
-    if (!ReadFile(state.pipe, &start_signal, 1, &n, NULL) || n!=1 || start_signal!=1) { APNativeShutdown(5000); return FALSE; }
-    InterlockedExchange(&state.running, 1);
+    if (!state.worker) { CloseHandle(state.ready); VirtualFree(state.rings, 0, MEM_RELEASE); state.rings=NULL; TlsFree(state.tls); CloseHandle(state.pipe); return FALSE; }
+    HANDLE startup[2]={state.ready,state.worker};
+    if (WaitForMultipleObjects(2, startup, FALSE, 5000)!=WAIT_OBJECT_0) { APNativeShutdown(5000); return FALSE; }
     return TRUE;
 }
 AP_API BOOL APNativeShutdown(DWORD timeout_ms) {
@@ -184,7 +194,7 @@ AP_API BOOL APNativeShutdown(DWORD timeout_ms) {
     if (wait != WAIT_OBJECT_0) { CancelSynchronousIo(state.worker); return FALSE; }
     DWORD result = 1;
     GetExitCodeThread(state.worker, &result);
-    CloseHandle(state.worker); CloseHandle(state.pipe); TlsFree(state.tls);
+    CloseHandle(state.worker); CloseHandle(state.ready); CloseHandle(state.pipe); TlsFree(state.tls);
     VirtualFree(state.rings, 0, MEM_RELEASE);
     BOOL ok = !result && !load32(&state.io_error);
     ZeroMemory(&state, sizeof(state));
