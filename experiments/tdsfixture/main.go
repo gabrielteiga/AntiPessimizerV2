@@ -116,11 +116,34 @@ func run(path string) error {
 	if !ok {
 		return errors.New("expected owned Windows amd64 workload")
 	}
-	nm, err := exec.Command("go", "tool", "nm", "-size", path).Output()
-	if err != nil {
-		return err
+	var data []byte
+	if strings.EqualFold(filepath.Base(path), "APLaunchTarget.exe") {
+		var begin, end uint64
+		for _, symbol := range image.Symbols {
+			if symbol.SectionNumber < 1 || int(symbol.SectionNumber) > len(image.Sections) {
+				continue
+			}
+			rva := uint64(image.Sections[symbol.SectionNumber-1].VirtualAddress) + uint64(symbol.Value)
+			if symbol.Name == "APHookSum" {
+				begin = rva
+			}
+			if symbol.Name == "APHookSumEnd" {
+				end = rva
+			}
+		}
+		if begin == 0 || end <= begin {
+			return errors.New("owned native leaf symbols missing")
+		}
+		// Synthetic alias only: the C routine is not compiled by Delphi.
+		line := fmt.Sprintf("%x %d T main.hotspot\n", h.ImageBase+begin, end-begin)
+		data, err = fixture(strings.NewReader(line), h.ImageBase, h.BaseOfCode)
+	} else {
+		var nm []byte
+		nm, err = exec.Command("go", "tool", "nm", "-size", path).Output()
+		if err == nil {
+			data, err = fixture(bytes.NewReader(nm), h.ImageBase, h.BaseOfCode)
+		}
 	}
-	data, err := fixture(bytes.NewReader(nm), h.ImageBase, h.BaseOfCode)
 	if err != nil {
 		return err
 	}

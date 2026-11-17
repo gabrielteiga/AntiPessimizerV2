@@ -79,3 +79,19 @@ func TestPascalUnitResolution(t *testing.T) {
 		t.Fatal("unit leaked outside procedure", unknown)
 	}
 }
+
+func TestProcedureCatalogIsOrderedAndDetached(t *testing.T) {
+	x, err := New("build", "lab.exe", 0x4000, []Procedure{{Name: "Second", RVA: 0x2000, Size: 16}, {Name: "First", RVA: 0x1000, Size: 16}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := x.Procedures()
+	if len(rows) != 2 || rows[0].Name != "First" || rows[1].Name != "Second" {
+		t.Fatal(rows)
+	}
+	rows[0].Name = "changed"
+	loc, ok := x.Resolve(0x100000, 0x101000)
+	if !ok || loc.Procedure != "First" || x.Procedures()[0].Name != "First" {
+		t.Fatal("catalog mutation affected resolver")
+	}
+}

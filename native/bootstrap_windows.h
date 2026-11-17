@@ -26,33 +26,21 @@ static VOID WINAPI bootstrap_exit_process(UINT code) {
     CloseHandle(state.pipe);
     bootstrap_exit(code);
 }
-static BOOL bootstrap_hook_exit(void) {
-    unsigned char *image=(unsigned char *)GetModuleHandleW(NULL);
+static BOOL bootstrap_hook_exit_in(unsigned char *image) {
     IMAGE_NT_HEADERS64 *nt=(IMAGE_NT_HEADERS64 *)(image+((IMAGE_DOS_HEADER *)image)->e_lfanew);
     uint32_t size=nt->OptionalHeader.SizeOfImage;
     IMAGE_DATA_DIRECTORY directory=nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
     if(!directory.VirtualAddress || (uint64_t)directory.VirtualAddress+directory.Size>size) return FALSE;
-    union { FARPROC raw; VOID (WINAPI *exit)(UINT); } resolved;
-    resolved.raw=GetProcAddress(GetModuleHandleW(L"kernel32.dll"),"ExitProcess");
-    bootstrap_exit=resolved.exit;
-    if(!bootstrap_exit) return FALSE;
     for(uint32_t at=directory.VirtualAddress;at+sizeof(IMAGE_IMPORT_DESCRIPTOR)<=directory.VirtualAddress+directory.Size;at+=sizeof(IMAGE_IMPORT_DESCRIPTOR)) {
         IMAGE_IMPORT_DESCRIPTOR *d=(IMAGE_IMPORT_DESCRIPTOR *)(image+at);
         if(!d->Name) break;
         if(d->Name>=size || !memchr(image+d->Name,0,size-d->Name)) return FALSE;
-        if(_stricmp((const char *)image+d->Name,"kernel32.dll")) continue;
         for(uint32_t i=0;i<4096;i++) {
             uint64_t rva=(uint64_t)d->FirstThunk+i*8;
             if(!d->FirstThunk || rva+8>size) return FALSE;
             ULONG_PTR *slot=(ULONG_PTR *)(image+rva);
             if(!*slot) break;
             BOOL match=*slot==(ULONG_PTR)bootstrap_exit;
-            if(d->OriginalFirstThunk) {
-                uint64_t original=(uint64_t)d->OriginalFirstThunk+i*8;
-                if(original+8>size) return FALSE;
-                uint64_t name=*(uint64_t *)(image+original);
-                if(!(name&IMAGE_ORDINAL_FLAG64) && name+2<size && memchr(image+name+2,0,size-name-2)) match=!strcmp((const char *)image+name+2,"ExitProcess");
-            }
             if(match) {
                 DWORD old=0,ignored=0;
                 if(!VirtualProtect(slot,8,PAGE_READWRITE,&old)) return FALSE;
@@ -62,6 +50,21 @@ static BOOL bootstrap_hook_exit(void) {
         }
     }
     return FALSE;
+}
+static BOOL bootstrap_hook_exit(void) {
+    union { FARPROC raw; VOID (WINAPI *exit)(UINT); } resolved;
+    resolved.raw=GetProcAddress(GetModuleHandleW(L"kernel32.dll"),"ExitProcess");
+    bootstrap_exit=resolved.exit;
+    if(!bootstrap_exit) return FALSE;
+    /* Some CRT startups call exit() in their runtime DLL instead of importing
+       ExitProcess in the executable. Intercept the final OS call there too,
+       preserving all CRT/user finalizers before capture is drained. */
+    HMODULE modules[]={GetModuleHandleW(NULL),GetModuleHandleW(L"msvcrt.dll"),GetModuleHandleW(L"ucrtbase.dll")};
+    BOOL patched=FALSE;
+    for(unsigned i=0;i<sizeof(modules)/sizeof(modules[0]);i++) {
+        if(modules[i] && bootstrap_hook_exit_in((unsigned char *)modules[i])) patched=TRUE;
+    }
+    return patched;
 }
 AP_API DWORD WINAPI APNativeBootstrap(void *request) {
     if(!request || state.rings || bootstrap_mode) return ERROR_ALREADY_INITIALIZED;
