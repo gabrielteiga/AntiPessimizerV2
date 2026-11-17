@@ -235,3 +235,29 @@ O teste nativo confere retornos inteiros/SSE2 e RtlVirtualUnwind também para es
 blob. Ele não encontra nem instala patches em retornos de funções arbitrárias,
 não substitui o endereço de retorno e não resolve tail calls ou handlers Delphi.
 O instalador/exit relay geral e a validação das exceções continuam pendentes.
+
+## Plano para funções simples sem frame
+
+`x64.BuildLeaf` acrescenta um plano restrito para funções Win64 sem chamadas,
+desvios, alterações de RSP ou registradores não voláteis. Copia o corpo inteiro,
+ajusta referências RIP-relative e substitui o RET final da cópia por um salto
+ao probe de saída. A entrada original recebe um salto para o probe de entrada;
+o endereço de retorno do chamador permanece em sua posição original. O plano
+fornece bytes de restauração e os dois intervalos de RUNTIME_FUNCTION dos probes.
+O corpo copiado permanece uma função sem frame para o unwinder Windows.
+
+O subconjunto aceita operações inteiras/SSE2 explícitas e argumentos de pilha
+somente para leitura. Rejeita acesso ao slot do retorno, instruções de strings,
+AVX, prefixo LOCK, retornos com limpeza de pilha, controle de fluxo e referências
+RIP ao próprio procedimento. A extensão conhecida deve conter apenas código,
+terminar em RET e ter até 4096 bytes. O chamador deve verificar que não há
+metadados de exceção/handlers nem entradas externas no interior da função.
+O planejador não lê PE/pdata para comprovar essas condições e não escreve memória.
+
+O teste Windows aplica o plano exclusivamente numa função própria alocada pelo
+teste, com chamadores quiescentes. A função soma seis argumentos, passando pelos
+probes e pela DLL real até o núcleo Go. Exige dez chamadas completas, tempos e
+média coerentes, depois restaura e executa o retorno original. O teste também
+mantém o caminho anterior de probes ligados a uma função assembly preparada.
+Não comprova instalação em procedimentos Delphi arbitrários, chamadas aninhadas,
+exceções, sincronização de threads ativas ou políticas CFG/CET.

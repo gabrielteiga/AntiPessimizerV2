@@ -151,3 +151,12 @@ func TestNegativeOriginalRIPDisplacement(t *testing.T) {
 		t.Fatal("negative RIP target changed", disp)
 	}
 }
+
+func TestPlanAcceptsScalarDoubleMove(t *testing.T) {
+	code := append([]byte{0xf2, 0x0f, 0x11, 0x44, 0x24, 0x08}, bytes.Repeat([]byte{0x90}, 8)...)
+	code = append(code, 0xc3)
+	p, err := Build(code, 0x1000, 0x2000, 0x3000)
+	if err != nil || !bytes.Equal(p.Trampoline[:14], code[:14]) {
+		t.Fatal("scalar MOVSD_XMM prologue rejected or changed", p, err)
+	}
+}

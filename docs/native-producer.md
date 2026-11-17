@@ -96,6 +96,12 @@ segundos. Isso cobre a reserva de nome do listener antes de Accept, sem depender
 de qual thread ganha a corrida de inicialização. O teste também atrasa Accept
 intencionalmente; não há espera ou retry de conexão dentro dos callbacks.
 
+O mesmo teste também exercita `x64.BuildLeaf`: uma função simples em página
+própria recebe um salto de entrada e executa o corpo copiado com saída para o
+probe. Os dez resultados e chamadas devem permanecer exatos. Após shutdown,
+restaura o prefixo e executa novamente o código original. O plano exige ausência
+de frames/handlers e rejeita calls/branches; não é instalação geral em Delphi.
+
 O CI também liga BuildEntryProbe e BuildExitProbe aos exports reais
 APNativeEnter/APNativeExit da DLL. Um procedimento Win64 privado em assembly
 recebe seis argumentos, calcula o resultado e passa pelos probes configurados
