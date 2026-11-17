@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"debug/pe"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,6 +51,8 @@ func TestNativeProducerDebugLaunchWithoutApplicationCooperation(t *testing.T) {
 	if bytes.Contains(data, []byte("AntiPessimizerNative.dll")) || bytes.Contains(data, []byte("APNativeInitHooks")) {
 		t.Fatal("target is linked to the profiler")
 	}
+	marker := filepath.Join(t.TempDir(), "finalizer.txt")
+	o.Args = append(o.Args, "--marker", marker)
 	var output bytes.Buffer
 	if err := Launch(context.Background(), o, &output); err != nil {
 		t.Fatal(err, output.String())
@@ -59,15 +62,27 @@ func TestNativeProducerDebugLaunchWithoutApplicationCooperation(t *testing.T) {
 		t.Fatal(err)
 	}
 	last := records[len(records)-1]
-	if last.Metrics.Incomplete || last.Metrics.OpenCalls != 0 || last.Metrics.AbandonedCalls != 0 || len(last.Metrics.Rows) != 3 {
+	if last.Metrics.Incomplete || last.Metrics.OpenCalls != 0 || last.Metrics.AbandonedCalls != 0 || len(last.Metrics.Rows) != 4 {
 		t.Fatal("unmodified application capture incomplete", last)
 	}
+	finalizers, workers := 0, 0
 	for _, row := range last.Metrics.Rows {
-		if row.Calls != 10 || row.InclusiveTicks == 0 || row.ExclusiveTicks != row.InclusiveTicks {
+		if row.Calls == 1 {
+			finalizers++
+		} else if row.Calls == 10 {
+			workers++
+		}
+		if (row.Calls != 10 && row.Calls != 1) || row.InclusiveTicks == 0 || row.ExclusiveTicks != row.InclusiveTicks {
 			t.Fatal("wrong unmodified application count/time", row)
 		}
 	}
-	t.Log("owned unmodified target stopped at entry, native DLL loaded, hooks installed, 30 calls collected from 3 threads, natural exit drained")
+	if workers != 3 || finalizers != 1 {
+		t.Fatal("finalizer/worker calls not preserved", workers, finalizers)
+	}
+	if got, err := os.ReadFile(marker); err != nil || string(got) != "finalized" {
+		t.Fatal("application finalizers skipped", string(got), err)
+	}
+	t.Log("unmodified target: 30 worker calls + 1 atexit call; application finalizer ran and natural exit drained")
 }
 func TestNativeProducerDebugEventLayout(t *testing.T) {
 	if unsafe.Sizeof(debugEvent{}) != 176 || unsafe.Offsetof(debugEvent{}.data) != 16 {
@@ -80,5 +95,34 @@ func TestNativeProducerDebugLaunchMissingDLLPreservesStartupFailure(t *testing.T
 	var output bytes.Buffer
 	if err := Launch(context.Background(), o, &output); err == nil || strings.Contains(output.String(), `"incomplete":false`) {
 		t.Fatal("failed startup advertised successful capture", err, output.String())
+	}
+}
+
+type cancelAfterSnapshot struct {
+	bytes.Buffer
+	cancel context.CancelFunc
+}
+
+func (w *cancelAfterSnapshot) Write(b []byte) (int, error) {
+	n, err := w.Buffer.Write(b)
+	w.cancel()
+	return n, err
+}
+func TestNativeProducerDebugLaunchCancellationIsIncomplete(t *testing.T) {
+	o := launchFixture(t)
+	o.Args = []string{"--threads", "2", "--iterations", "10000"}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	output := cancelAfterSnapshot{cancel: cancel}
+	err := Launch(ctx, o, &output)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatal("owned launch cancellation missing", err)
+	}
+	records, err := instrumentation.ReadMetrics(&output.Buffer)
+	if err != nil || len(records) == 0 {
+		t.Fatal(err, output.String())
+	}
+	if !records[len(records)-1].Metrics.Incomplete {
+		t.Fatal("cancelled launch advertised complete")
 	}
 }

@@ -5,10 +5,16 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <wchar.h>
+#include <stdio.h>
 #include "leaf_lab_asm.h"
 
 static uint32_t iterations=10;
 static HANDLE barrier;
+static const wchar_t *marker;
+static void finalize(void){
+ if(APHookSum(0,11,13,17,19,23)!=777) ExitProcess(9);
+ if(marker){FILE *f=_wfopen(marker,L"wb");if(!f)ExitProcess(9);fputs("finalized",f);fclose(f);}
+}
 static DWORD WINAPI worker(void *unused){
  (void)unused;
  if(WaitForSingleObject(barrier,5000)!=WAIT_OBJECT_0) return 1;
@@ -25,9 +31,11 @@ int wmain(int argc,wchar_t **argv){
   if(i+1>=argc)return 2;
   if(!wcscmp(argv[i],L"--iterations"))iterations=(uint32_t)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--threads"))threads=(uint32_t)wcstoul(argv[i+1],NULL,10);
+  else if(!wcscmp(argv[i],L"--marker"))marker=argv[i+1];
   else return 2;
  }
  if(!iterations||iterations>100000||!threads||threads>16)return 2;
+ if(atexit(finalize))return 3;
  barrier=CreateEventW(NULL,TRUE,FALSE,NULL);if(!barrier)return 3;
  HANDLE handles[16];DWORD result=0;
  for(uint32_t i=0;i<threads;i++){handles[i]=CreateThread(NULL,0,worker,NULL,0,NULL);if(!handles[i])return 3;}

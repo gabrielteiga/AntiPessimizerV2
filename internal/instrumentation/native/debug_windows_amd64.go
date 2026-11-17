@@ -36,6 +36,11 @@ func launchStopped(ctx context.Context, path string, args []string, dll, pipe st
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
 		defer close(d.done)
+		if err := ctx.Err(); err != nil {
+			d.err = err
+			close(ready)
+			return
+		}
 		p, job, err := createOwnedFlags(path, args, 2) // DEBUG_ONLY_THIS_PROCESS
 		d.process, d.job = p, job
 		if err != nil {

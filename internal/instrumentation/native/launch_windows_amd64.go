@@ -26,6 +26,9 @@ func Launch(parent context.Context, o LaunchOptions, out io.Writer) (resultErr e
 	if err := o.validate(); err != nil {
 		return err
 	}
+	if err := parent.Err(); err != nil {
+		return err
+	}
 	path, err := filepath.Abs(o.Image)
 	if err != nil {
 		return err

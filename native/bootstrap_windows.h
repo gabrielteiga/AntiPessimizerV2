@@ -6,7 +6,9 @@
 #define AP_BOOTSTRAP_WINDOWS_H
 static VOID (WINAPI *bootstrap_exit)(UINT);
 static BOOL bootstrap_mode;
+static volatile LONG bootstrap_exiting;
 static VOID WINAPI bootstrap_exit_process(UINT code) {
+    if(InterlockedCompareExchange(&bootstrap_exiting,1,0)) {bootstrap_exit(code);return;}
     InterlockedExchange(&state.running,0);
     ULONGLONG deadline=GetTickCount64()+2000;
     while(load32(&state.writers) && GetTickCount64()<deadline) Sleep(1);

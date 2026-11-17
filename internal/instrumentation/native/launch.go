@@ -8,8 +8,11 @@ import (
 )
 
 type SelectedProcedure struct {
-	ID, RVA, Size uint32
-	Name, Unit    string
+	ID   uint32 `json:"id"`
+	RVA  uint32 `json:"rva"`
+	Size uint32 `json:"size"`
+	Name string `json:"name"`
+	Unit string `json:"unit,omitempty"`
 }
 type LaunchOptions struct {
 	Image, DLL string

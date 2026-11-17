@@ -35,3 +35,20 @@ foreach ($row in $rows) { if ($row.procedure -ne 'APHookSum' -or $row.call_count
 $view = & (Join-Path $dir 'viewer.exe') --instrumentation --replay $hookArchive
 if ($LASTEXITCODE -ne 0 -or !($view -join "`n").Contains('APHookSum')) { throw 'Installed-hook metrics did not reach viewer' }
 Write-Host 'PASS: Go controller -> native startup installation -> actual hooked calls -> metrics -> independent viewer; original code verified after removal'
+$launchTarget = Join-Path (Split-Path $env:AP_NATIVE_LAB) 'APLaunchTarget.exe'
+$launchSymbols = [IO.Path]::ChangeExtension($launchTarget, '.tds')
+if (Test-Path $launchSymbols) { Remove-Item $launchSymbols }
+go run ./experiments/tdsfixture $launchTarget
+if ($LASTEXITCODE -ne 0) { throw 'Owned native TD32 fixture generation failed' }
+go build -o (Join-Path $dir 'instrument.exe') ./cmd/instrument
+if ($LASTEXITCODE -ne 0) { throw 'Instrument command build failed' }
+$launchArchive = Join-Path $dir 'unmodified-target-metrics.ndjson'
+$nativeDll = Join-Path (Split-Path $env:AP_NATIVE_LAB) 'AntiPessimizerNative.dll'
+& (Join-Path $dir 'instrument.exe') --image $launchTarget --dll $nativeDll --unit LabWorkload --procedure Lab.Hotspot --arg=--threads --arg=3 --arg=--iterations --arg=10 | Set-Content -Encoding utf8 $launchArchive
+if ($LASTEXITCODE -ne 0) { throw 'Unmodified target instrumentation command failed' }
+$last = Get-Content $launchArchive | Select-Object -Last 1 | ConvertFrom-Json
+$rows = @($last.metrics.procedures)
+if ($last.metrics.incomplete -or $rows.Count -ne 4 -or @($rows | Where-Object { $_.call_count -eq 10 }).Count -ne 3 -or @($rows | Where-Object { $_.call_count -eq 1 }).Count -ne 1) { throw 'Unmodified target/finalizer counts invalid' }
+$view = & (Join-Path $dir 'viewer.exe') --instrumentation --replay $launchArchive
+if ($LASTEXITCODE -ne 0 -or !($view -join "`n").Contains('Lab.Hotspot') -or !($view -join "`n").Contains('LabWorkload')) { throw 'TD32-selected unmodified target metrics did not reach viewer' }
+Write-Host 'PASS: TD32 selection -> unmodified owned process -> native installation -> worker/finalizer calls -> metrics -> independent viewer'
