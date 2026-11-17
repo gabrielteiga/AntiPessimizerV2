@@ -119,3 +119,11 @@ aparecem no viewer Go de arquivos, com ordenação dos valores numéricos origin
 antes da formatação em ms. O Go preserva precisão inteira da contagem ao ordenar
 e não soma snapshots cumulativos. A validação da janela Windows usa eventos
 explícitos da fixture sintética; não comprova o caminho de captura nativa Delphi.
+
+Consultados `HookJump`, `HookEpilogue` e `HookedExceptionHandler` de ExeLoader:
+o registro nativo, o retorno do procedimento e o unwind são responsabilidades
+distintas. O produtor C/Go implementa a captura em uma carga C cooperativa. O
+probe Go Win64/SSE2 acrescenta preservação dos argumentos voláteis e metadados
+dinâmicos de unwind para o próprio shim, com testes Windows controlados. Nenhum
+desses testes comprova retorno/handlers Delphi, políticas CFG/CET ou instalação
+coordenada em aplicação sem modificações.

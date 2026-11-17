@@ -18,7 +18,7 @@ Revisado em 17 de novembro de 2026.
 | Viewer e arquivos | Interface Win32 e terminal, filtros, ordenação, histórico, salvar/replay e comparação de sampling; testes Windows dos executáveis e da janela |
 | Contagens, tempos e médias | Núcleo instrumentado e replay, com recursão, threads, unwind, Clear e perdas; testes sintéticos e callbacks nativos em carga C própria |
 | Produtor nativo controlado | DLL C com QPC, filas por thread, detecção de perdas e controller Go; integração Windows com carga própria, sem instalação de hooks Delphi |
-| Preparação dos hooks x64 | Planejador de prólogos/trampolins, relocação RIP-relative e teste nativo controlado de execução, redirecionamento e restauração em memória própria |
+| Preparação dos hooks x64 | Planejador de prólogos/trampolins e probe de entrada Win64/SSE2 com metadados de unwind; testes nativos controlados de argumentos, SIMD, relocação, redirecionamento e restauração em memória própria |
 | Captura instrumentada Delphi ao vivo | **Pendente:** ligação do produtor aos hooks, instalação coordenada, preservação de ABI/retorno/exceções e integração ao serviço/viewer |
 
 A adaptação ainda não tem funcionamento completo equivalente ao AntiPessimizer

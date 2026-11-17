@@ -200,3 +200,31 @@ RIP-relative, o redirecionamento de entrada e a restauração, conferindo retorn
 42/99 esperados. As chamadas estão quiescentes durante as escritas; não é teste
 de patching concorrente, DLL injetada, exceções Delphi ou ABI do relay de hooks.
 Esses gates permanecem obrigatórios antes de expor instrumentação live.
+
+## Probe de entrada Win64/SSE2
+
+`x64.BuildEntryProbe` gera um shim separado para chamar um helper C nativo com
+o ID do procedimento e continuar para o código original/trampolim. Não instala
+o shim nem altera endereços de retorno. O helper segue `void Helper(uint32 id)`
+na ABI Win64 e deve preservar LastError e os registradores não voláteis, como o
+produtor C. O probe salva os GPRs voláteis e XMM0..5, reserva home slots próprios
+e alinha a pilha para a chamada. Argumentos de pilha do procedimento permanecem
+nas posições originais quando a execução continua.
+
+O blob inclui UNWIND_INFO versão 1 para a alocação de pilha de 200 bytes. Antes
+de executá-lo, o instalador deverá registrar RUNTIME_FUNCTION com o endereço
+base, CodeSize e UnwindRVA retornados; remover a tabela e liberar memória exige
+quiescência. Isso ainda não cria metadados para o prólogo original relocacionado,
+nem trata o unwind lógico das âncoras do profiler ou os handlers Delphi.
+
+O teste Windows executa o shim em memória própria contra helper nativo que
+sobrescreve os GPRs voláteis, XMM0..5 e todos os home slots. Confere seis argumentos
+inteiros (dois de pilha), seis valores SIMD, ID e alinhamento. Também registra a
+tabela dinâmica e chama RtlVirtualUnwind sobre CONTEXTs/pilha privados nas fases
+de entrada, corpo e epílogo. São contextos controlados, não exceções Delphi reais.
+
+O contrato é a ABI Win64/SSE2 padrão: flags aritméticos e metades superiores AVX
+são voláteis. Convenções assembly próprias, vectorcall, argumentos AVX, políticas
+CFG/CET e instalação em threads em execução precisam de gates separados.
+Captura de retorno/exit relay permanece pendente; este shim registra apenas a
+fronteira de entrada e não autoriza anunciar chamadas concluídas por si só.
