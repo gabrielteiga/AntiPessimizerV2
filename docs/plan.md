@@ -2,6 +2,14 @@
 
 ## Estado atual e sequência ajustada
 
+Atualização de 17/11: o bloco de frames/chamadas/recursão e unwind nativo entrou
+no PR #20 com CI completo aprovado. O serviço e a janela agora integram catálogo
+pesquisável, seleção múltipla, novo lançamento instrumentado, stop, snapshots e
+histórico. Os trechos abaixo que descrevem essas integrações como futuras
+registram os gates anteriores; handlers de linguagem Delphi e Clear sincronizado
+nativo continuam próximos gates de paridade. O README mantém a matriz atual.
+
+
 O fluxo principal está implementado: processo alvo Windows amd64 → sampling
 ETW → resolução PE/TD32 → agregação por janela → histórico → Named Pipe → viewer
 Win32 independente. O viewer oferece processo/start/stop, tabela virtual, filtros,

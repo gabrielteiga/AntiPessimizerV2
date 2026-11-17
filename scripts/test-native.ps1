@@ -55,3 +55,48 @@ Write-Host 'PASS: TD32 selection -> unmodified owned process -> native installat
 
 go test -v -count=3 -timeout=45s ./internal/instrumentation/native -run '^TestNativeProducerFramedCallsRecursionAndRealExceptionUnwind$'
 if ($LASTEXITCODE -ne 0) { throw 'Repeated framed calls/recursion/Windows unwind failed' }
+
+# The service owns a real unmodified target; viewers only control/observe it.
+foreach ($name in @('collector')) {
+    go build -o (Join-Path $dir "$name.exe") "./cmd/$name"
+    if ($LASTEXITCODE -ne 0) { throw "Cannot build $name" }
+}
+Copy-Item -Force $nativeDll (Join-Path $dir 'AntiPessimizerNative.dll')
+$servicePipe = "\\.\pipe\ap-instrument-e2e-$PID"
+$collector = Start-Process -FilePath (Join-Path $dir 'collector.exe') -ArgumentList @('--serve', '--address', $servicePipe) -PassThru -NoNewWindow
+try {
+    $ready = $false
+    for ($attempt = 0; $attempt -lt 100; $attempt++) {
+        $null = & (Join-Path $dir 'viewer.exe') --address $servicePipe --op status 2>$null
+        if ($LASTEXITCODE -eq 0) { $ready = $true; break }
+        Start-Sleep -Milliseconds 50
+    }
+    if (!$ready) { throw 'Instrumented service did not start' }
+    $catalog = & (Join-Path $dir 'viewer.exe') --address $servicePipe --op instrument-catalog --image $launchTarget | ConvertFrom-Json
+    if ($LASTEXITCODE -ne 0 -or $catalog.catalog.total -ne 1) { throw 'Service TD32 catalog failed' }
+    $procedureID = $catalog.catalog.procedures[0].id
+    $null = & (Join-Path $dir 'viewer.exe') --address $servicePipe --op instrument-start --image $launchTarget --image-id $catalog.catalog.image_id --catalog-id $catalog.catalog.catalog_id --procedure-ids $procedureID --arg=--threads --arg=3 --arg=--iterations --arg=10
+    if ($LASTEXITCODE -ne 0) { throw 'Service instrumented launch failed' }
+    $finished = $false
+    for ($attempt = 0; $attempt -lt 100; $attempt++) {
+        $state = & (Join-Path $dir 'viewer.exe') --address $servicePipe --op latest | ConvertFrom-Json
+        if ($LASTEXITCODE -ne 0) { throw 'Service latest failed' }
+        if ($state.status.state -in @('stopped', 'error')) { $finished = $true; break }
+        Start-Sleep -Milliseconds 50
+    }
+    if (!$finished -or $state.status.state -ne 'stopped' -or $state.metric.metrics.incomplete -or $state.status.mode -ne 'instrumentation') { throw "Service capture incomplete: $($state | ConvertTo-Json -Depth 8)" }
+    $rows = @($state.metric.metrics.procedures)
+    if ($rows.Count -ne 4 -or @($rows | Where-Object { $_.call_count -eq 10 }).Count -ne 3 -or @($rows | Where-Object { $_.call_count -eq 1 }).Count -ne 1) { throw 'Service counts differ from direct native capture' }
+    $archive = & (Join-Path $dir 'viewer.exe') --address $servicePipe --op instrument-history | ConvertFrom-Json
+    if ($LASTEXITCODE -ne 0 -or @($archive.metrics).Count -eq 0) { throw 'Service retained no instrumented history' }
+    $null = & (Join-Path $dir 'viewer.exe') --address $servicePipe --op instrument-start --image $launchTarget --image-id $catalog.catalog.image_id --catalog-id $catalog.catalog.catalog_id --procedure-ids $procedureID --arg=--threads --arg=2 --arg=--iterations --arg=10000
+    if ($LASTEXITCODE -ne 0) { throw 'Service restart failed' }
+    Start-Sleep -Milliseconds 300
+    $null = & (Join-Path $dir 'viewer.exe') --address $servicePipe --op stop
+    if ($LASTEXITCODE -ne 0) { throw 'Service Stop failed' }
+    $state = & (Join-Path $dir 'viewer.exe') --address $servicePipe --op latest | ConvertFrom-Json
+    if ($state.status.state -ne 'stopped' -or ($state.metric -and !$state.metric.metrics.incomplete)) { throw 'Stopped owned target advertised complete capture' }
+    Write-Host 'PASS: service TD32 selection -> owned native launch -> call/time metrics -> independent viewer queries/history -> restart and explicit Stop'
+} finally {
+    if (!$collector.HasExited) { Stop-Process -Id $collector.Id -Force; $collector.WaitForExit(5000) | Out-Null }
+}

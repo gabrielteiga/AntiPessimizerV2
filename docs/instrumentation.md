@@ -382,3 +382,23 @@ e médias são conferidas no consumidor. Outra execução mantém Child por 700 
 e exige publicação antes do retorno. A fixture é C/GCC com unwind v1: não
 comprova handlers Delphi, chaining, todas as versões do compilador, CFG/CET,
 AVX/vectorcall, tail calls, entrada no interior ou funções acima de 4096 bytes.
+
+
+## Controle instrumentado pelo serviço e janela
+
+O modo Chamadas da janela usa exclusivamente RPCs: lê catálogo por busca/página,
+seleciona até 16 procedimentos e envia o novo lançamento ao coletor. Argumentos
+são decompostos pela API Windows e enviados como valores separados; prazo padrão
+60 s. O serviço compara image_id e catalog_id (hash dos procedimentos resolvidos)
+antes de usar os IDs, e o launcher confere novamente o hash da imagem ao abrir.
+A identidade do catálogo detecta alteração de símbolos entre seleção/início; não
+comprova que um TDS externo foi emitido pelo mesmo compilador/build do EXE.
+
+Um único owner captura, valida e retém os records. Close da janela não chama Stop;
+Stop explícito cancela/aguarda apenas o alvo criado pelo serviço e preserva o final
+incompleto. O histórico fica disponível após término natural e pode ser salvo
+pelo viewer. Testes Go cobrem concorrência entre modos, restauração de lifecycle,
+retenção, imutabilidade e observador lento/desconectado. O smoke Win32 seleciona
+procedimento, envia argumentos e confere métricas; o teste dos executáveis exige
+captura nativa via collector, consulta/history, reinício e Stop. Clear nativo e
+handlers específicos Delphi permanecem fora deste bloco.

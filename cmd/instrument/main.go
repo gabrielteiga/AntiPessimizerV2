@@ -1,6 +1,6 @@
 // Command instrument launches an owned Windows x64 executable and measures an
-// explicit TD32/TDS procedure selection. Only checked native leaf functions are
-// supported; functions requiring frames or language handlers are rejected.
+// explicit TD32/TDS procedure selection. Native frames and calls require verified
+// version-1 unwind; original language handlers remain unsupported.
 package main
 
 import (
@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/instrumentation/native"
-	"github.com/gabrielteiga/AntiPessimizerV2/internal/symbols"
 )
 
 type repeated []string
@@ -47,31 +46,11 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer) (result
 	if *path == "" || flags.NArg() != 0 {
 		return errors.New("usage: instrument --image app.exe --list | --procedure Name [--unit Unit] [--arg value]")
 	}
-	image, err := symbols.LoadImage(*path)
+	catalog, err := native.ReadCatalog(*path)
 	if err != nil {
 		return err
 	}
-	catalog := image.Index.Procedures()
-	if len(catalog) == 0 {
-		return errors.New("no supported TD32/TDS procedures found")
-	}
-	matches := func(values []string, name string) bool {
-		if len(values) == 0 {
-			return true
-		}
-		for _, v := range values {
-			if strings.EqualFold(v, name) {
-				return true
-			}
-		}
-		return false
-	}
-	var selected []native.SelectedProcedure
-	for _, p := range catalog {
-		if matches(units, p.Unit) && matches(names, p.Name) {
-			selected = append(selected, native.SelectedProcedure{ID: uint32(len(selected) + 1), RVA: uint32(p.RVA), Size: uint32(p.Size), Name: p.Name, Unit: p.Unit})
-		}
-	}
+	selected := catalog.Match(units, names)
 	if len(selected) == 0 {
 		return errors.New("no procedures match the requested selection")
 	}
@@ -83,7 +62,7 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer) (result
 			ImageID      string                     `json:"image_id"`
 			SymbolSource string                     `json:"symbol_source"`
 			Procedures   []native.SelectedProcedure `json:"procedures"`
-		}{image.ID, image.SymbolSource, selected})
+		}{catalog.ImageID, catalog.SymbolSource, selected})
 	}
 	if len(units) == 0 && len(names) == 0 {
 		return errors.New("select --procedure or --unit explicitly before launching")
@@ -99,7 +78,7 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer) (result
 		defer func() { resultErr = errors.Join(resultErr, f.Close()) }()
 		out = f
 	}
-	return native.Launch(ctx, native.LaunchOptions{Image: *path, ImageID: image.ID, DLL: *dll, Args: programArgs, Procedures: selected, Capacity: *capacity, Timeout: *timeout}, out)
+	return native.Launch(ctx, native.LaunchOptions{Image: *path, ImageID: catalog.ImageID, DLL: *dll, Args: programArgs, Procedures: selected, Capacity: *capacity, Timeout: *timeout}, out)
 }
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)

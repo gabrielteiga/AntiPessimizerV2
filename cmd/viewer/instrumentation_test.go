@@ -45,7 +45,7 @@ func TestViewerInstrumentedMetrics(t *testing.T) {
 	if err := run(nil, bytes.NewReader(wire.Bytes()), io.Discard, io.Discard); err == nil {
 		t.Fatal("metrics accepted as samples")
 	}
-	for _, args := range [][]string{{"--instrumentation", "--op", "start"}, {"--instrumentation", "--save", "x"}, {"--instrumentation", "--compare", "x"}, {"--instrumentation", "--gui"}} {
+	for _, args := range [][]string{{"--instrumentation", "--op", "start"}, {"--instrumentation", "--save", "x"}, {"--instrumentation", "--compare", "x"}} {
 		if err := run(args, strings.NewReader(""), io.Discard, io.Discard); err == nil {
 			t.Fatal("ambiguous options accepted", args)
 		}

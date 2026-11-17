@@ -2,74 +2,99 @@
 
 Profiler de aplicações Delphi **Windows x64**, implementado em Go a partir dos
 comportamentos do [AntiPessimizer](https://github.com/Hoshoyo/AntiPessimizer).
-Collector e viewer são processos independentes. A coleta ao vivo pela interface
-usa amostragem ETW e mede amostras de CPU por procedimento/thread. O comando
-`instrument` também lança um executável próprio para contar chamadas reais no
-subconjunto Win64 com prólogos e unwind verificados, selecionado por símbolos TD32/TDS. O núcleo de
-instrumentação também calcula chamadas, tempos inclusivos/exclusivos e médias a
-partir de eventos explícitos; seus resultados já podem ser abertos no viewer.
+Collector e viewer são processos independentes. Oferece amostragem de CPU por
+ETW e lançamento instrumentado com contagens reais de chamadas, tempos e médias.
+`amd64` é o nome da arquitetura x64 no Go: funciona em processadores Intel e AMD.
 
 ## Estado atual
 
 Revisado em 17 de novembro de 2026.
 
-| Capacidade | Estado implementado e evidência |
+| Capacidade | Implementação e evidência |
 |---|---|
-| Coleta ao vivo | ETW no Windows, com identidade de processo/thread, tratamento de perdas e encerramento; integração automatizada sobre carga própria |
-| Símbolos Delphi | Subconjunto TD32/TDS FB09/FB0A, procedimentos e unidades Pascal; cobertura e limites em [docs/td32.md](docs/td32.md) |
-| Viewer e arquivos | Interface Win32 e terminal, filtros, ordenação, histórico, salvar/replay e comparação de sampling; testes Windows dos executáveis e da janela |
-| Contagens, tempos e médias | Núcleo instrumentado e replay, com recursão, threads, unwind, Clear e perdas; testes sintéticos e callbacks nativos em carga C própria |
-| Produtor nativo controlado | DLL C com QPC, filas por thread, detecção de perdas e controller Go; integração Windows com carga própria, sem instalação de hooks Delphi |
-| Instalação em processo de teste | Coletor Go instala medidores em funções sem frame, incluindo condições/repetições, de outro processo próprio; testes de três threads, resultados corretos, perdas e restauração do código ao encerrar |
-| Preparação dos hooks x64 | Planejador de prólogos/trampolins, probes Win64/SSE2 e plano restrito para funções simples, com validação de seções e metadados de unwind PE; integração controlada com a DLL e contagem Go, redirecionamento e restauração em memória própria |
-| Lançamento instrumentado | Comando `instrument`, seleção TD32/TDS e DLL carregada antes do ponto de entrada; teste Windows em EXE C sem SDK do profiler, com threads, finalizadores, cancelamento e viewer |
-| Funções com pilha e chamadas | Plano PE com prólogo/unwind v1 preservados, chamadas diretas/indiretas e recursão; testes Windows em alvo C sem SDK, com exceção real e handler externo original |
-| Paridade de instrumentação Delphi | **Pendente:** handlers/exceções Delphi e controle ao vivo pelo serviço/viewer; não foram comprovadas todas as versões Delphi |
+| Sampling ao vivo | ETW Windows, identidade de processo/thread, perdas e encerramento; integração automatizada em carga própria |
+| Símbolos Delphi | TD32/TDS FB09/FB0A, procedimentos, unidades Pascal e diretórios encadeados; símbolos embutidos ou `.tds` adjacente |
+| Métricas instrumentadas | Chamadas, tempos inclusivos/exclusivos, médias, recursão, threads, unwind, Clear e perdas no núcleo Go |
+| Lançamento instrumentado | Novo processo próprio sem SDK do profiler; DLL instalada antes do ponto de entrada, seleção TD32/TDS e finalizadores preservados |
+| Funções com pilha/chamadas | Prólogos e unwind v1 verificados; calls, recursão, condições, loops e múltiplas saídas; testes Windows em alvo C com exceção SEH real |
+| Controle pela interface | Catálogo pesquisável, seleção de até 16 procedimentos, argumentos, prazo, iniciar/parar pelo coletor e métricas ao vivo na janela |
+| Independência do viewer | Fechar a janela/desconectar observador não encerra a captura; Parar cancela explicitamente o novo processo instrumentado |
+| Arquivos e histórico | Salvar/replay, acompanhamento de arquivo crescente, filtros, ordenação e histórico limitado; comparação entre sessões de sampling |
+| Qualidade | Testes Go/race, integração nativa Windows, ETW, janela Win32, executáveis e empacotamento; merge somente com CI aprovado no commit exato |
 
-A adaptação ainda não tem funcionamento completo equivalente ao AntiPessimizer
-do Hoshoyo. As principais etapas restantes são ampliar a captura para funções
-com handlers/exceções Delphi e integrar seu controle à interface ao vivo. O teste do trampolim não comprova a instalação dos hooks
-em aplicações Delphi; amostras ETW não são contagens de chamadas. O próximo bloco
-inclui seleção dos procedimentos e fluxo de lançamento instrumentado, lifecycle
-e buffer limitado de eventos, integração ao vivo e validação de overhead e
-compatibilidade Delphi. Veja o [plano de instrumentação](docs/instrumentation.md).
+**Ainda não há paridade completa com o original.** Handlers/exceções específicos
+Delphi, tabelas de unwind encadeadas, tail calls e outros formatos/instruções
+continuam fora do subconjunto aceito. Clear já existe no núcleo/replay, mas não
+como comando sincronizado da captura nativa. A compatibilidade com todas as
+variantes do Delphi 10.4 e o overhead nesse ambiente ainda não foram comprovados.
+Fixtures C e TDS sintéticos não são apresentados como binários compilados no Delphi.
 
-O [laboratório do produtor nativo](docs/native-producer.md) já permite capturar
-chamadas e tempos QPC de uma carga C cooperativa e abri-los no viewer. O helper
-e as cargas de teste são compilados com GCC/MinGW. O pacote Windows agora inclui
-`instrument.exe` e `AntiPessimizerNative.dll`; as cargas de teste não são distribuídas. Os probes gerados em Go também são exercitados com
-essa DLL, incluindo uma função simples cujo código de entrada é redirecionado
-e restaurado em memória própria. Isso não instrumenta um executável Delphi existente.
-O laboratório `APHookLab.exe` também recebe os medidores pelo coletor, sem
-callbacks inseridos pelo compilador. A inicialização mantém os chamadores
-parados até a instalação terminar. Esse caminho exige cooperação do executável
-de teste e aceita apenas o subconjunto de funções simples.
-
-## Windows
+## Pacote Windows
 
 Os builds aprovados do [GitHub Actions](https://github.com/gabrielteiga/AntiPessimizerV2/actions)
-geram o artifact `AntiPessimizer-Windows-amd64`, com executáveis, instruções,
-licenças e checksums. `amd64` é o nome da arquitetura x64 no Go, usada por
-processadores Intel e AMD. Extraia o pacote e use `Start-Profiler.cmd`. O launcher
-solicita elevação para o collector quando necessário para ETW; o viewer usa
-Named Pipe local restrito ao mesmo usuário. Também é possível iniciar separado:
+geram `AntiPessimizer-Windows-amd64`, com executáveis, DLL nativa, instruções,
+licenças e checksums. Extraia tudo na mesma pasta e use `Start-Profiler.cmd`.
+O launcher solicita elevação para ETW quando necessário. Comunicação por Named
+Pipe local, restrita ao mesmo usuário. Também é possível iniciar separado:
 
 ```bat
 collector.exe --serve
 viewer.exe --gui
 ```
 
-No viewer: atualize a lista de processos, selecione o alvo e use **Iniciar**.
-**Parar** encerra a sessão preservando o histórico. **Demo** valida o fluxo sem
-monitorar processo. A tabela virtual aceita filtros por texto/TID, ordenação
-por coluna, visão por thread e intervalo. A barra navega por janelas retidas ou
-por um arquivo aberto. O gráfico mostra contagem de amostras por janela.
+No modo de amostras, atualize os processos, selecione o alvo e use **Iniciar**.
+**Parar** preserva o histórico. **Demo** usa dados sintéticos. A tabela oferece
+filtros por procedimento/unidade/TID, ordenação, visão por thread e histórico.
+Amostras ETW são atividade de CPU observada; não são contagens de chamadas.
 
-A caixa de caminho permite salvar NDJSON, reproduzir arquivo e comparar um arquivo
-com a série atual. Comparações mostram contagens e variação em amostras/s e exigem
-identidades de binário compatíveis. Fechar o viewer não encerra o collector.
+## Medir chamadas pela interface
 
-## Automação e arquivos
+Na janela, use **Chamadas**, informe o caminho completo do EXE e clique em
+**Ler símbolos**. A busca reduz o catálogo por unidade ou procedimento; apresenta
+até 200 resultados por consulta. Selecione de 1 a 16 procedimentos com Ctrl/Shift,
+informe argumentos e prazo em segundos, e use **Iniciar EXE**. Também pode abrir
+esse modo diretamente:
+
+```bat
+viewer.exe --gui --instrumentation
+```
+
+O coletor inicia e possui um **novo processo**. Não faz attach ao programa que já
+está aberto. O EXE não é alterado em disco. **Parar** encerra o novo processo e
+marca a captura interrompida como incompleta; fechar o viewer mantém o coletor e
+o alvo independentes. O prazo padrão é 60 segundos. A tabela mostra chamadas,
+totais e médias inclusivas/exclusivas, thread, unidade, unwind e frames abertos.
+Sinais periódicos atualizam a janela durante chamadas longas, sem inventar
+contagens ou tempos de chamadas concluídas. O histórico pode ser salvo e reaberto.
+
+O coletor confere a identidade do executável e do catálogo antes de aceitar os
+IDs selecionados. Uma única sessão pode estar ativa, de sampling ou instrumentação.
+O histórico instrumentado retém até 256 snapshots, 100.000 linhas e 64 MiB;
+os totais cumulativos nunca são somados durante a navegação.
+
+## Medir chamadas pelo terminal
+
+```bat
+instrument.exe --image caminho\app.exe --list
+instrument.exe --image caminho\app.exe --unit MinhaUnidade --procedure MinhaUnidade.Calcular --output chamadas.ndjson
+viewer.exe --gui --instrumentation --follow chamadas.ndjson
+```
+
+`--procedure` e `--unit` são filtros exatos, repetíveis; ambos precisam coincidir
+quando usados juntos. `--arg valor` passa argumentos, `--timeout 5m` altera o
+prazo e `--dll caminho` seleciona a DLL no lançamento direto. `--output` exige
+arquivo novo. O viewer também abre a captura encerrada com
+`viewer.exe --gui --replay chamadas.ndjson`. No acompanhamento, **Desconectar**
+fecha apenas a leitura, preservando o escritor e o alvo.
+
+O subconjunto aceita unwind v1 sem handlers próprios, prólogos verificados,
+chamadas/recursão, branches internos e múltiplos retornos, com até 4096 bytes por
+procedimento. Procedimentos não suportados são rejeitados. Um cleanup nativo
+registra saídas durante o unwind real do Windows; o handler original que recebe
+a exceção deve ficar fora da seleção. A captura inclui finalizadores anteriores
+a ExitProcess. Veja [instrumentation.md](docs/instrumentation.md) para os limites.
+
+## Automação pelo coletor
 
 ```bat
 viewer.exe --op processes
@@ -77,78 +102,46 @@ viewer.exe --op start --pid 1234
 viewer.exe --op status
 viewer.exe --op stop
 viewer.exe --save session.ndjson --seconds 30
-viewer.exe --replay session.ndjson
 viewer.exe --replay before.ndjson --compare after.ndjson
+viewer.exe --op instrument-catalog --image C:\app\app.exe --symbol-filter Calcular
 ```
 
-`viewer --op subscribe` escreve snapshots NDJSON e reconecta após desconexão;
-encerra se a sessão mudar, para não misturar sessões em um arquivo.
-`--address` seleciona outro Named Pipe local. Arquivos existentes não são
-sobrescritos pelo comando de salvar. Mais detalhes em [docs/live.md](docs/live.md).
-
-## Contagem real pelo lançamento instrumentado
+O catálogo retorna `image_id`, `catalog_id` e IDs dos procedimentos. Use os valores
+retornados para iniciar no coletor:
 
 ```bat
-instrument.exe --image caminho\app.exe --list
-instrument.exe --image caminho\app.exe --unit MinhaUnidade --procedure MinhaUnidade.Calcular > chamadas.ndjson
-viewer.exe --gui --replay chamadas.ndjson
+viewer.exe --op instrument-start --image C:\app\app.exe --image-id SHA_DO_EXE --catalog-id SHA_DO_CATALOGO --procedure-ids 7,12 --timeout 5m
+viewer.exe --op latest
+viewer.exe --op instrument-history
+viewer.exe --op instrument-subscribe > chamadas.ndjson
+viewer.exe --op stop
 ```
 
-Este comando inicia e possui um **novo processo**. O prazo padrão é um minuto;
-`--timeout 5m` altera o prazo. Cancelamento, erro ou fim do coletor encerram esse
-processo próprio. `--arg valor` passa argumentos ao programa. A DLL distribuída
-é carregada antes do ponto de entrada; o EXE original não é alterado em disco.
-
-O lançamento aceita até 16 procedimentos com unwind v1 sem handlers próprios,
-incluindo prólogos de pilha verificados, chamadas, recursão, condições, repetições
-e múltiplas saídas. Saídas por exceção são registradas durante o unwind nativo;
-o handler original que recebe a exceção precisa ficar fora da seleção. Procedimentos não suportados são
-rejeitados. A validação executada usa um alvo C próprio sem SDK do profiler e
-símbolos TDS sintéticos derivados dos seus endereços; não comprova todos os
-binários Delphi 10.4. Handlers de linguagem, tabelas encadeadas, saltos externos
-e instruções não suportadas seguem rejeitados. A contagem inclui finalizadores
-anteriores a ExitProcess.
-O visualizador pode abrir o arquivo após a captura ou acompanhá-lo enquanto o
-coletor grava. Em duas janelas de terminal:
-
-```bat
-instrument.exe --image caminho\app.exe --unit MinhaUnidade --output chamadas.ndjson
-viewer.exe --gui --instrumentation --follow chamadas.ndjson
-```
-
-`--output` exige um arquivo novo e grava cada snapshot sem depender do terminal.
-Fechar o viewer ou usar **Desconectar** interrompe só o acompanhamento; o coletor
-e o programa alvo continuam. A janela retém até 256 snapshots, 100.000 linhas e
-64 MiB, sem somar totais cumulativos. Seleção/start/stop da instrumentação dentro
-da GUI ainda estão pendentes. A DLL publica sinais periódicos durante chamadas
-longas: a janela mostra chamadas abertas sem inventar duração ou contagem de
-chamadas concluídas.
+`--arg` é repetível. Catálogo aceita `--unit` e `--catalog-offset`; `--address`
+seleciona outro Named Pipe local. Assinaturas são observadores: desconectá-las não
+cancela a captura. Um novo lançamento cria outra sessão. `latest` distingue
+`metric` instrumentado de `snapshot` de sampling. [Protocolo](docs/live.md).
 
 ## Símbolos Delphi
-
-TD32/TDS FB09/FB0A: nomes, unidades Pascal (sstModule), procedimentos LPROC32/GPROC32, diretórios encadeados,
-símbolos embutidos ou `.tds` adjacente. Nomes `_ZN` suportados são apresentados
-como nomes Delphi legíveis; unidades aparecem em coluna própria e participam
-da busca por texto. O CLI aceita filtro `--unit NomeDaUnidade`; a ferramenta de dump preserva os nomes originais.
 
 ```bat
 td32dump.exe caminho\ProfilerLab.exe
 symresolve.exe --image caminho\ProfilerLab.exe --base 0x140000000 0x140005020
 ```
 
-A conversão automática cobre segmento TD32 1 numa única seção executável,
-derivando RVA de `BaseOfCode`, sem constante `0x1000`. Outros layouts e símbolos
-ausentes mantêm módulo/endereço desconhecido na coleta. Os arquivos EXE/TDS devem
-ser do mesmo build; ainda não há autenticação de correspondência de TDS externo.
-A validação do parser usa casos derivados da JCL original; não comprova todos os
-formatos emitidos pelo Delphi 10.4. [Formato e limites](docs/td32.md).
+O parser cobre sstModule e procedimentos LPROC32/GPROC32. Nomes `_ZN` suportados
+são apresentados como nomes Delphi legíveis; o dump preserva nomes originais.
+A conversão automática cobre segmento TD32 1 em uma única seção executável,
+derivando RVA de BaseOfCode. Outros layouts mantêm módulo/endereço desconhecido
+no sampling e não permitem lançamento instrumentado sem seleção resolvida.
+EXE/TDS devem ser do mesmo build; ainda não há autenticação de correspondência
+de TDS externo. [Formato, evidência e limites](docs/td32.md).
 
 ## Desenvolvimento e validação
 
-Go 1.27.4; dependências `x/sys/windows`, `go-winio` e `x/arch/x86/x86asm`;
-sem CGO no build dos apps. A DLL adaptadora requer GCC/MinGW para build;
-o CI já a compila e inclui os avisos dos runtimes no pacote.
-Windows amd64 é o alvo. Linux executa testes do núcleo e do transporte de teste.
+Go 1.27.4; apps sem CGO. A DLL adaptadora usa GCC/MinGW, compilada e distribuída
+com os avisos dos runtimes. Windows x64 é o alvo; Linux valida o núcleo portável.
+As mudanças são agrupadas por funcionalidade completa, com testes antes do merge.
 
 ```sh
 go test ./...
@@ -156,49 +149,21 @@ go vet ./...
 go test -race ./...
 GOOS=windows GOARCH=amd64 go vet ./...
 GOOS=windows GOARCH=amd64 go build ./cmd/...
-go run ./cmd/collector --demo --windows 8 | go run ./cmd/viewer
 ```
 
-No Windows, `scripts/package.ps1` gera `dist/`. O CI executa coleta ETW sobre
-uma carga própria, testes dos executáveis via Named Pipe e uma janela nativa
-consumindo snapshots. PRs só entram na `main` após checks aprovados. Não se exige
-validação manual intermediária do usuário.
+O CI Windows exige captura nativa real, contagens e médias conhecidas, exceção
+SEH, resultados do programa preservados, ETW, janela e fluxo dos executáveis.
+`scripts/package.ps1` gera `dist/`. Não se exige validação manual intermediária.
 
-Limites conhecidos: sampling folha, sem pilhas; correlação depende dos eventos
-ETW; perdas globais da sessão não podem ser atribuídas integralmente ao alvo;
-layouts TD32 adicionais precisam de cobertura; overhead/latência no ambiente
-Delphi final ainda não têm medição. Lacunas permanecem explícitas, sem bloquear
-trabalho automatizável. [Plano](docs/plan.md), [especificação](docs/ESPECIFICACAO_GO_PROFILER.md),
-[referência original](docs/phase0/antipessimizer-reference.md).
-
-## Instrumentação: contagens, tempos e médias
-
-A adaptação agora exige também as métricas instrumentadas do original. O núcleo
-Go de entrada/saída calcula chamadas, tempos inclusivos/exclusivos e médias,
-incluindo recursão, threads, Clear e unwind. O contrato pode ser exercitado por:
+O contrato instrumentado pode ser exercitado sem Windows com a fixture sintética:
 
 ```sh
 go run ./cmd/instrument-replay --input testdata/instrumentation/nested.ndjson > metrics.ndjson
 go run ./cmd/viewer --instrumentation --replay metrics.ndjson
 ```
 
-A fixture é sintética. Para `Lab.Parent`, o resultado esperado é 2 chamadas,
-40 ms inclusivos, 30 ms exclusivos, média inclusiva de 20 ms e média exclusiva de
-15 ms. O CI confere esses valores no núcleo e no viewer.
-
-No pacote Windows, a fixture de eventos já acompanha os executáveis:
-
-```bat
-instrument-replay.exe --input instrumentation-demo-events.ndjson > metrics.ndjson
-viewer.exe --instrumentation --replay metrics.ndjson --thread 7 --unit Lab
-viewer.exe --gui --replay metrics.ndjson
-```
-
-**Abrir arquivo** na janela detecta o protocolo e apresenta as colunas de
-chamadas, totais e médias inclusivas/exclusivas. O modo instrumentado preserva
-thread/instância, épocas de Clear e indicação de chamadas abertas/abandonadas e
-dados incompletos. Os snapshots são acumulados desde Clear e nunca são somados
-durante a navegação. Comparação e intervalo de sampling ficam restritos ao modo
-de amostragem. Controle instrumentado ao vivo pelo serviço/GUI permanece pendente; o comando
-`instrument` já lança e mede o subconjunto descrito acima. O coletor ETW continua
-mostrando contagens de amostras.
+Para Lab.Parent, são 2 chamadas, 40 ms inclusivos, 30 ms exclusivos e médias de
+20 ms/15 ms. Isso valida contabilidade e apresentação, sem comprovar Delphi real.
+[Plano](docs/plan.md), [especificação](docs/ESPECIFICACAO_GO_PROFILER.md),
+[referência original](docs/phase0/antipessimizer-reference.md) e
+[laboratório nativo](docs/native-producer.md).

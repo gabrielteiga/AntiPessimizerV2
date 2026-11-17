@@ -12,14 +12,18 @@ import (
 
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/aggregation"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/history"
+	"github.com/gabrielteiga/AntiPessimizerV2/internal/instrumentation"
+	"github.com/gabrielteiga/AntiPessimizerV2/internal/instrumentation/native"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/live"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/platform"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/profiling"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/sampling"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/session"
+	"io"
 )
 
 type Status struct {
+	Mode      string           `json:"mode"`
 	State     string           `json:"state"`
 	SessionID string           `json:"session_id,omitempty"`
 	Error     string           `json:"error,omitempty"`
@@ -33,19 +37,25 @@ type StartOptions struct {
 	Top      int    `json:"top"`
 }
 type Controller struct {
-	mu          sync.Mutex
-	state       Status
-	cancel      context.CancelFunc
-	done        chan struct{}
-	latest      *profiling.Snapshot
-	store       *history.Store
-	subscribers map[chan profiling.Snapshot]struct{}
-	Inspect     func(uint32) (platform.Process, error)
-	Capture     live.Capture
+	metricHistory           []instrumentation.Record
+	metricSizes             []int
+	metricBytes, metricRows int
+	metricSubscribers       map[chan instrumentation.Record]struct{}
+	LoadCatalog             func(string) (native.Catalog, error)
+	LaunchInstrumented      func(context.Context, native.LaunchOptions, io.Writer) error
+	mu                      sync.Mutex
+	state                   Status
+	cancel                  context.CancelFunc
+	done                    chan struct{}
+	latest                  *profiling.Snapshot
+	store                   *history.Store
+	subscribers             map[chan profiling.Snapshot]struct{}
+	Inspect                 func(uint32) (platform.Process, error)
+	Capture                 live.Capture
 }
 
 func New() *Controller {
-	return &Controller{state: Status{State: "idle"}, subscribers: map[chan profiling.Snapshot]struct{}{}, Inspect: platform.Inspect, Capture: platform.Capture}
+	return &Controller{LoadCatalog: native.ReadCatalog, LaunchInstrumented: native.Launch, metricSubscribers: map[chan instrumentation.Record]struct{}{}, state: Status{State: "idle"}, subscribers: map[chan profiling.Snapshot]struct{}{}, Inspect: platform.Inspect, Capture: platform.Capture}
 }
 func (c *Controller) Status() Status { c.mu.Lock(); defer c.mu.Unlock(); return c.state }
 func (c *Controller) Latest() *profiling.Snapshot {
@@ -132,9 +142,13 @@ func (c *Controller) Start(parent context.Context, o StartOptions) error {
 	if err != nil {
 		return err
 	}
+	c.metricHistory = nil
+	c.metricSizes = nil
+	c.metricRows = 0
+	c.metricBytes = 0
 	c.store = store
 	c.latest = nil
-	c.state = Status{State: "starting", SessionID: hex.EncodeToString(id[:]), Target: target}
+	c.state = Status{State: "starting", Mode: "sampling", SessionID: hex.EncodeToString(id[:]), Target: target}
 	ctx, cancel := context.WithCancel(parent)
 	c.cancel = cancel
 	c.done = make(chan struct{})

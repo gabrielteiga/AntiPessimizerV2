@@ -14,6 +14,9 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/stream"
@@ -25,7 +28,16 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 	gui := flags.Bool("gui", false, "open native Windows desktop")
 	instrumented := flags.Bool("instrumentation", false, "read explicit call/time metrics instead of CPU samples")
 	address := flags.String("address", transport.DefaultAddress(), "local collector endpoint")
-	op := flags.String("op", "", "processes, start, stop, status, latest, history, subscribe")
+	op := flags.String("op", "", "processes, start, stop, status, latest, history, subscribe, instrument-catalog, instrument-start, instrument-history, instrument-subscribe")
+	image := flags.String("image", "", "owned executable for instrument-catalog/start")
+	catalogID := flags.String("catalog-id", "", "exact catalog_id returned by instrument-catalog")
+	imageID := flags.String("image-id", "", "exact image_id returned by instrument-catalog")
+	selection := flags.String("procedure-ids", "", "comma-separated catalog IDs to instrument (1..16)")
+	catalogText := flags.String("symbol-filter", "", "catalog search text")
+	catalogOffset := flags.Int("catalog-offset", 0, "catalog page offset")
+	timeout := flags.Duration("timeout", time.Minute, "owned instrumented target timeout")
+	var programArgs cliArgs
+	flags.Var(&programArgs, "arg", "owned program argument (repeatable)")
 	pid := flags.Uint("pid", 0, "target process ID")
 	demo := flags.Bool("demo", false, "start synthetic service session")
 	window := flags.Int("window-ms", 250, "collection window in milliseconds")
@@ -53,11 +65,11 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 		if *follow != "" {
 			return desktop.RunFollow(*address, *follow)
 		}
-		if *instrumented {
-			return errors.New("use --gui --instrumentation --follow <file> for live metrics, or --gui --replay <file> for an archive")
-		}
 		if *replay != "" {
 			return desktop.RunArchive(*address, *replay)
+		}
+		if *instrumented {
+			return desktop.RunInstrumentation(*address)
 		}
 		return desktop.Run(*address)
 	}
@@ -98,8 +110,31 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 			defer cancel()
 			return subscribe(ctx, *address, out)
 		}
+		if *op == "instrument-subscribe" {
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+			defer cancel()
+			return subscribeInstrumented(ctx, *address, out)
+		}
 		now := time.Now()
-		return control(*address, service.Request{Op: *op, Start: service.StartOptions{PID: uint32(*pid), Demo: *demo, WindowMS: *window}, From: now.Add(-time.Duration(*seconds) * time.Second), To: now, Module: *module, Thread: uint32(*thread)}, out)
+		request := service.Request{Op: *op, Start: service.StartOptions{PID: uint32(*pid), Demo: *demo, WindowMS: *window}, From: now.Add(-time.Duration(*seconds) * time.Second), To: now, Module: *module, Thread: uint32(*thread)}
+		if *op == "instrument-catalog" {
+			request.Catalog = service.CatalogQuery{Image: *image, Text: *catalogText, Unit: *unit, Offset: *catalogOffset}
+		}
+		if *op == "instrument-start" {
+			ids, err := parseProcedureIDs(*selection)
+			if err != nil {
+				return err
+			}
+			if *timeout < time.Millisecond || *timeout > 24*time.Hour {
+				return errors.New("invalid instrumented timeout")
+			}
+			path, err := filepath.Abs(*image)
+			if err != nil {
+				return err
+			}
+			request.Instrument = service.InstrumentOptions{Image: path, ImageID: *imageID, CatalogID: *catalogID, Procedures: ids, Args: programArgs, TimeoutMS: timeout.Milliseconds()}
+		}
+		return control(*address, request, out)
 	}
 	if *replay != "" {
 		f, err := os.Open(*replay)
@@ -160,4 +195,22 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+type cliArgs []string
+
+func (a *cliArgs) String() string         { return strings.Join(*a, ", ") }
+func (a *cliArgs) Set(value string) error { *a = append(*a, value); return nil }
+func parseProcedureIDs(selection string) ([]uint32, error) {
+	var result []uint32
+	seen := map[uint32]bool{}
+	for _, part := range strings.Split(selection, ",") {
+		id, err := strconv.ParseUint(strings.TrimSpace(part), 10, 32)
+		if err != nil || id == 0 || seen[uint32(id)] || len(result) >= 16 {
+			return nil, errors.New("select 1..16 distinct catalog IDs")
+		}
+		result = append(result, uint32(id))
+		seen[uint32(id)] = true
+	}
+	return result, nil
 }

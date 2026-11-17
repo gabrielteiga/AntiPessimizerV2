@@ -85,19 +85,24 @@ type paint struct {
 	Reserved           [32]byte
 }
 type update struct {
-	Metrics    []instrumentation.Record
-	Live       bool
-	Comparison *report.Comparison
-	Response   service.Response
-	Error      error
-	History    []profiling.Snapshot
-	Offline    bool
-	Note       string
+	CatalogPath string
+	Metrics     []instrumentation.Record
+	Live        bool
+	Comparison  *report.Comparison
+	Response    service.Response
+	Error       error
+	History     []profiling.Snapshot
+	Offline     bool
+	Note        string
 }
 type window struct {
-	followPath    string
-	followCancel  context.CancelFunc
-	metricUpdates chan metricFollowUpdate
+	instrumentMode                                                                 bool
+	imagePath, symbolSearch, programArgs, launchTimeout, procedureList, modeButton uintptr
+	catalog                                                                        *service.CatalogPage
+	catalogPath                                                                    string
+	followPath                                                                     string
+	followCancel                                                                   context.CancelFunc
+	metricUpdates                                                                  chan metricFollowUpdate
 
 	inspect                                                                                                                   func(*window) error // smoke-test observation on the UI thread before destruction
 	inspection                                                                                                                error
@@ -232,19 +237,20 @@ func child(parent uintptr, class, label string, style uint32, id int) uintptr {
 	send.Call(h, 0x30, font, 1)
 	return h
 }
+func RunInstrumentation(address string) error               { return runViewer(address, "", "", true, nil) }
 func Run(address string) error                              { return run(address, nil) }
 func RunArchive(address, path string) error                 { return runArchive(address, path, nil) }
 func run(address string, inspect func(*window) error) error { return runArchive(address, "", inspect) }
-func RunFollow(address, path string) error                  { return runViewer(address, "", path, nil) }
+func RunFollow(address, path string) error                  { return runViewer(address, "", path, false, nil) }
 func runArchive(address, path string, inspect func(*window) error) error {
-	return runViewer(address, path, "", inspect)
+	return runViewer(address, path, "", false, inspect)
 }
-func runViewer(address, path, follow string, inspect func(*window) error) error {
+func runViewer(address, path, follow string, instrumentMode bool, inspect func(*window) error) error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	a := &window{followPath: follow, metricUpdates: make(chan metricFollowUpdate, 1), inspect: inspect, initialPath: path, address: address, ctx: ctx, cancel: cancel, updates: make(chan update, 8), width: 1180, height: 760}
+	a := &window{instrumentMode: instrumentMode, followPath: follow, metricUpdates: make(chan metricFollowUpdate, 1), inspect: inspect, initialPath: path, address: address, ctx: ctx, cancel: cancel, updates: make(chan update, 8), width: 1180, height: 760}
 	a.offline.Store(path != "" || follow != "")
 	active = a
 	defer func() { active = nil }()
@@ -290,6 +296,16 @@ func (a *window) open() error {
 	a.threads = child(a.hwnd, "BUTTON", "Threads", 0x10000, 16)
 	a.cursor = child(a.hwnd, "msctls_trackbar32", "", 0x10000, 17)
 	a.details = child(a.hwnd, "STATIC", "Selecione um procedimento. Filtros: texto, TID (0=todos), últimos segundos.", 0, 15)
+	a.modeButton = child(a.hwnd, "BUTTON", "Chamadas", 0x10000, 18)
+	a.imagePath = child(a.hwnd, "EDIT", "", 0x00810080, 19)
+	a.symbolSearch = child(a.hwnd, "EDIT", "", 0x00810080, 20)
+	a.programArgs = child(a.hwnd, "EDIT", "", 0x00810080, 21)
+	a.launchTimeout = child(a.hwnd, "EDIT", "60", 0x00810080, 22)
+	a.procedureList = child(a.hwnd, "LISTBOX", "", 0x00a10801, 23)
+	for h, label := range map[uintptr]string{a.imagePath: "Caminho completo do EXE Delphi", a.symbolSearch: "Buscar unidade ou procedimento (depois, Ler símbolos)", a.programArgs: "Argumentos do novo programa", a.launchTimeout: "Prazo em segundos"} {
+		send.Call(h, 0x1501, 0, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(label))))
+	}
+	a.configureMode()
 	a.layout()
 	user.NewProc("SetTimer").Call(a.hwnd, 1, 250, 0)
 	if a.followPath != "" {
@@ -298,7 +314,7 @@ func (a *window) open() error {
 		a.followCancel = cancel
 		a.wg.Add(1)
 		go func() { defer a.wg.Done(); followMetrics(ctx, a.followPath, a.metricUpdates) }()
-		for _, h := range []uintptr{a.processes, a.refresh, a.start, a.demo, a.replay} {
+		for _, h := range []uintptr{a.processes, a.refresh, a.start, a.demo, a.replay, a.modeButton} {
 			user.NewProc("EnableWindow").Call(h, 0)
 		}
 		text(a.stop, "Desconectar")
@@ -309,7 +325,7 @@ func (a *window) open() error {
 		if a.initialPath != "" {
 			text(a.path, a.initialPath)
 			a.command(13)
-		} else {
+		} else if !a.instrumentMode {
 			a.request(service.Request{Op: "processes"})
 		}
 	}
@@ -351,7 +367,8 @@ func (a *window) layout() {
 	if h < 500 {
 		h = 500
 	}
-	pos(a.processes, 12, 12, w-610, 300)
+	pos(a.processes, 12, 12, w-710, 300)
+	pos(a.modeButton, w-695, 12, 95, 28)
 	pos(a.threads, w-590, 12, 95, 28)
 	pos(a.refresh, w-485, 12, 170, 28)
 	pos(a.start, w-305, 12, 90, 28)
@@ -368,6 +385,15 @@ func (a *window) layout() {
 	pos(a.save, w-455, h-52, 140, 28)
 	pos(a.replay, w-305, h-52, 140, 28)
 	pos(a.compare, w-155, h-52, 140, 28)
+	if a.instrumentMode {
+		pos(a.imagePath, 12, 12, w-710, 28)
+		pos(a.symbolSearch, 12, 90, w/2-24, 28)
+		pos(a.programArgs, w/2, 90, w/2-150, 28)
+		pos(a.launchTimeout, w-140, 90, 125, 28)
+		pos(a.procedureList, 12, 130, w-24, 92)
+		pos(a.status, 12, 230, w-24, 42)
+		pos(a.table, 12, 280, w-24, h-490)
+	}
 }
 func (a *window) send(u update) {
 	select {
@@ -380,7 +406,7 @@ func (a *window) request(q service.Request) {
 	go func() {
 		defer a.wg.Done()
 		r, err := service.Call(a.ctx, a.address, q)
-		a.send(update{Response: r, Error: err, Live: true})
+		a.send(update{Response: r, Error: err, Live: true, CatalogPath: q.Catalog.Image})
 	}()
 }
 func (a *window) poll() {
@@ -399,6 +425,23 @@ func (a *window) poll() {
 				r, err := service.Call(a.ctx, a.address, service.Request{Op: "latest"})
 				if err != nil {
 					a.send(update{Error: err, Live: true})
+					continue
+				}
+				if latest := r.Metric; latest != nil && (latest.SessionID != session || latest.Sequence > last) {
+					history, e := service.Call(a.ctx, a.address, service.Request{Op: "instrument-history"})
+					if e != nil {
+						a.send(update{Error: e, Live: true})
+						continue
+					}
+					var records []instrumentation.Record
+					for _, record := range history.Metrics {
+						if record.SessionID == latest.SessionID && record.Sequence <= latest.Sequence {
+							records = append(records, record)
+						}
+					}
+					a.send(update{Response: r, Metrics: records, Live: true})
+					session = latest.SessionID
+					last = latest.Sequence
 					continue
 				}
 				if latest := r.Snapshot; latest != nil && (latest.SessionID != session || latest.Sequence > last) {
@@ -442,6 +485,19 @@ func (a *window) command(id int) {
 		if id == 13 && a.followCancel != nil {
 			return
 		}
+	}
+	if id == 18 {
+		a.instrumentMode = !a.instrumentMode
+		a.configureMode()
+		a.layout()
+		if !a.instrumentMode {
+			a.request(service.Request{Op: "processes"})
+		}
+		return
+	}
+	if a.instrumentMode && (id == 2 || id == 3) {
+		a.instrumentCommand(id)
+		return
 	}
 	switch id {
 	case 2:
@@ -595,7 +651,9 @@ func (a *window) tick() {
 				text(a.status, "Erro no acompanhamento: "+u.err.Error())
 			}
 			if u.stopped {
-				a.followCancel()
+				if a.followCancel != nil {
+					a.followCancel()
+				}
 				a.followCancel = nil
 				user.NewProc("EnableWindow").Call(a.stop, 0)
 				user.NewProc("EnableWindow").Call(a.replay, 1)
@@ -665,8 +723,48 @@ func (a *window) tick() {
 					text(a.status, err.Error())
 				}
 			}
+			if page := u.Response.Catalog; page != nil && a.instrumentMode && u.CatalogPath == value(a.imagePath) {
+				a.catalog = page
+				a.catalogPath = u.CatalogPath
+				send.Call(a.procedureList, 0x184, 0, 0)
+				for _, procedure := range page.Procedures {
+					label := procedure.Unit + " | " + procedure.Name
+					send.Call(a.procedureList, 0x180, 0, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(label))))
+				}
+				text(a.details, fmt.Sprintf("%d de %d símbolos. Selecione até 16 com Ctrl/Shift. Iniciar lança um novo processo; Parar encerra esse processo.", len(page.Procedures), page.Total))
+			}
+			if u.Live && !a.offline.Load() && len(u.Metrics) > 0 {
+				if a.model.Session != u.Metrics[0].SessionID {
+					a.model = Model{}
+					a.lastBuild = ""
+				}
+				for _, record := range u.Metrics {
+					if record.Sequence > a.model.Last {
+						if err := a.model.AppendMetrics(record); err != nil {
+							text(a.status, err.Error())
+							break
+						}
+					}
+				}
+			}
+			if metric := u.Response.Metric; metric != nil && !a.offline.Load() {
+				if a.model.Session != metric.SessionID {
+					a.model = Model{}
+					a.lastBuild = ""
+				}
+				if metric.Sequence > a.model.Last {
+					if err := a.model.AppendMetrics(*metric); err != nil {
+						text(a.status, err.Error())
+						continue
+					}
+				}
+			}
 			if st := u.Response.Status; st != nil {
-				text(a.status, fmt.Sprintf("%s | PID %d | %s | sampling | %s", strings.ToUpper(st.State), st.Target.PID, st.Target.Image, st.Error))
+				mode := st.Mode
+				if mode == "" {
+					mode = "sampling"
+				}
+				text(a.status, fmt.Sprintf("%s | PID %d | %s | %s | %s", strings.ToUpper(st.State), st.Target.PID, st.Target.Image, mode, st.Error))
 			}
 		default:
 			draining = false
@@ -808,4 +906,72 @@ func (a *window) syncColumns() {
 			send.Call(a.table, 0x1060, uintptr(i), uintptr(unsafe.Pointer(&col)))
 		}
 	}
+}
+
+func (a *window) configureMode() {
+	visible := uintptr(0)
+	sampling := uintptr(5)
+	if a.instrumentMode {
+		visible = 5
+		sampling = 0
+	}
+	for _, h := range []uintptr{a.imagePath, a.symbolSearch, a.programArgs, a.launchTimeout, a.procedureList} {
+		user.NewProc("ShowWindow").Call(h, visible)
+	}
+	for _, h := range []uintptr{a.processes, a.demo} {
+		user.NewProc("ShowWindow").Call(h, sampling)
+	}
+	if a.instrumentMode {
+		text(a.modeButton, "Amostras")
+		text(a.refresh, "Ler símbolos")
+		text(a.start, "Iniciar EXE")
+	} else {
+		text(a.modeButton, "Chamadas")
+		text(a.refresh, "Atualizar processos")
+		text(a.start, "Iniciar")
+	}
+}
+func (a *window) instrumentCommand(id int) {
+	path := value(a.imagePath)
+	if id == 2 {
+		a.request(service.Request{Op: "instrument-catalog", Catalog: service.CatalogQuery{Image: path, Text: value(a.symbolSearch), Limit: 200}})
+		return
+	}
+	if a.catalog == nil || a.catalogPath != path {
+		text(a.status, "Leia os símbolos do EXE antes de iniciar.")
+		return
+	}
+	count, _, _ := send.Call(a.procedureList, 0x190, 0, 0)
+	if count < 1 || count > 16 {
+		text(a.status, "Selecione de 1 a 16 procedimentos (Ctrl/Shift).")
+		return
+	}
+	var indexes [16]int32
+	n, _, _ := send.Call(a.procedureList, 0x191, count, uintptr(unsafe.Pointer(&indexes[0])))
+	if n != count {
+		text(a.status, "Falha ao ler seleção de procedimentos.")
+		return
+	}
+	ids := make([]uint32, 0, count)
+	for _, index := range indexes[:count] {
+		if index < 0 || int(index) >= len(a.catalog.Procedures) {
+			text(a.status, "Seleção inválida; leia os símbolos novamente.")
+			return
+		}
+		ids = append(ids, a.catalog.Procedures[index].ID)
+	}
+	seconds, err := strconv.ParseInt(value(a.launchTimeout), 10, 64)
+	if err != nil || seconds < 1 || seconds > 86400 {
+		text(a.status, "Prazo de captura deve ser de 1 a 86400 segundos.")
+		return
+	}
+	args, err := windows.DecomposeCommandLine("target " + value(a.programArgs))
+	if err != nil {
+		text(a.status, err.Error())
+		return
+	}
+	a.offline.Store(false)
+	a.model = Model{}
+	a.lastBuild = ""
+	a.request(service.Request{Op: "instrument-start", Instrument: service.InstrumentOptions{Image: path, ImageID: a.catalog.ImageID, CatalogID: a.catalog.CatalogID, Procedures: ids, Args: args[1:], TimeoutMS: seconds * 1000}})
 }

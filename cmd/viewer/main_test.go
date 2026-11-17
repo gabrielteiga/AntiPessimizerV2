@@ -54,3 +54,15 @@ func TestFollowRequiresExplicitInstrumentationGUI(t *testing.T) {
 		}
 	}
 }
+
+func TestInstrumentedProcedureIDsRejectAmbiguousSelection(t *testing.T) {
+	ids, err := parseProcedureIDs("7, 2,10")
+	if err != nil || len(ids) != 3 || ids[1] != 2 {
+		t.Fatal(ids, err)
+	}
+	for _, bad := range []string{"", "0", "1,1", "1,", "4294967296", "-1", "name"} {
+		if _, err := parseProcedureIDs(bad); err == nil {
+			t.Fatal("invalid IDs accepted", bad)
+		}
+	}
+}

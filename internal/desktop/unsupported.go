@@ -11,3 +11,5 @@ func Run(address string) error {
 func RunArchive(address, path string) error { return Run(address) }
 
 func RunFollow(address, path string) error { return Run(address) }
+
+func RunInstrumentation(address string) error { return Run(address) }
