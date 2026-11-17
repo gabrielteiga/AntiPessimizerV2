@@ -70,3 +70,7 @@ func (x *Index) Resolve(base, address uint64) (profiling.Location, bool) {
 	}
 	return loc, true
 }
+
+// Procedures returns a detached, RVA-ordered catalog for explicit selection.
+// Mutating this copy cannot affect address resolution in an active session.
+func (x *Index) Procedures() []Procedure { return append([]Procedure(nil), x.procedures...) }

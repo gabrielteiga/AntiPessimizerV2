@@ -1,0 +1,17 @@
+Native adapter runtime notices
+
+The native adapter is compiled as C with MinGW-w64 GCC and -static-libgcc.
+The Go commands are built without CGO. System Windows DLLs are not redistributed.
+Runtime/header notices accompany the adapter; no GCC or MinGW source was copied
+into the profiler's implementation.
+
+GCC runtime exception v3.1 and GPLv3 license text:
+https://github.com/gcc-mirror/gcc/blob/ea7aa335f1708a0f7cac26042bb6b8e2835cf87f/COPYING.RUNTIME
+https://github.com/gcc-mirror/gcc/blob/ea7aa335f1708a0f7cac26042bb6b8e2835cf87f/COPYING3
+
+MinGW-w64 runtime and header notices:
+https://github.com/mingw-w64/mingw-w64/blob/41eb042358a52011b35350392130dcdc94a8ead8/COPYING.MinGW-w64-runtime/COPYING.MinGW-w64-runtime.txt
+https://github.com/mingw-w64/mingw-w64/blob/41eb042358a52011b35350392130dcdc94a8ead8/COPYING.MinGW-w64/COPYING.MinGW-w64.txt
+
+Notices retrieved 2026-11-17; pinned source revisions record their provenance.
+The adapter is not the original Delphi DLL, JCL or Udis86.

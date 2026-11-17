@@ -297,3 +297,31 @@ chamadas e branches com prefixos não suportados continuam rejeitados. A cópia
 expandida é limitada a 6144 bytes e mantém RSP/registradores não voláteis intactos.
 A carga Windows verifica ambos os retornos, a repetição e uma leitura RIP com
 deslocamento original negativo, além dos valores e contagens já exigidos.
+
+
+## Lançamento sem cooperação do executável
+
+O comando `instrument` lista procedimentos TD32/TDS sem executar o alvo e exige
+seleção explícita para lançar. O Windows cria um processo próprio em Job
+kill-on-close, intercepta seu ponto de entrada, carrega a DLL por APIs nativas e
+instala o plano antes de liberar o startup. O debugger permanece num único OS
+thread e preserva o tratamento das exceções da aplicação. Não faz attach num
+processo já em uso. A DLL não é o DLL Delphi original.
+
+Os testes executam APLaunchTarget.exe sem imports/SDK/callbacks do profiler e
+exigem 30 chamadas de workers mais uma chamada de finalizador. A captura é
+drenada antes da saída normal, preservando a execução dos finalizadores. Para
+programas que saem via CRT, intercepta o import de ExitProcess no CRT do próprio
+processo; não substitui exit() nem pula callbacks de finalização. Memória do
+código e tabelas permanecem válidas até o teardown do OS, pois outras threads
+podem ainda executá-las. Falha/timeout/encerramento forçado produz dados incompletos.
+
+O teste dos executáveis deriva um TDS sintético de símbolos COFF desse alvo C,
+seleciona LabWorkload/Lab.Hotspot pelo mesmo loader de produção e abre as métricas
+no viewer. Isso comprova a ligação; não afirma compilação Delphi dessa fixture.
+O pacote inclui instrument.exe, a DLL e notices dos runtimes. A interface de
+controle continua ETW; a GUI abre os arquivos instrumentados para análise.
+
+O recorte mantém funções com frame, calls, handlers e formatos não suportados
+rejeitados, até existir relocação/unwind e evidência Windows correspondentes.
+Compatibilidade de todas as versões Delphi e políticas CFG/CET continua pendente.

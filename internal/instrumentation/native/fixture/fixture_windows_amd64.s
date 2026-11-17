@@ -15,6 +15,10 @@ TEXT nativeEntry<>(SB), NOSPLIT|NOFRAME, $0
 	JMP AX
 
 TEXT nativeBody<>(SB), NOSPLIT|NOFRAME, $0
+	MOVQ $4096, R10
+bodyloop:
+	SUBQ $1, R10
+	JNZ bodyloop
 	LEAQ (CX)(DX*1), AX
 	ADDQ R8, AX
 	ADDQ R9, AX

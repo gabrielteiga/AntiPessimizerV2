@@ -155,3 +155,17 @@ Antes de resolver novamente formatos ou comportamentos presentes no original,
 consultar o [mapa de código AntiPessimizer](phase0/antipessimizer-reference.md)
 e a revisão fixada. A fonte Delphi de teste está em
 `testdata/delphi/ProfilerLab`; compilação e execução Windows permanecem pendentes.
+
+
+## Lançamento instrumentado implementado para o subconjunto sem frame
+
+O comando instrument já pode lançar um executável sem SDK do profiler, selecionar
+procedimentos por TD32/TDS e publicar chamadas/tempos/médias. O debugger bloqueia
+o ponto de entrada e o adapter instala o plano antes de liberar a aplicação.
+O CI exige chamadas de três threads e finalizador, cancelamento incompleto e
+fluxo dos executáveis até o viewer. O artifact inclui comando e DLL nativa.
+
+Próximo trabalho: ampliar para funções com frames/chamadas e tratar unwind/handlers
+Delphi com testes reais; integrar seleção/start/stop e snapshots instrumentados ao
+serviço e à GUI. A validação atual de lançamento usa uma carga C própria com TDS
+sintético, não uma prova de paridade de todos os programas Delphi.

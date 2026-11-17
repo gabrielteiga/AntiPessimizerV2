@@ -99,6 +99,8 @@ func nativeProbeCapture(t *testing.T, relocate bool) {
 		// An ordinary native leaf with its original RET, in private memory.
 		// Only the entry prefix is patched; the clone routes RET to the exit.
 		original := append(bytes.Repeat([]byte{0x90}, 16), []byte{
+			0x41, 0xba, 0, 0x10, 0, 0, // mov r10d,4096
+			0x49, 0x83, 0xea, 1, 0x75, 0xfa, // sub r10,1; jne back
 			0x48, 0x8d, 0x04, 0x11, // lea rax,[rcx+rdx]
 			0x4c, 0x01, 0xc0, 0x4c, 0x01, 0xc8, // add rax,r8; add rax,r9
 			0x48, 0x03, 0x44, 0x24, 0x28, // add rax,[rsp+40]

@@ -27,6 +27,10 @@ import (
 // job. JOB_LIST (Windows 10+) avoids a launch/assignment window with an unowned
 // process. No handles are inherited. The fixture waits for the pipe handshake.
 func createOwned(path string, args []string) (windows.ProcessInformation, windows.Handle, error) {
+	return createOwnedFlags(path, args, 0)
+}
+
+func createOwnedFlags(path string, args []string, creationFlags uint32) (windows.ProcessInformation, windows.Handle, error) {
 	var p windows.ProcessInformation
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
@@ -64,7 +68,7 @@ func createOwned(path string, args []string) (windows.ProcessInformation, window
 	if err != nil {
 		return fail(err)
 	}
-	if err := windows.CreateProcess(app, line, nil, nil, false, windows.EXTENDED_STARTUPINFO_PRESENT|windows.CREATE_NO_WINDOW, nil, nil, &si.StartupInfo, &p); err != nil {
+	if err := windows.CreateProcess(app, line, nil, nil, false, windows.EXTENDED_STARTUPINFO_PRESENT|windows.CREATE_NO_WINDOW|creationFlags, nil, nil, &si.StartupInfo, &p); err != nil {
 		return fail(err)
 	}
 	windows.CloseHandle(p.Thread)
@@ -196,95 +200,36 @@ func RunLab(parent context.Context, options LabOptions, out io.Writer) (resultEr
 		}
 		procedures = append(procedures, instrumentation.Procedure{ID: proc.ID, Location: profiling.Location{ModuleID: build, Module: target.Image, Procedure: names[proc.ID], RVA: fmt.Sprintf("0x%016x", proc.RVA), Status: "resolved"}})
 	}
-	engine, err := instrumentation.New(instrumentation.Config{Frequency: reader.Header.Frequency, MaxThreads: 64, MaxDepth: 1024, MaxRows: 4096}, procedures)
-	if err != nil {
-		return err
-	}
-	var sequence uint64
-	writeFailed := false
-	emit := func(at uint64) error {
-		s, err := engine.Snapshot()
-		if err != nil {
-			return err
-		}
-		sequence++
-		r := instrumentation.Record{Protocol: instrumentation.MetricsProtocol, Version: 1, SessionID: session, Target: target, Source: "native-hook", Clock: "qpc", Sequence: sequence, At: at, Metrics: s}
-		if err := instrumentation.WriteRecord(out, r); err != nil {
-			writeFailed = true
-			return err
+	startup := func() error {
+		if options.InstallHooks {
+			data := make([]byte, int(stat.Size()))
+			if _, err := file.ReadAt(data, 0); err != nil {
+				return err
+			}
+			if err := installLeafHooks(conn, data, reader.Header.Procedures); err != nil {
+				return err
+			}
+		} else {
+			if n, err := conn.Write([]byte{1}); err != nil || n != 1 {
+				return errors.Join(errors.New("native startup acknowledgement failed"), err)
+			}
 		}
 		return nil
 	}
-	defer func() {
-		if resultErr != nil && !writeFailed {
-			resultErr = errors.Join(resultErr, engine.MarkLoss(), emit(reader.LatestTick()))
+	awaitExit := func(ctx context.Context) error {
+		select {
+		case <-exited:
+		case <-ctx.Done():
+			return ctx.Err()
 		}
-	}()
-	if options.InstallHooks {
-		data := make([]byte, int(stat.Size()))
-		if _, err := file.ReadAt(data, 0); err != nil {
+		var code uint32
+		if err := windows.GetExitCodeProcess(p.Process, &code); err != nil {
 			return err
 		}
-		if err := installLeafHooks(conn, data, reader.Header.Procedures); err != nil {
-			return err
+		if code != 0 {
+			return fmt.Errorf("native workload exited with code %d", code)
 		}
-	} else {
-		if n, err := conn.Write([]byte{1}); err != nil || n != 1 {
-			return errors.Join(errors.New("native startup acknowledgement failed"), err)
-		}
+		return nil
 	}
-	active := map[uint32]bool{}
-	lastPublish := time.Now()
-	for {
-		e, err := reader.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		switch e.Type {
-		case "thread_start":
-			err = engine.StartThread(e.Thread, e.Tick)
-			if err == nil {
-				active[e.Thread] = true
-			}
-		case "enter":
-			err = engine.Enter(e.Thread, e.Procedure, e.Tick)
-		case "exit":
-			err = engine.Exit(e.Thread, e.Procedure, e.Tick)
-		case "unwind":
-			err = engine.Unwind(e.Thread, e.KeepDepth, e.Tick)
-		case "thread_end":
-			err = engine.EndThread(e.Thread, e.Tick)
-			if err == nil {
-				delete(active, e.Thread)
-			}
-		}
-		if err != nil {
-			return fmt.Errorf("native %s: %w", e.Type, err)
-		}
-		if time.Since(lastPublish) >= 250*time.Millisecond {
-			if err := emit(reader.LatestTick()); err != nil {
-				return err
-			}
-			lastPublish = time.Now()
-		}
-	}
-	if len(active) != 0 {
-		return errors.New("native capture completed without thread termination events")
-	}
-	select {
-	case <-exited:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-	var code uint32
-	if err := windows.GetExitCodeProcess(p.Process, &code); err != nil {
-		return err
-	}
-	if code != 0 {
-		return fmt.Errorf("native workload exited with code %d", code)
-	}
-	return emit(reader.FinalTick())
+	return consumeCapture(ctx, reader, target, session, procedures, out, startup, awaitExit)
 }
