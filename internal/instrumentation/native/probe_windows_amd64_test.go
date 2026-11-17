@@ -134,9 +134,10 @@ func TestNativeProducerGeneratedProbesEndToEnd(t *testing.T) {
 	catalog := [2]uint32{1, rva}
 	initDone := make(chan struct{})
 	var initialized uintptr
+	var initErr error
 	canUnload = false
 	go func() {
-		initialized, _, _ = syscall.SyscallN(initProc, uintptr(unsafe.Pointer(pipeName)), uintptr(unsafe.Pointer(&catalog[0])), 1, 1024)
+		initialized, _, initErr = syscall.SyscallN(initProc, uintptr(unsafe.Pointer(pipeName)), uintptr(unsafe.Pointer(&catalog[0])), 1, 1024)
 		runtime.KeepAlive(pipeName)
 		runtime.KeepAlive(&catalog)
 		close(initDone)
@@ -162,7 +163,8 @@ func TestNativeProducerGeneratedProbesEndToEnd(t *testing.T) {
 	}()
 	conn, err := listener.Accept()
 	if err != nil {
-		t.Fatal(err)
+		<-initDone
+		t.Fatalf("native accept: %v; Init=%d, error=%v, selected RVA=%#x", err, initialized, initErr, rva)
 	}
 	defer conn.Close()
 	stopConn := context.AfterFunc(ctx, func() { conn.Close() })
@@ -225,7 +227,7 @@ func TestNativeProducerGeneratedProbesEndToEnd(t *testing.T) {
 	}
 	<-initDone
 	if initialized == 0 {
-		t.Fatal("native DLL did not initialize")
+		t.Fatal("native DLL did not initialize", initErr)
 	}
 	running = true
 	for i := uintptr(0); i < 10; i++ {
