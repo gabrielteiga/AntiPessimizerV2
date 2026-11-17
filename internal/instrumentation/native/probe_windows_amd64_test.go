@@ -94,6 +94,7 @@ func nativeProbeCapture(t *testing.T, relocate bool) {
 	}
 	var functions [2]x64.RuntimeFunction
 	var leaf x64.LeafPlan
+	wantReturn := uintptr(90)
 	if relocate {
 		// An ordinary native leaf with its original RET, in private memory.
 		// Only the entry prefix is patched; the clone routes RET to the exit.
@@ -103,6 +104,14 @@ func nativeProbeCapture(t *testing.T, relocate bool) {
 			0x48, 0x03, 0x44, 0x24, 0x28, // add rax,[rsp+40]
 			0x48, 0x03, 0x44, 0x24, 0x30, 0xc3, // add rax,[rsp+48]; ret
 		}...)
+		// Read a constant beyond the source function through RIP. Its cloned
+		// displacement must change while retaining the same data address.
+		original = append(original[:len(original)-1], 0x48, 0x03, 0x05, 0, 0, 0, 0, 0xc3)
+		binary.LittleEndian.PutUint32(original[len(original)-5:], uint32(3072-(2048+len(original)-1)))
+		var constant [8]byte
+		binary.LittleEndian.PutUint64(constant[:], 35)
+		write(code+3072, constant[:])
+		wantReturn += 35
 		leaf, err = x64.BuildLeaf(original, uint64(code+2048), uint64(code), uint64(enterProc), uint64(exitProc), 1)
 		if err != nil {
 			t.Fatal(err)
@@ -267,7 +276,7 @@ func nativeProbeCapture(t *testing.T, relocate bool) {
 	}
 	running = true
 	for i := uintptr(0); i < 10; i++ {
-		if got, _, _ := syscall.SyscallN(entry, 7+i, 11, 13, 17, 19, 23); got != 90+i {
+		if got, _, _ := syscall.SyscallN(entry, 7+i, 11, 13, 17, 19, 23); got != wantReturn+i {
 			t.Fatalf("real native helper changed arguments/return: %d", got)
 		}
 	}
@@ -306,7 +315,7 @@ func nativeProbeCapture(t *testing.T, relocate bool) {
 		if ok, _, err := windows.NewLazySystemDLL("kernel32.dll").NewProc("FlushInstructionCache").Call(uintptr(windows.CurrentProcess()), code, 4096); ok == 0 {
 			t.Fatal(err)
 		}
-		if got, _, _ := syscall.SyscallN(entry, 7, 11, 13, 17, 19, 23); got != 90 {
+		if got, _, _ := syscall.SyscallN(entry, 7, 11, 13, 17, 19, 23); got != wantReturn {
 			t.Fatal("restored native leaf changed its result", got)
 		}
 	}
