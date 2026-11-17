@@ -14,6 +14,7 @@
 #endif
 
 typedef struct { uint32_t id, rva; } APProcedure;
+typedef struct { uint32_t id, rva, size; } APHookProcedure;
 
 /* Init/shutdown are owned by a cooperating host, outside DllMain. The selected
  * callers must be quiescent before shutdown. This API does not install hooks.
@@ -21,6 +22,10 @@ typedef struct { uint32_t id, rva; } APProcedure;
  * A future Delphi relay must separately preserve the interrupted native ABI. */
 AP_API BOOL APNativeInit(const wchar_t *pipe_name, const APProcedure *procedures,
                         uint32_t count, uint32_t ring_capacity);
+/* Startup-only installation negotiated with the Go controller. No selected
+ * callers may run until this returns, or during Shutdown. Leaf subset only. */
+AP_API BOOL APNativeInitHooks(const wchar_t *pipe_name, const APHookProcedure *procedures,
+                             uint32_t count, uint32_t ring_capacity);
 AP_API void APNativeEnter(uint32_t procedure);
 AP_API void APNativeExit(uint32_t procedure);
 AP_API void APNativeUnwind(uint32_t keep_depth);

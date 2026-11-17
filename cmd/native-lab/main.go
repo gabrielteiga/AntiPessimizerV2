@@ -25,6 +25,7 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer) error {
 	threads := flags.Int("threads", 3, "controlled worker threads (1..16)")
 	iterations := flags.Int("iterations", 10, "calls per worker (1..100000)")
 	capacity := flags.Int("capacity", 1024, "per-thread native event capacity (1..1024)")
+	install := flags.Bool("install-hooks", false, "install entry/exit hooks during APHookLab.exe cooperative startup (restricted leaf subset)")
 	timeout := flags.Duration("timeout", 15*time.Second, "owned capture timeout (up to 1m)")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -32,7 +33,7 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer) error {
 	if flags.NArg() != 0 {
 		return fmt.Errorf("unexpected positional arguments")
 	}
-	return native.RunLab(ctx, native.LabOptions{Workload: *workload, Threads: *threads, Iterations: *iterations, Capacity: *capacity, Timeout: *timeout}, out)
+	return native.RunLab(ctx, native.LabOptions{Workload: *workload, Threads: *threads, Iterations: *iterations, Capacity: *capacity, Timeout: *timeout, InstallHooks: *install}, out)
 }
 func main() {
 	if err := run(context.Background(), os.Args[1:], os.Stdout, os.Stderr); err != nil {

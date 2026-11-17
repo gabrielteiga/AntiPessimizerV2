@@ -173,10 +173,13 @@ func RunLab(parent context.Context, options LabOptions, out io.Writer) (resultEr
 	if err != nil {
 		return err
 	}
-	if reader.Header.ImageSize != header.SizeOfImage || len(reader.Header.Procedures) != 4 {
+	names := map[uint32]string{1: "APLabParent", 2: "APLabChild", 3: "APLabRecursive", 4: "APLabFloat"}
+	if options.InstallHooks {
+		names = map[uint32]string{1: "APHookSum"}
+	}
+	if reader.Header.ImageSize != header.SizeOfImage || len(reader.Header.Procedures) != len(names) {
 		return errors.New("native catalog does not match controlled image")
 	}
-	names := map[uint32]string{1: "APLabParent", 2: "APLabChild", 3: "APLabRecursive", 4: "APLabFloat"}
 	var procedures []instrumentation.Procedure
 	for _, proc := range reader.Header.Procedures {
 		if names[proc.ID] == "" {
@@ -217,8 +220,18 @@ func RunLab(parent context.Context, options LabOptions, out io.Writer) (resultEr
 			resultErr = errors.Join(resultErr, engine.MarkLoss(), emit(reader.LatestTick()))
 		}
 	}()
-	if n, err := conn.Write([]byte{1}); err != nil || n != 1 {
-		return errors.Join(errors.New("native startup acknowledgement failed"), err)
+	if options.InstallHooks {
+		data := make([]byte, int(stat.Size()))
+		if _, err := file.ReadAt(data, 0); err != nil {
+			return err
+		}
+		if err := installLeafHooks(conn, data, reader.Header.Procedures); err != nil {
+			return err
+		}
+	} else {
+		if n, err := conn.Write([]byte{1}); err != nil || n != 1 {
+			return errors.Join(errors.New("native startup acknowledgement failed"), err)
+		}
 	}
 	active := map[uint32]bool{}
 	lastPublish := time.Now()

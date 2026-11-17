@@ -9,6 +9,7 @@ type LabOptions struct {
 	Workload                      string
 	Threads, Iterations, Capacity int
 	Timeout                       time.Duration
+	InstallHooks                  bool
 }
 
 func (o LabOptions) validate() error {
