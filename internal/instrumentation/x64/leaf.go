@@ -1,7 +1,6 @@
 package x64
 
 import (
-	"encoding/binary"
 	"fmt"
 
 	"golang.org/x/arch/x86/x86asm"
@@ -13,7 +12,7 @@ import (
 // registers, and Windows unwinds it using the original return address at [RSP].
 type RuntimeFunction struct{ Begin, End, Unwind uint32 }
 
-// LeafPlan clones a restricted, straight-line native leaf and replaces its RET
+// LeafPlan clones a restricted native leaf and replaces its RET
 // with a jump to the exit probe. It never replaces the caller's return address.
 // This is a byte plan, not an installer or a claim of general Delphi support.
 // The owner must verify the source is a leaf with no exception metadata, exclude
@@ -27,8 +26,8 @@ type LeafPlan struct {
 }
 
 // BuildLeaf supports volatile Win64 GPRs/XMM0..5, simple arithmetic and data
-// movement, read-only stack operands and RIP-relative data within disp32 reach.
-// Calls, branches, stack/nonvolatile writes, RET imm16, handlers and embedded
+// movement, internal direct branches, read-only stack operands and RIP-relative data.
+// Calls, external/indirect branches, stack/nonvolatile writes, RET imm16, handlers and embedded
 // data are rejected. Unsupported procedures must remain unmodified.
 func BuildLeaf(code []byte, source, base, enter, exit uint64, id uint32) (LeafPlan, error) {
 	fail := func(reason string) (LeafPlan, error) {
@@ -44,88 +43,14 @@ func BuildLeaf(code []byte, source, base, enter, exit uint64, id uint32) (LeafPl
 		return fail("invalid allocation range")
 	}
 	const bodyRVA = 512
-	body := append([]byte(nil), code...)
-	returned := false
-	overwrite := 0
-	var dataTargets []uint64
-	for offset := 0; offset < len(code); {
-		inst, err := x86asm.Decode(code[offset:], 64)
-		if err != nil || inst.Op == 0 || inst.Len == 0 || inst.Len > len(code)-offset {
-			return fail("invalid instruction")
-		}
-		for _, p := range inst.Prefix {
-			if p&x86asm.PrefixInvalid != 0 || p&0xff == x86asm.PrefixLOCK {
-				return fail("unsupported prefix")
-			}
-		}
-		if inst.Op == x86asm.RET {
-			if inst.Len != 1 || code[offset] != 0xc3 || offset+1 != len(code) {
-				return fail("only a final near RET is supported")
-			}
-			returned = true
-			break
-		}
-		if !leafOperations[inst.Op.String()] {
-			return fail("unsupported operation: " + inst.Op.String())
-		}
-		hasRIP := false
-		for operand, arg := range inst.Args {
-			switch arg := arg.(type) {
-			case x86asm.Rel:
-				return fail("relative control flow")
-			case x86asm.Reg:
-				if !volatileLeafRegister(arg) {
-					return fail("stack, nonvolatile or unsupported register")
-				}
-			case x86asm.Mem:
-				if arg.Segment != 0 || arg.Base == x86asm.EIP {
-					return fail("segmented/address-size memory")
-				}
-				if arg.Index == x86asm.RSP || arg.Index == x86asm.ESP {
-					return fail("stack index")
-				}
-				if arg.Base == x86asm.RSP {
-					if operand == 0 || arg.Index != 0 || arg.Disp < 8 {
-						return fail("stack write or non-argument stack read")
-					}
-				}
-				if arg.Base == x86asm.ESP {
-					return fail("address-size stack memory")
-				}
-				if arg.Base != x86asm.RIP {
-					continue
-				}
-				hasRIP = true
-				if inst.PCRel != 4 || inst.PCRelOff < 0 || inst.PCRelOff+4 > inst.Len {
-					return fail("unsupported RIP encoding")
-				}
-				target, ok := address(source+uint64(offset+inst.Len), arg.Disp)
-				if !ok || target == 0 || target >= maxUserAddress {
-					return fail("invalid RIP target")
-				}
-				if target >= source && target < source+uint64(len(code)) {
-					return fail("RIP reference into the replaced procedure")
-				}
-				dataTargets = append(dataTargets, target)
-				delta := int64(target) - int64(base+bodyRVA+uint64(offset+inst.Len))
-				if delta < -1<<31 || delta > 1<<31-1 {
-					return fail("RIP target too far from clone")
-				}
-				binary.LittleEndian.PutUint32(body[offset+inst.PCRelOff:], uint32(int32(delta)))
-			}
-		}
-		if inst.PCRel != 0 && !hasRIP {
-			return fail("unclassified position-dependent operand")
-		}
-		if offset < JumpSize {
-			overwrite = offset + inst.Len
-		}
-		offset += inst.Len
+	if base > maxUserAddress-8192 {
+		return fail("allocation range overflow")
 	}
-	if !returned {
-		return fail("missing final RET")
+	flow, err := rewriteLeafBody(code, source, base)
+	if err != nil {
+		return LeafPlan{}, err
 	}
-	exitRVA := uint32((bodyRVA + len(body) - 1 + JumpSize + 15) &^ 15)
+	body, overwrite, exitRVA := flow.code, flow.overwrite, flow.exitRVA
 	in, err := BuildEntryProbe(base, enter, base+bodyRVA, id)
 	if err != nil {
 		return LeafPlan{}, err
@@ -138,7 +63,7 @@ func BuildLeaf(code []byte, source, base, enter, exit uint64, id uint32) (LeafPl
 	if base < source+uint64(len(code)) && base+imageSize > source {
 		return fail("source overlaps allocation")
 	}
-	for _, target := range dataTargets {
+	for _, target := range flow.dataTargets {
 		if target >= base && target < base+imageSize {
 			return fail("RIP data overlaps allocation")
 		}
@@ -148,14 +73,13 @@ func BuildLeaf(code []byte, source, base, enter, exit uint64, id uint32) (LeafPl
 			return fail("helper overlaps source or allocation")
 		}
 	}
-	// The whole leaf has already been checked and contains no branch or call.
+	// The whole leaf has already been checked and contains no call; internal branches are remapped.
 	// Save whole instructions until the entry jump fits; no prefix-only decoder
 	// restriction is needed for the supported scalar SSE operations.
 	patch := append(jump(base), make([]byte, overwrite-JumpSize)...)
 	for i := JumpSize; i < len(patch); i++ {
 		patch[i] = 0x90
 	}
-	body = append(body[:len(body)-1], jump(base+uint64(exitRVA))...)
 	image := make([]byte, imageSize)
 	copy(image, in.Image)
 	copy(image[bodyRVA:], body)
