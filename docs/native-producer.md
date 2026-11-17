@@ -88,3 +88,26 @@ Sleep na função filha permite conferir duração inclusiva de espera sem depen
 de amostras de CPU. Os tempos incluem o overhead desta captura; não há desconto
 arbitrário nem medição de overhead no Delphi. Testar callbacks inseridos pelo
 compilador não comprova o relay/instalador x64 em aplicações Delphi.
+
+## Integração dos probes gerados com a DLL
+
+A conexão nativa aguarda uma instância de Named Pipe disponível por até cinco
+segundos. Isso cobre a reserva de nome do listener antes de Accept, sem depender
+de qual thread ganha a corrida de inicialização. O teste também atrasa Accept
+intencionalmente; não há espera ou retry de conexão dentro dos callbacks.
+
+O CI também liga BuildEntryProbe e BuildExitProbe aos exports reais
+APNativeEnter/APNativeExit da DLL. Um procedimento Win64 privado em assembly
+recebe seis argumentos, calcula o resultado e passa pelos probes configurados
+com as chamadas paradas. O teste exige dez chamadas concluídas, resultado e
+média corretos, tempos QPC e ausência de frames abertos/perdas no consumidor Go.
+
+A fixture não chama funções Go a partir de código nativo. Os getters/configuração
+são Go; o procedimento selecionado é uma folha assembly com ABI Win64, sem
+stack growth, acesso ao TLS Go ou callbacks Go. A DLL drena os eventos por pipe
+para um único owner Go. Os blobs RW→RX têm tabela de unwind registrada durante
+sua vida e são aposentados após quiescência. DLL só é descarregada após Shutdown.
+
+Esse teste cobre a conexão entre os componentes, mas usa um procedimento
+explicitamente preparado. Não procura epílogos nem instala patches em funções
+Delphi arbitrárias, não trata suas exceções e não comprova CFG/CET/vectorcall.
