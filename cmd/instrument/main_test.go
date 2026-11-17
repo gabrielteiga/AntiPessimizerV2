@@ -37,3 +37,27 @@ func TestCatalogSelectionDoesNotLaunch(t *testing.T) {
 		}
 	}
 }
+
+func TestCaptureOutputNeverOverwritesFile(t *testing.T) {
+	directory := t.TempDir()
+	image := filepath.Join(directory, "app.exe")
+	output := filepath.Join(directory, "metrics.ndjson")
+	if err := os.WriteFile(image, testfixture.Image(true), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(output, []byte("preserve"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, diagnostics bytes.Buffer
+	err := run(context.Background(), []string{"--image", image, "--procedure", "Lab.Hot", "--output", output}, &stdout, &diagnostics)
+	if !os.IsExist(err) {
+		t.Fatal("existing capture output was not rejected before launch", err)
+	}
+	b, err := os.ReadFile(output)
+	if err != nil || string(b) != "preserve" || stdout.Len() != 0 {
+		t.Fatal("existing output changed", string(b), err)
+	}
+	if err := run(context.Background(), []string{"--image", image, "--list", "--output", output}, &stdout, &diagnostics); err == nil {
+		t.Fatal("catalog/output mode accepted")
+	}
+}

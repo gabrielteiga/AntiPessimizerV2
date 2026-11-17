@@ -95,6 +95,10 @@ type update struct {
 	Note       string
 }
 type window struct {
+	followPath    string
+	followCancel  context.CancelFunc
+	metricUpdates chan metricFollowUpdate
+
 	inspect                                                                                                                   func(*window) error // smoke-test observation on the UI thread before destruction
 	inspection                                                                                                                error
 	initialPath                                                                                                               string
@@ -231,13 +235,17 @@ func child(parent uintptr, class, label string, style uint32, id int) uintptr {
 func Run(address string) error                              { return run(address, nil) }
 func RunArchive(address, path string) error                 { return runArchive(address, path, nil) }
 func run(address string, inspect func(*window) error) error { return runArchive(address, "", inspect) }
+func RunFollow(address, path string) error                  { return runViewer(address, "", path, nil) }
 func runArchive(address, path string, inspect func(*window) error) error {
+	return runViewer(address, path, "", inspect)
+}
+func runViewer(address, path, follow string, inspect func(*window) error) error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	a := &window{inspect: inspect, initialPath: path, address: address, ctx: ctx, cancel: cancel, updates: make(chan update, 8), width: 1180, height: 760}
-	a.offline.Store(path != "")
+	a := &window{followPath: follow, metricUpdates: make(chan metricFollowUpdate, 1), inspect: inspect, initialPath: path, address: address, ctx: ctx, cancel: cancel, updates: make(chan update, 8), width: 1180, height: 760}
+	a.offline.Store(path != "" || follow != "")
 	active = a
 	defer func() { active = nil }()
 	windows.NewLazySystemDLL("comctl32.dll").NewProc("InitCommonControls").Call()
@@ -284,13 +292,26 @@ func (a *window) open() error {
 	a.details = child(a.hwnd, "STATIC", "Selecione um procedimento. Filtros: texto, TID (0=todos), últimos segundos.", 0, 15)
 	a.layout()
 	user.NewProc("SetTimer").Call(a.hwnd, 1, 250, 0)
-	a.wg.Add(1)
-	go a.poll()
-	if a.initialPath != "" {
-		text(a.path, a.initialPath)
-		a.command(13)
+	if a.followPath != "" {
+		text(a.path, a.followPath)
+		ctx, cancel := context.WithCancel(a.ctx)
+		a.followCancel = cancel
+		a.wg.Add(1)
+		go func() { defer a.wg.Done(); followMetrics(ctx, a.followPath, a.metricUpdates) }()
+		for _, h := range []uintptr{a.processes, a.refresh, a.start, a.demo, a.replay} {
+			user.NewProc("EnableWindow").Call(h, 0)
+		}
+		text(a.stop, "Desconectar")
+		text(a.status, "Aguardando contagens no arquivo...")
 	} else {
-		a.request(service.Request{Op: "processes"})
+		a.wg.Add(1)
+		go a.poll()
+		if a.initialPath != "" {
+			text(a.path, a.initialPath)
+			a.command(13)
+		} else {
+			a.request(service.Request{Op: "processes"})
+		}
 	}
 	if os.Getenv("AP_GUI_SMOKE") == "1" {
 		user.NewProc("SetTimer").Call(a.hwnd, 2, 1500, 0)
@@ -404,6 +425,24 @@ func (a *window) poll() {
 	}
 }
 func (a *window) command(id int) {
+	if a.followPath != "" {
+		if id == 2 || id == 3 || id == 5 {
+			return
+		}
+		if id == 4 {
+			if a.followCancel != nil {
+				a.followCancel()
+				a.followCancel = nil
+			}
+			text(a.status, "Acompanhamento parado. O coletor continua independente.")
+			user.NewProc("EnableWindow").Call(a.stop, 0)
+			user.NewProc("EnableWindow").Call(a.replay, 1)
+			return
+		}
+		if id == 13 && a.followCancel != nil {
+			return
+		}
+	}
 	switch id {
 	case 2:
 		a.request(service.Request{Op: "processes"})
@@ -534,6 +573,37 @@ func (a *window) file(op int, path string, current []profiling.Snapshot, metrics
 	a.send(update{Comparison: &comparison, Note: "Comparação: arquivo → série atual. Δ em amostras/s; variação observada, não causalidade."})
 }
 func (a *window) tick() {
+	if a.followPath != "" && a.followCancel != nil {
+		select {
+		case u := <-a.metricUpdates:
+			if u.record.Protocol != "" && (len(a.model.Metrics) == 0 || u.record.Sequence > a.model.Last) {
+				first := len(a.model.Metrics) == 0
+				if err := a.model.AppendMetrics(u.record); err != nil {
+					text(a.status, "Erro no acompanhamento: "+err.Error())
+				} else {
+					if first && u.firstSequence > 0 {
+						a.model.Omitted = u.record.Sequence - u.firstSequence
+					}
+					state := "ACOMPANHANDO CHAMADAS"
+					if u.record.Metrics.Incomplete {
+						state += " | DADOS INCOMPLETOS"
+					}
+					text(a.status, fmt.Sprintf("%s | PID %d | %s | atualizações omitidas=%d", state, u.record.Target.PID, u.record.Target.Image, a.model.Omitted))
+				}
+			}
+			if u.err != nil {
+				text(a.status, "Erro no acompanhamento: "+u.err.Error())
+			}
+			if u.stopped {
+				a.followCancel()
+				a.followCancel = nil
+				user.NewProc("EnableWindow").Call(a.stop, 0)
+				user.NewProc("EnableWindow").Call(a.replay, 1)
+			}
+		default:
+		}
+	}
+
 	for draining := true; draining; {
 		select {
 		case u := <-a.updates:
@@ -654,7 +724,14 @@ func (a *window) draw() {
 	dc, _, _ := user.NewProc("BeginPaint").Call(a.hwnd, uintptr(unsafe.Pointer(&p)))
 	defer user.NewProc("EndPaint").Call(a.hwnd, uintptr(unsafe.Pointer(&p)))
 	if r, ok := a.model.CurrentMetrics(); ok {
-		label := fmt.Sprintf("REPLAY | instrumentação | %s | snapshot %d | Clear %d | abertas %d | abandonadas %d | incompleto=%t | omitidos %d", r.Source, r.Sequence, r.Metrics.Epoch, r.Metrics.OpenCalls, r.Metrics.AbandonedCalls, r.Metrics.Incomplete, a.model.Omitted)
+		mode := "REPLAY"
+		if a.followPath != "" {
+			mode = "ARQUIVO"
+			if a.followCancel != nil {
+				mode = "ACOMPANHANDO"
+			}
+		}
+		label := fmt.Sprintf("%s | instrumentação | %s | snapshot %d | Clear %d | abertas %d | abandonadas %d | incompleto=%t | omitidos %d", mode, r.Source, r.Sequence, r.Metrics.Epoch, r.Metrics.OpenCalls, r.Metrics.AbandonedCalls, r.Metrics.Incomplete, a.model.Omitted)
 		chars := windows.StringToUTF16(label)
 		gdi.NewProc("TextOutW").Call(dc, 12, uintptr(a.height-122), uintptr(unsafe.Pointer(&chars[0])), uintptr(len(chars)-1))
 		return

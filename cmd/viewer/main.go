@@ -32,6 +32,7 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 	seconds := flags.Int("seconds", 30, "history interval (1..120 seconds)")
 	save := flags.String("save", "", "save retained snapshots to a new NDJSON file")
 	replay := flags.String("replay", "", "read an NDJSON archive")
+	follow := flags.String("follow", "", "follow an instrumentation NDJSON file in the native GUI")
 	compare := flags.String("compare", "", "compare replay archive with another archive")
 	unit := flags.String("unit", "", "exact Pascal unit name filter")
 	module := flags.String("module", "", "exact module name filter")
@@ -45,7 +46,13 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 	if *instrumented && (*op != "" || *save != "" || *compare != "" || *demo || *pid != 0) {
 		return errors.New("instrumentation replay cannot be combined with sampling control, save or compare")
 	}
+	if *follow != "" && (!*gui || !*instrumented || *replay != "") {
+		return errors.New("--follow requires --gui --instrumentation and cannot be combined with --replay")
+	}
 	if *gui {
+		if *follow != "" {
+			return desktop.RunFollow(*address, *follow)
+		}
 		if *instrumented {
 			return errors.New("GUI detects the archive mode; use --gui --replay without --instrumentation")
 		}

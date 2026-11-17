@@ -24,7 +24,7 @@ type repeated []string
 
 func (r *repeated) String() string     { return strings.Join(*r, ", ") }
 func (r *repeated) Set(s string) error { *r = append(*r, s); return nil }
-func run(ctx context.Context, args []string, out, diagnostics io.Writer) error {
+func run(ctx context.Context, args []string, out, diagnostics io.Writer) (resultErr error) {
 	flags := flag.NewFlagSet("instrument", flag.ContinueOnError)
 	flags.SetOutput(diagnostics)
 	path := flags.String("image", "", "Windows x64 executable to launch and own")
@@ -34,6 +34,7 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer) error {
 	}
 	dll := flags.String("dll", filepath.Join(filepath.Dir(exe), "AntiPessimizerNative.dll"), "native adapter DLL")
 	list := flags.Bool("list", false, "list the TD32/TDS catalog without executing anything")
+	outputPath := flags.String("output", "", "write live metrics to a new NDJSON file (never overwrite)")
 	timeout := flags.Duration("timeout", time.Minute, "capture timeout; expiry terminates this owned target")
 	capacity := flags.Int("capacity", 1024, "native events per thread (1..1024)")
 	var units, names, programArgs repeated
@@ -74,6 +75,9 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer) error {
 	if len(selected) == 0 {
 		return errors.New("no procedures match the requested selection")
 	}
+	if *list && *outputPath != "" {
+		return errors.New("--output is for capture; --list writes the catalog to stdout")
+	}
 	if *list {
 		return json.NewEncoder(out).Encode(struct {
 			ImageID      string                     `json:"image_id"`
@@ -86,6 +90,14 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer) error {
 	}
 	if len(selected) > 16 {
 		return fmt.Errorf("selection has %d procedures; this increment supports at most 16", len(selected))
+	}
+	if *outputPath != "" {
+		f, err := os.OpenFile(*outputPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err != nil {
+			return err
+		}
+		defer func() { resultErr = errors.Join(resultErr, f.Close()) }()
+		out = f
 	}
 	return native.Launch(ctx, native.LaunchOptions{Image: *path, ImageID: image.ID, DLL: *dll, Args: programArgs, Procedures: selected, Capacity: *capacity, Timeout: *timeout}, out)
 }

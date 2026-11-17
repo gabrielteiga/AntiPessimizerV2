@@ -46,3 +46,11 @@ func TestViewerFilterAndGap(t *testing.T) {
 		t.Fatal("empty stream accepted")
 	}
 }
+
+func TestFollowRequiresExplicitInstrumentationGUI(t *testing.T) {
+	for _, args := range [][]string{{"--follow", "metrics.ndjson"}, {"--gui", "--follow", "metrics.ndjson"}, {"--gui", "--instrumentation", "--follow", "metrics.ndjson", "--replay", "old.ndjson"}, {"--gui", "--instrumentation", "--follow", "metrics.ndjson", "--op", "stop"}} {
+		if err := run(args, strings.NewReader(""), io.Discard, io.Discard); err == nil {
+			t.Fatal("invalid follow combination accepted", args)
+		}
+	}
+}
