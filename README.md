@@ -16,9 +16,10 @@ Revisado em 17 de novembro de 2026.
 | Coleta ao vivo | ETW no Windows, com identidade de processo/thread, tratamento de perdas e encerramento; integração automatizada sobre carga própria |
 | Símbolos Delphi | Subconjunto TD32/TDS FB09/FB0A, procedimentos e unidades Pascal; cobertura e limites em [docs/td32.md](docs/td32.md) |
 | Viewer e arquivos | Interface Win32 e terminal, filtros, ordenação, histórico, salvar/replay e comparação de sampling; testes Windows dos executáveis e da janela |
-| Contagens, tempos e médias | Núcleo instrumentado e replay de eventos, incluindo recursão, threads, unwind, Clear e perdas; as cinco métricas são conferidas com eventos sintéticos |
+| Contagens, tempos e médias | Núcleo instrumentado e replay, com recursão, threads, unwind, Clear e perdas; testes sintéticos e callbacks nativos em carga C própria |
+| Produtor nativo controlado | DLL C com QPC, filas por thread, detecção de perdas e controller Go; integração Windows com carga própria, sem instalação de hooks Delphi |
 | Preparação dos hooks x64 | Planejador de prólogos/trampolins, relocação RIP-relative e teste nativo controlado de execução, redirecionamento e restauração em memória própria |
-| Captura instrumentada Delphi ao vivo | **Pendente:** produtor nativo, instalação coordenada dos hooks, preservação de ABI/retorno/exceções e ligação ao serviço/viewer |
+| Captura instrumentada Delphi ao vivo | **Pendente:** ligação do produtor aos hooks, instalação coordenada, preservação de ABI/retorno/exceções e integração ao serviço/viewer |
 
 A adaptação ainda não tem funcionamento completo equivalente ao AntiPessimizer
 do Hoshoyo. A principal etapa restante é capturar entradas e saídas reais dos
@@ -27,6 +28,11 @@ em aplicações Delphi; amostras ETW não são contagens de chamadas. O próximo
 inclui seleção dos procedimentos e fluxo de lançamento instrumentado, lifecycle
 e buffer limitado de eventos, integração ao vivo e validação de overhead e
 compatibilidade Delphi. Veja o [plano de instrumentação](docs/instrumentation.md).
+
+O [laboratório do produtor nativo](docs/native-producer.md) já permite capturar
+chamadas e tempos QPC de uma carga C cooperativa e abri-los no viewer. O helper
+e a carga são compilados separadamente com GCC/MinGW; não integram o pacote
+principal neste incremento. Isso não instrumenta um executável Delphi existente.
 
 ## Windows
 
