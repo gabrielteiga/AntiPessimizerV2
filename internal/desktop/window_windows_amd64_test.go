@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/instrumentation"
+	"github.com/gabrielteiga/AntiPessimizerV2/internal/instrumentation/native"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/profiling"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/service"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/transport"
 	"golang.org/x/sys/windows"
+	"io"
 	"os"
 	"testing"
 	"time"
@@ -179,7 +181,7 @@ func TestNativeInstrumentedFollowWindowSmoke(t *testing.T) {
 	}
 	writeDone := make(chan error, 1)
 	go func() { time.Sleep(450 * time.Millisecond); writeDone <- instrumentation.WriteRecord(f, records[1]) }()
-	if err := runViewer(`\\.\pipe\unused-follow-source`, "", path, func(w *window) error {
+	if err := runViewer(`\\.\pipe\unused-follow-source`, "", path, false, func(w *window) error {
 		if len(w.model.Metrics) < 1 || len(w.model.Rows) != 2 || w.model.Rows[0][0] != "2" || w.model.Rows[0][1] != "30.000000" || w.tableColumns != 13 {
 			return fmt.Errorf("growing metrics did not reach native table: %v", w.model.Rows)
 		}
@@ -210,5 +212,89 @@ func TestNativeInstrumentedFollowWindowSmoke(t *testing.T) {
 	}
 	if _, err := f.Write([]byte("\n")); err != nil {
 		t.Fatal("closing viewer closed producer file", err)
+	}
+}
+
+func TestNativeInstrumentedControlWindowSmoke(t *testing.T) {
+	if os.Getenv("AP_GUI_SMOKE") != "1" {
+		t.Skip("enabled in Windows CI")
+	}
+	listener, err := transport.Listen(fmt.Sprintf(`\\.\pipe\ap-control-smoke-%d`, time.Now().UnixNano()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	c := service.New()
+	c.LoadCatalog = func(string) (native.Catalog, error) {
+		return native.Catalog{CatalogID: "catalog-token", ImageID: "smoke-build", Procedures: []native.SelectedProcedure{{ID: 7, RVA: 0x1000, Size: 32, Name: "Lab.Parent", Unit: "Lab"}}}, nil
+	}
+	launch := make(chan native.LaunchOptions, 1)
+	records := metricRecords(t)
+	c.LaunchInstrumented = func(ctx context.Context, options native.LaunchOptions, out io.Writer) error {
+		launch <- options
+		for _, record := range records {
+			if err := instrumentation.WriteRecord(out, record); err != nil {
+				return err
+			}
+		}
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- service.Serve(ctx, listener, c) }()
+	defer func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	}()
+	if err := runViewer(address, "", "", true, func(w *window) error {
+		// Exercise the same controls/commands as the user; the collector owns launch.
+		text(w.imagePath, `C:\lab\owned.exe`)
+		text(w.symbolSearch, "Parent")
+		w.command(2)
+		deadline := time.Now().Add(2 * time.Second)
+		for w.catalog == nil && time.Now().Before(deadline) {
+			w.tick()
+			time.Sleep(10 * time.Millisecond)
+		}
+		if w.catalog == nil || len(w.catalog.Procedures) != 1 {
+			return fmt.Errorf("symbol selection did not reach the native list")
+		}
+		send.Call(w.procedureList, 0x185, 1, 0) // LB_SETSEL: choose the first procedure.
+		text(w.programArgs, `--name "valor com espaços"`)
+		text(w.launchTimeout, "120")
+		w.command(3)
+		var options native.LaunchOptions
+		select {
+		case options = <-launch:
+		case <-time.After(2 * time.Second):
+			return fmt.Errorf("native Start did not reach collector")
+		}
+		if options.ImageID != "smoke-build" || len(options.Procedures) != 1 || options.Procedures[0].ID != 7 || len(options.Args) != 2 || options.Args[1] != "valor com espaços" || options.Timeout != 2*time.Minute {
+			return fmt.Errorf("native selection/arguments changed: %+v", options)
+		}
+		deadline = time.Now().Add(2 * time.Second)
+		for w.model.Last < records[len(records)-1].Sequence && time.Now().Before(deadline) {
+			w.tick()
+			time.Sleep(10 * time.Millisecond)
+		}
+		if w.tableColumns != 13 || len(w.model.Rows) != 2 || w.model.Rows[0][0] != "2" {
+			return fmt.Errorf("collector metrics missing from window: %v", w.model.Rows)
+		}
+		// Explicit Stop waits for the capture owner, without closing the viewer.
+		w.command(4)
+		deadline = time.Now().Add(2 * time.Second)
+		for c.Status().State != "stopped" && time.Now().Before(deadline) {
+			w.tick()
+			time.Sleep(10 * time.Millisecond)
+		}
+		if c.Status().State != "stopped" || w.model.HistoryLength() == 0 {
+			return fmt.Errorf("Stop did not preserve measured history")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }

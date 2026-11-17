@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gabrielteiga/AntiPessimizerV2/internal/instrumentation"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/platform"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/profiling"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/transport"
@@ -16,21 +17,26 @@ import (
 const Version = 1
 
 type Request struct {
-	Version  int          `json:"version"`
-	Op       string       `json:"op"`
-	Start    StartOptions `json:"start,omitempty"`
-	From, To time.Time
-	Module   string
-	Thread   uint32
+	Instrument InstrumentOptions `json:"instrument,omitempty"`
+	Catalog    CatalogQuery      `json:"catalog,omitempty"`
+	Version    int               `json:"version"`
+	Op         string            `json:"op"`
+	Start      StartOptions      `json:"start,omitempty"`
+	From, To   time.Time
+	Module     string
+	Thread     uint32
 }
 type Response struct {
-	Done      bool                 `json:"done,omitempty"`
-	Version   int                  `json:"version"`
-	Error     string               `json:"error,omitempty"`
-	Status    *Status              `json:"status,omitempty"`
-	Snapshot  *profiling.Snapshot  `json:"snapshot,omitempty"`
-	History   []profiling.Snapshot `json:"history,omitempty"`
-	Processes []platform.Process   `json:"processes,omitempty"`
+	Metric    *instrumentation.Record  `json:"metric,omitempty"`
+	Metrics   []instrumentation.Record `json:"metrics,omitempty"`
+	Catalog   *CatalogPage             `json:"catalog,omitempty"`
+	Done      bool                     `json:"done,omitempty"`
+	Version   int                      `json:"version"`
+	Error     string                   `json:"error,omitempty"`
+	Status    *Status                  `json:"status,omitempty"`
+	Snapshot  *profiling.Snapshot      `json:"snapshot,omitempty"`
+	History   []profiling.Snapshot     `json:"history,omitempty"`
+	Processes []platform.Process       `json:"processes,omitempty"`
 }
 
 func Call(ctx context.Context, address string, q Request) (Response, error) {
@@ -47,6 +53,26 @@ func Call(ctx context.Context, address string, q Request) (Response, error) {
 		return Response{}, err
 	}
 	var r Response
+	if q.Op == "instrument-history" {
+		var all []instrumentation.Record
+		for {
+			r = Response{}
+			if err = transport.Read(conn, &r); err != nil {
+				return r, err
+			}
+			if r.Version != Version || r.Error != "" {
+				return r, fmt.Errorf("instrument history response: %s", r.Error)
+			}
+			all = append(all, r.Metrics...)
+			if len(all) > 256 {
+				return r, errors.New("instrument history exceeds retention limit")
+			}
+			if r.Done {
+				r.Metrics = all
+				return r, nil
+			}
+		}
+	}
 	if q.Op == "history" {
 		var all []profiling.Snapshot
 		for {
@@ -124,13 +150,32 @@ func handle(ctx context.Context, conn net.Conn, c *Controller) {
 		return
 	}
 	switch q.Op {
+	case "instrument-catalog":
+		var page CatalogPage
+		page, err = c.Catalog(q.Catalog)
+		if err == nil {
+			r.Catalog = &page
+		}
+	case "instrument-start":
+		err = c.StartInstrumented(ctx, q.Instrument)
+	case "instrument-history":
+		for _, record := range c.MetricHistory() {
+			if transport.Write(conn, Response{Version: Version, Metrics: []instrumentation.Record{record}}) != nil {
+				return
+			}
+		}
+		r.Done = true
+	case "instrument-subscribe":
+		subscribeMetrics(ctx, conn, c)
+		return
 	case "start":
 		err = c.Start(ctx, q.Start)
 	case "stop":
 		err = c.Stop()
 	case "status":
 	case "latest":
-		status, snapshot := c.View()
+		status, snapshot, metric := c.LiveView()
+		r.Metric = metric
 		r.Status = &status
 		r.Snapshot = snapshot
 	case "history":
@@ -178,5 +223,27 @@ func handle(ctx context.Context, conn net.Conn, c *Controller) {
 	}
 	if err := transport.Write(conn, r); err != nil {
 		return
+	}
+}
+
+func subscribeMetrics(ctx context.Context, conn net.Conn, c *Controller) {
+	conn.SetReadDeadline(time.Time{})
+	disconnected := make(chan struct{})
+	go func() { var b [1]byte; conn.Read(b[:]); close(disconnected) }()
+	defer func() { conn.Close(); <-disconnected }()
+	ch, unsubscribe := c.SubscribeMetrics()
+	defer unsubscribe()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-disconnected:
+			return
+		case record := <-ch:
+			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			if transport.Write(conn, Response{Version: Version, Metric: &record}) != nil {
+				return
+			}
+		}
 	}
 }

@@ -95,3 +95,26 @@ O teste dos executáveis usa `tdsfixture` para construir um TDS sintético dos
 endereços reais de main.hotspot no cpulab. Exige amostras `Lab.Hotspot` resolvidas
 por todo o caminho ETW/TD32/serviço/viewer/arquivo. O original Delphi não é
 executado por esse teste e a fixture não representa todos os seus formatos.
+
+## Sessão instrumentada pelo serviço
+
+O mesmo coletor mantém uma única sessão ativa: `sampling` ou `instrumentation`
+no campo `status.mode`. `instrument-catalog` recebe caminho, busca por texto/unidade
+e página (até 512; padrão 200), e retorna image_id, catalog_id, total e IDs estáveis.
+`instrument-start` exige ambas as identidades, 1..16 IDs distintos, argumentos e
+prazo de 1 ms a 24 h (padrão 1 minuto). O catálogo é relido antes do lançamento;
+se o EXE ou os símbolos selecionáveis mudarem, os IDs antigos são rejeitados.
+A DLL vem da pasta do collector; clientes não escolhem um helper arbitrário.
+
+`latest` retorna `metric` para instrumentação, separado de `snapshot` de sampling.
+`instrument-history` transmite um record por frame e termina com Done; o cliente
+Call agrega até 256. `instrument-subscribe` usa mailbox de um record cumulativo
+por observador. Desconectar observador não cancela o owner. `stop` cancela o
+processo próprio e aguarda o lançamento liberar seus recursos. O final incompleto
+é preservado; não se apresenta cancelamento como captura completa.
+
+O coletor valida o NDJSON completo produzido pelo lançamento antes de publicar,
+retém 256 frames/100.000 linhas/64 MiB e entrega cópias independentes. Reiniciar
+limpa o histórico anterior e gera outra identidade de sessão. Não permite ETW e
+instrumentação sobrepostos no mesmo controller. A janela nativa faz apenas RPCs;
+seleção, argumentos/prazo, início/parada e métricas são testados automaticamente.
