@@ -252,6 +252,9 @@ func debugOwned(ctx context.Context, d *debugLaunch, dll, pipe string, entryRVA 
 					if err == nil && n < uint32(len(name)) {
 						filename := windows.UTF16ToString(name[:n])
 						key := strings.ToLower(filepath.Base(filename))
+						if _, exists := modules[key]; !exists && len(modules) >= 4096 {
+							return errors.New("owned process exceeded module tracking limit")
+						}
 						modules[key] = moduleBase
 						if strings.EqualFold(filepath.Clean(strings.TrimPrefix(filename, `\\?\`)), filepath.Clean(dll)) {
 							producer = moduleBase

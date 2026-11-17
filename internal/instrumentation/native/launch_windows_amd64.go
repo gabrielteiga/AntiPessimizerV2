@@ -92,6 +92,9 @@ func Launch(parent context.Context, o LaunchOptions, out io.Writer) (resultErr e
 		cancel()
 		windows.TerminateJobObject(d.job, 1)
 		<-d.done
+		if result, err := windows.WaitForSingleObject(d.process.Process, 5000); err != nil || result != windows.WAIT_OBJECT_0 {
+			resultErr = errors.Join(resultErr, fmt.Errorf("owned instrumented process did not terminate: wait=%d error=%v", result, err))
+		}
 		if resultErr != nil && d.err != nil && !errors.Is(d.err, context.Canceled) {
 			resultErr = errors.Join(resultErr, d.err)
 		}

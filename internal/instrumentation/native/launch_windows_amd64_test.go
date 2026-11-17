@@ -126,3 +126,44 @@ func TestNativeProducerDebugLaunchCancellationIsIncomplete(t *testing.T) {
 		t.Fatal("cancelled launch advertised complete")
 	}
 }
+
+func TestNativeProducerDebugLaunchUnicodePaths(t *testing.T) {
+	o := launchFixture(t)
+	directory := filepath.Join(t.TempDir(), "caminho ação 空格")
+	if err := os.Mkdir(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{o.Image, o.DLL} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, filepath.Base(path)), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	o.Image = filepath.Join(directory, filepath.Base(o.Image))
+	o.DLL = filepath.Join(directory, filepath.Base(o.DLL))
+	marker := filepath.Join(directory, "finalização.txt")
+	o.Args = append(o.Args, "--marker", marker)
+	var output bytes.Buffer
+	if err := Launch(context.Background(), o, &output); err != nil {
+		t.Fatal(err)
+	}
+	records, err := instrumentation.ReadMetrics(&output)
+	if err != nil || len(records[len(records)-1].Metrics.Rows) != 4 || records[len(records)-1].Metrics.Incomplete {
+		t.Fatal("unicode capture failed", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatal("unicode application argument lost", err)
+	}
+}
+func TestNativeProducerDebugLaunchRejectsChangedBuildBeforeStartup(t *testing.T) {
+	o := launchFixture(t)
+	o.ImageID = "sha256:changed"
+	o.DLL = "missing.dll"
+	var output bytes.Buffer
+	if err := Launch(context.Background(), o, &output); err == nil || !strings.Contains(err.Error(), "changed after symbol selection") || output.Len() != 0 {
+		t.Fatal("build identity check did not precede startup", err)
+	}
+}
