@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -93,6 +94,9 @@ func (c *Controller) StartInstrumented(parent context.Context, o InstrumentOptio
 	c.metricBytes = 0
 	c.state = Status{State: "starting", Mode: "instrumentation", SessionID: sessionID, Target: profiling.Target{Image: filepath.Base(o.Image)}}
 	ctx, cancel := context.WithCancel(parent)
+	control := native.NewControl()
+	c.nativeControl = control
+	options.Control = control
 	c.cancel = cancel
 	c.done = make(chan struct{})
 	done := c.done
@@ -101,6 +105,7 @@ func (c *Controller) StartInstrumented(parent context.Context, o InstrumentOptio
 		err := c.runInstrumented(ctx, options, sessionID, launch)
 		c.mu.Lock()
 		c.cancel = nil
+		c.nativeControl = nil
 		c.state.State = "stopped"
 		if err != nil && !errors.Is(err, context.Canceled) {
 			c.state.State = "error"
@@ -112,38 +117,40 @@ func (c *Controller) StartInstrumented(parent context.Context, o InstrumentOptio
 	return nil
 }
 
-func (c *Controller) runInstrumented(parent context.Context, o native.LaunchOptions, sessionID string, launch func(context.Context, native.LaunchOptions, io.Writer) error) error {
-	ctx, cancel := context.WithCancel(parent)
-	defer cancel()
-	read, write := io.Pipe()
-	done := make(chan error, 1)
-	go func() { err := launch(ctx, o, write); write.CloseWithError(err); done <- err }()
-	reader := instrumentation.NewMetricsReader(read)
-	var consumeErr error
-	for {
-		record, err := reader.Next()
-		if err != nil {
-			if err != io.EOF {
-				consumeErr = err
-			}
-			break
-		}
-		// Validate original capture continuity above, then expose the service-owned
-		// session identity returned by Start. Restart can never reuse an old stream.
-		record.SessionID = sessionID
-		if err = c.publishMetrics(record); err != nil {
-			consumeErr = err
-			break
-		}
+// WriteRecord emits exactly one bounded NDJSON frame per Write. Validate that
+// frame and stream continuity synchronously: a native Clear acknowledgement can
+// only return after the corresponding epoch is retained by this service owner.
+type captureSink struct {
+	controller *Controller
+	sessionID  string
+	validator  instrumentation.MetricValidator
+}
+
+func (s *captureSink) Write(b []byte) (int, error) {
+	if len(b) == 0 || len(b) > instrumentation.MaxFrameBytes || b[len(b)-1] != '\n' || bytes.Count(b, []byte{'\n'}) != 1 {
+		return 0, errors.New("invalid native snapshot write boundary")
 	}
-	cancel()
-	read.Close()
-	write.Close()
-	captureErr := <-done
-	if consumeErr == nil && captureErr == nil && c.Status().Sequence == 0 {
+	reader := instrumentation.NewMetricsReader(bytes.NewReader(b))
+	record, err := reader.Next()
+	if err != nil {
+		return 0, err
+	}
+	if err = s.validator.Accept(record); err != nil {
+		return 0, err
+	}
+	record.SessionID = s.sessionID
+	if err = s.controller.publishMetrics(record); err != nil {
+		return 0, err
+	}
+	return len(b), nil
+}
+func (c *Controller) runInstrumented(ctx context.Context, o native.LaunchOptions, sessionID string, launch func(context.Context, native.LaunchOptions, io.Writer) error) error {
+	sink := captureSink{controller: c, sessionID: sessionID}
+	err := launch(ctx, o, &sink)
+	if err == nil && c.Status().Sequence == 0 {
 		return errors.New("instrumented capture returned no snapshots")
 	}
-	return errors.Join(consumeErr, captureErr)
+	return err
 }
 
 func (c *Controller) publishMetrics(r instrumentation.Record) error {
@@ -257,4 +264,17 @@ func (c *Controller) LiveView() (Status, *profiling.Snapshot, *instrumentation.R
 		metric = &v
 	}
 	return c.state, sample, metric
+}
+
+// Clear waits for the adapter's all-thread writer barrier and the resulting
+// epoch to reach the validated service history. It never resets only the UI.
+func (c *Controller) Clear(ctx context.Context) error {
+	c.mu.Lock()
+	control := c.nativeControl
+	active := c.state.Mode == "instrumentation" && c.cancel != nil && c.state.State == "running"
+	c.mu.Unlock()
+	if !active || control == nil {
+		return native.ErrControlClosed
+	}
+	return control.Clear(ctx)
 }

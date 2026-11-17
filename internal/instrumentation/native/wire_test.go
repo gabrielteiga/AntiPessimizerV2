@@ -62,7 +62,7 @@ func TestNativeWireLifecycleAndCompletion(t *testing.T) {
 func TestNativeWireRejectsIdentityAndLayout(t *testing.T) {
 	for name, change := range map[string]func([]byte){
 		"magic":   func(b []byte) { b[0] = 'X' },
-		"version": func(b []byte) { b[8] = 3 },
+		"version": func(b []byte) { b[8] = 4 },
 		"size":    func(b []byte) { b[12] = 25 },
 		"pid":     func(b []byte) { b[24] = 43 },
 		"clock": func(b []byte) {
@@ -182,5 +182,39 @@ func TestWireV2CleanupAndHeartbeatKeepV1Strict(t *testing.T) {
 	}
 	if _, err = r.Next(); err == nil {
 		t.Fatal("v1 accepted heartbeat")
+	}
+}
+
+func TestWireClearRequiresV3AndHasNoThreadFields(t *testing.T) {
+	for _, version := range []uint32{1, 2, 3} {
+		data := hello()
+		binary.LittleEndian.PutUint32(data[8:], version)
+		data = append(data, packet(1, 0, 0, [5]uint64{8, 0, 0, 0, 120})...)
+		r, err := NewReader(bytes.NewReader(data), 42)
+		if err != nil {
+			t.Fatal(err)
+		}
+		event, err := r.Next()
+		if version != 3 {
+			if err == nil {
+				t.Fatal("legacy adapter accepted Clear")
+			}
+			continue
+		}
+		if err != nil || event.Type != "clear" || event.Tick != 120 {
+			t.Fatal(event, err)
+		}
+	}
+	for _, event := range [][5]uint64{{8, 7, 0, 0, 120}, {8, 0, 1, 0, 120}, {8, 0, 0, 1, 120}} {
+		data := hello()
+		binary.LittleEndian.PutUint32(data[8:], 3)
+		data = append(data, packet(1, 0, 0, event)...)
+		r, err := NewReader(bytes.NewReader(data), 42)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = r.Next(); err == nil {
+			t.Fatal("malformed Clear accepted", event)
+		}
 	}
 }

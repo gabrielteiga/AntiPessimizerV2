@@ -38,7 +38,7 @@ func NewReader(in io.Reader, expectedPID uint32) (*Reader, error) {
 	u64 := binary.LittleEndian.Uint64
 	count := u32(h[28:])
 	header := Header{Version: u32(h[8:]), PID: u32(h[24:]), ImageSize: u32(h[32:]), Frequency: u64(h[16:]), StartTick: u64(h[40:])}
-	if string(h[:8]) != "APNAT01\x00" || (u32(h[8:]) != 1 && u32(h[8:]) != 2) || u32(h[12:]) != 24 || expectedPID == 0 || header.PID != expectedPID || count == 0 || count > 64 || u32(h[36:]) != 0 || header.Frequency == 0 || header.Frequency > 1e12 || header.StartTick == 0 || header.ImageSize == 0 {
+	if string(h[:8]) != "APNAT01\x00" || (u32(h[8:]) < 1 || u32(h[8:]) > 3) || u32(h[12:]) != 24 || expectedPID == 0 || header.PID != expectedPID || count == 0 || count > 64 || u32(h[36:]) != 0 || header.Frequency == 0 || header.Frequency > 1e12 || header.StartTick == 0 || header.ImageSize == 0 {
 		return nil, errors.New("invalid native identity, clock or wire layout")
 	}
 	r := &Reader{Header: header, in: in, selected: map[uint32]bool{}, latest: header.StartTick}
@@ -116,15 +116,21 @@ func (r *Reader) next() (instrumentation.Event, error) {
 	r.pending = r.pending[24:]
 	kind := binary.LittleEndian.Uint32(p)
 	e := instrumentation.Event{Thread: binary.LittleEndian.Uint32(p[4:]), Procedure: binary.LittleEndian.Uint32(p[8:]), KeepDepth: int(binary.LittleEndian.Uint32(p[12:])), Tick: binary.LittleEndian.Uint64(p[16:])}
-	if (e.Thread == 0 && kind != 7) || e.Tick < r.Header.StartTick {
+	if (e.Thread == 0 && kind != 7 && kind != 8) || e.Tick < r.Header.StartTick {
 		return e, errors.New("invalid native event identity/time")
 	}
 	switch kind {
-	case 7:
-		if r.Header.Version != 2 || e.Thread != 0 || e.Procedure != 0 || e.KeepDepth != 0 {
+	case 7, 8:
+		if kind == 8 && r.Header.Version != 3 {
+			return e, errors.New("synchronized Clear requires native wire v3")
+		}
+		if r.Header.Version < 2 || e.Thread != 0 || e.Procedure != 0 || e.KeepDepth != 0 {
 			return e, errors.New("invalid native heartbeat")
 		}
 		e.Type = "heartbeat"
+		if kind == 8 {
+			e.Type = "clear"
+		}
 	case 1, 4:
 		if e.Procedure != 0 || e.KeepDepth != 0 {
 			return e, errors.New("invalid native lifecycle fields")
@@ -135,7 +141,7 @@ func (r *Reader) next() (instrumentation.Event, error) {
 			e.Type = "thread_end"
 		}
 	case 2, 3, 6:
-		if kind == 6 && r.Header.Version != 2 {
+		if kind == 6 && r.Header.Version < 2 {
 			return e, errors.New("unwind exit requires native wire v2")
 		}
 		if !r.selected[e.Procedure] || e.KeepDepth != 0 {

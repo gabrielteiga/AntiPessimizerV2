@@ -28,7 +28,7 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 	gui := flags.Bool("gui", false, "open native Windows desktop")
 	instrumented := flags.Bool("instrumentation", false, "read explicit call/time metrics instead of CPU samples")
 	address := flags.String("address", transport.DefaultAddress(), "local collector endpoint")
-	op := flags.String("op", "", "processes, start, stop, status, latest, history, subscribe, instrument-catalog, instrument-start, instrument-history, instrument-subscribe")
+	op := flags.String("op", "", "processes, start, stop, status, latest, history, subscribe, instrument-catalog, instrument-start, instrument-clear, instrument-history, instrument-subscribe")
 	image := flags.String("image", "", "owned executable for instrument-catalog/start")
 	catalogID := flags.String("catalog-id", "", "exact catalog_id returned by instrument-catalog")
 	imageID := flags.String("image-id", "", "exact image_id returned by instrument-catalog")

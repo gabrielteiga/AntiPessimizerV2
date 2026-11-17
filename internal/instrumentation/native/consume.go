@@ -13,7 +13,10 @@ import (
 // consumeCapture owns the engine for both cooperative tests and debug-launched
 // targets. Every failure preserves completed rows and explicitly invalidates
 // completeness; a verified final batch and target exit are required for success.
-func consumeCapture(ctx context.Context, reader *Reader, target profiling.Target, session string, procedures []instrumentation.Procedure, out io.Writer, startup func() error, awaitExit func(context.Context) error) (resultErr error) {
+func consumeCapture(ctx context.Context, reader *Reader, target profiling.Target, session string, procedures []instrumentation.Procedure, out io.Writer, startup func() error, awaitExit func(context.Context) error) error {
+	return consumeCaptureControlled(ctx, reader, target, session, procedures, out, startup, awaitExit, nil)
+}
+func consumeCaptureControlled(ctx context.Context, reader *Reader, target profiling.Target, session string, procedures []instrumentation.Procedure, out io.Writer, startup func() error, awaitExit func(context.Context) error, clearAck chan<- error) (resultErr error) {
 	engine, err := instrumentation.New(instrumentation.Config{Frequency: reader.Header.Frequency, MaxThreads: 64, MaxDepth: 1024, MaxRows: 4096}, procedures)
 	if err != nil {
 		return err
@@ -52,6 +55,8 @@ func consumeCapture(ctx context.Context, reader *Reader, target profiling.Target
 			return err
 		}
 		switch e.Type {
+		case "clear":
+			err = engine.Clear(e.Tick)
 		case "heartbeat":
 			// Publish liveness without closing calls or changing accounting time.
 		case "thread_start":
@@ -76,11 +81,17 @@ func consumeCapture(ctx context.Context, reader *Reader, target profiling.Target
 		if err != nil {
 			return fmt.Errorf("native %s: %w", e.Type, err)
 		}
-		if time.Since(lastPublish) >= 250*time.Millisecond {
+		if e.Type == "clear" || time.Since(lastPublish) >= 250*time.Millisecond {
 			if err := emit(reader.LatestTick()); err != nil {
 				return err
 			}
 			lastPublish = time.Now()
+		}
+		if e.Type == "clear" {
+			select {
+			case clearAck <- nil:
+			default:
+			}
 		}
 	}
 	if len(active) != 0 {

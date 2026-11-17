@@ -197,3 +197,11 @@ handler externo original e produzir contagens, tempos e médias consistentes.
 Sinais periódicos publicam snapshots mesmo durante chamadas longas, sem simular
 saídas nem incrementar contagens. Próximo gate: controle instrumentado pelo
 serviço/GUI e tratamento específico de handlers Delphi.
+
+
+O bloco seguinte implementa Clear nativo sincronizado, RPC e botão na janela,
+com duas fronteiras reais durante chamadas abertas de três threads. O fluxo
+reinicia os relógios das chamadas abertas conforme ProfilerClearResults, sem
+misturar eventos anteriores/posteriores e sem apagar épocas do histórico.
+Handlers de linguagem Delphi, cobertura de formatos e medições de overhead no
+ambiente alvo continuam os próximos gates.

@@ -251,3 +251,15 @@ func ReadMetrics(in io.Reader) ([]Record, error) {
 	}
 	return records, nil
 }
+
+// MetricValidator validates a complete stream one record at a time, retaining
+// procedure identities across Clear without retaining the snapshot history.
+// One capture owner must serialize calls to Accept.
+type MetricValidator struct{ order metricOrder }
+
+func (v *MetricValidator) Accept(r Record) error {
+	if err := r.Validate(); err != nil {
+		return err
+	}
+	return v.order.accept(r)
+}

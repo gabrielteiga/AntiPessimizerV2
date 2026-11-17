@@ -12,13 +12,14 @@ static VOID WINAPI bootstrap_exit_process(UINT code) {
     InterlockedExchange(&state.running,0);
     ULONGLONG deadline=GetTickCount64()+2000;
     while(load32(&state.writers) && GetTickCount64()<deadline) Sleep(1);
-    if(!load32(&state.writers)) {
+    if(!load32(&state.writers) && writer_gate(FALSE)) {
         LONG count=load32(&state.next_ring);
         if(count>AP_THREADS) count=AP_THREADS;
         for(LONG i=0;i<count;i++) {
             Ring *r=&state.rings[i];
             if(load32(&r->tid) && load64(&r->head)) enqueue(r,AP_END,0,0);
         }
+        InterlockedDecrement(&state.writers);
         InterlockedExchange(&state.stopping,1);
         WaitForSingleObject(state.worker,2000);
     }
