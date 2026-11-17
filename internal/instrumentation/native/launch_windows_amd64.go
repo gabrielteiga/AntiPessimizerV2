@@ -67,6 +67,13 @@ func Launch(parent context.Context, o LaunchOptions, out io.Writer) (resultErr e
 	if o.ImageID != "" && o.ImageID != build {
 		return errors.New("executable changed after symbol selection")
 	}
+	// Resolve short names/junctions before matching the debugger's file path.
+	// Windows temporary folders may use RUNNER~1 while debug events report
+	// the long name, especially for Unicode/spaced fixture paths.
+	dll, err = canonicalLaunchFile(dll)
+	if err != nil {
+		return err
+	}
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return err
@@ -122,7 +129,7 @@ func Launch(parent context.Context, o LaunchOptions, out io.Writer) (resultErr e
 	conn, err := listener.Accept()
 	if err != nil {
 		<-d.done
-		return errors.Join(err, d.err)
+		return fmt.Errorf("instrumented startup connection: %w", err)
 	}
 	defer conn.Close()
 	stoppedConn := make(chan struct{})
@@ -168,4 +175,28 @@ func Launch(parent context.Context, o LaunchOptions, out io.Writer) (resultErr e
 		return nil
 	}
 	return consumeCapture(ctx, reader, target, session, procedures, out, startup, awaitExit)
+}
+
+func canonicalLaunchFile(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	b := make([]uint16, 1024)
+	n, err := windows.GetFinalPathNameByHandle(windows.Handle(f.Fd()), &b[0], uint32(len(b)), 0)
+	if err != nil {
+		return "", err
+	}
+	if n >= uint32(len(b)) {
+		if n > 32768 {
+			return "", errors.New("native adapter path exceeds Windows limit")
+		}
+		b = make([]uint16, n+1)
+		n, err = windows.GetFinalPathNameByHandle(windows.Handle(f.Fd()), &b[0], uint32(len(b)), 0)
+		if err != nil || n >= uint32(len(b)) {
+			return "", fmt.Errorf("resolve native adapter path: %w", err)
+		}
+	}
+	return windows.UTF16ToString(b[:n]), nil
 }

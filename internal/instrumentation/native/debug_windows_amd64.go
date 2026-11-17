@@ -256,7 +256,7 @@ func debugOwned(ctx context.Context, d *debugLaunch, dll, pipe string, entryRVA 
 							return errors.New("owned process exceeded module tracking limit")
 						}
 						modules[key] = moduleBase
-						if strings.EqualFold(filepath.Clean(strings.TrimPrefix(filename, `\\?\`)), filepath.Clean(dll)) {
+						if strings.EqualFold(filepath.Clean(strings.TrimPrefix(filename, `\\?\`)), filepath.Clean(strings.TrimPrefix(dll, `\\?\`))) {
 							producer = moduleBase
 						}
 					}
