@@ -86,6 +86,9 @@ func Launch(parent context.Context, o LaunchOptions, out io.Writer) (resultErr e
 		cancel()
 		windows.TerminateJobObject(d.job, 1)
 		<-d.done
+		if resultErr != nil && d.err != nil && !errors.Is(d.err, context.Canceled) {
+			resultErr = errors.Join(resultErr, d.err)
+		}
 		windows.CloseHandle(d.job)
 		windows.CloseHandle(d.process.Process)
 	}()
