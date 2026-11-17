@@ -51,6 +51,19 @@ static BOOL write_all(const void *buffer, DWORD size) {
     }
     return TRUE;
 }
+static HANDLE open_pipe(const wchar_t *name) {
+    /* ListenPipe reserves the name before Accept publishes a connectable
+       instance. A same-process host can reach Init first. Also tolerate another
+       client winning the instance between WaitNamedPipe and CreateFile. */
+    ULONGLONG deadline = GetTickCount64() + 5000;
+    for (;;) {
+        HANDLE pipe = CreateFileW(name, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+        if (pipe != INVALID_HANDLE_VALUE || GetLastError() != ERROR_PIPE_BUSY) return pipe;
+        ULONGLONG now = GetTickCount64();
+        if (now >= deadline) { SetLastError(ERROR_SEM_TIMEOUT); return INVALID_HANDLE_VALUE; }
+        if (!WaitNamedPipeW(name, (DWORD)(deadline-now))) return INVALID_HANDLE_VALUE;
+    }
+}
 static BOOL batch(const Event *events, uint32_t count, uint64_t sequence, uint64_t final) {
     unsigned char header[32] = {0}, payload[AP_BATCH*24];
     put32(header, 0x31425041); /* APB1 */
@@ -172,7 +185,7 @@ AP_API BOOL APNativeInit(const wchar_t *name, const APProcedure *procedures, uin
         if (!procedures[i].id || !procedures[i].rva || procedures[i].rva>=nt->OptionalHeader.SizeOfImage) { SetLastError(ERROR_INVALID_ADDRESS); return FALSE; }
         for (uint32_t j=0; j<i; j++) if(procedures[i].id==procedures[j].id || procedures[i].rva==procedures[j].rva) { SetLastError(ERROR_DUP_NAME); return FALSE; }
     }
-    state.pipe = CreateFileW(name, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    state.pipe = open_pipe(name);
     if (state.pipe == INVALID_HANDLE_VALUE) return FALSE;
     state.tls = TlsAlloc();
     /* Expanded TLS can allocate on a thread's first TlsSetValue. Require the

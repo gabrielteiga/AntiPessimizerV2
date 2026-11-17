@@ -91,6 +91,11 @@ compilador não comprova o relay/instalador x64 em aplicações Delphi.
 
 ## Integração dos probes gerados com a DLL
 
+A conexão nativa aguarda uma instância de Named Pipe disponível por até cinco
+segundos. Isso cobre a reserva de nome do listener antes de Accept, sem depender
+de qual thread ganha a corrida de inicialização. O teste também atrasa Accept
+intencionalmente; não há espera ou retry de conexão dentro dos callbacks.
+
 O CI também liga BuildEntryProbe e BuildExitProbe aos exports reais
 APNativeEnter/APNativeExit da DLL. Um procedimento Win64 privado em assembly
 recebe seis argumentos, calcula o resultado e passa pelos probes configurados

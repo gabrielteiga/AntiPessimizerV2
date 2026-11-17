@@ -161,6 +161,13 @@ func TestNativeProducerGeneratedProbesEndToEnd(t *testing.T) {
 			}
 		}
 	}()
+	// The listener initially reserves the name without a connectable instance.
+	// Force Init to start before Accept to exercise ERROR_PIPE_BUSY startup.
+	select {
+	case <-initDone:
+		t.Fatalf("Init returned before the server accepted: %v", initErr)
+	case <-time.After(50 * time.Millisecond):
+	}
 	conn, err := listener.Accept()
 	if err != nil {
 		<-initDone
