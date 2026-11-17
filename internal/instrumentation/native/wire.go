@@ -1,5 +1,6 @@
 // Package native consumes bounded events from the native Win64 adapter. It does
-// not install procedure hooks or infer completed calls after an event loss.
+// not infer completed calls after an event loss. Startup hook installation is
+// limited to an explicitly cooperating host and checked native leaf plans.
 package native
 
 import (

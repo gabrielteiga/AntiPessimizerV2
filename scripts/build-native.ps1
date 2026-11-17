@@ -15,4 +15,6 @@ $Output = (Resolve-Path $Output).Path
 if ($LASTEXITCODE -ne 0) { throw 'Native producer build failed' }
 & $gcc -m64 -std=c11 -O1 -Wall -Wextra -Werror -municode -finstrument-functions -finstrument-functions-exclude-file-list=include -fno-optimize-sibling-calls -static-libgcc -o (Join-Path $Output 'APNativeLab.exe') ./native/lab_windows.c (Join-Path $Output 'libAPNative.a')
 if ($LASTEXITCODE -ne 0) { throw 'Controlled native workload build failed' }
+& $gcc -m64 -std=c11 -O1 -Wall -Wextra -Werror -municode -static-libgcc -o (Join-Path $Output 'APHookLab.exe') ./native/hook_lab_windows.c (Join-Path $Output 'libAPNative.a')
+if ($LASTEXITCODE -ne 0) { throw 'Controlled hook workload build failed' }
 Write-Host "Native producer and controlled workload built in $Output"

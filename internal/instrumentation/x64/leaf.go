@@ -21,6 +21,7 @@ type RuntimeFunction struct{ Begin, End, Unwind uint32 }
 // while applying/restoring Patch. Source extent must come from trusted metadata.
 type LeafPlan struct {
 	Original, Patch, Image []byte
+	Source                 []byte // complete expected source bytes, before entry patch
 	BodyRVA, ExitRVA       uint32
 	Functions              [2]RuntimeFunction
 }
@@ -159,7 +160,7 @@ func BuildLeaf(code []byte, source, base, enter, exit uint64, id uint32) (LeafPl
 	copy(image, in.Image)
 	copy(image[bodyRVA:], body)
 	copy(image[exitRVA:], out.Image)
-	return LeafPlan{Original: append([]byte(nil), code[:overwrite]...), Patch: patch, Image: image, BodyRVA: bodyRVA, ExitRVA: exitRVA, Functions: [2]RuntimeFunction{{0, in.CodeSize, in.UnwindRVA}, {exitRVA, exitRVA + out.CodeSize, exitRVA + out.UnwindRVA}}}, nil
+	return LeafPlan{Original: append([]byte(nil), code[:overwrite]...), Source: append([]byte(nil), code...), Patch: patch, Image: image, BodyRVA: bodyRVA, ExitRVA: exitRVA, Functions: [2]RuntimeFunction{{0, in.CodeSize, in.UnwindRVA}, {exitRVA, exitRVA + out.CodeSize, exitRVA + out.UnwindRVA}}}, nil
 }
 
 var leafOperations = map[string]bool{

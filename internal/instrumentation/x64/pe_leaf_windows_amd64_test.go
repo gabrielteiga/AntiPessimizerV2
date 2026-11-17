@@ -30,7 +30,7 @@ func TestNativePELeafUnwindEligibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer windows.FreeLibrary(dll)
-	address, err := windows.GetProcAddress(dll, "APNativeInit")
+	address, err := windows.GetProcAddress(dll, "APNativeInitHooks")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,5 +53,5 @@ func TestNativePELeafUnwindEligibility(t *testing.T) {
 	if !errors.Is(err, ErrUnsupported) || !strings.Contains(err.Error(), "procedure requires unwind/exception handling") || len(p.Image) != 0 {
 		t.Fatal("non-leaf DLL procedure was not rejected by its real unwind metadata", p, err)
 	}
-	t.Logf("native loader and file table agree: APNativeInit RVA=%#x length=%d; frame rejected before clone/patch", begin, end-begin)
+	t.Logf("native loader and file table agree: APNativeInitHooks RVA=%#x length=%d; frame rejected before clone/patch", begin, end-begin)
 }

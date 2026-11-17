@@ -5,6 +5,7 @@
 #include "producer.h"
 #include <string.h>
 #include <wchar.h>
+#include "hooks_windows.h"
 
 enum { AP_THREADS = 64, AP_CAPACITY = 1024, AP_BATCH = 256, AP_SELECTION = 64 };
 enum { AP_START = 1, AP_ENTER = 2, AP_EXIT = 3, AP_END = 4, AP_UNWIND = 5 };
@@ -19,6 +20,7 @@ typedef struct {
 } Ring;
 static struct {
     volatile LONG running, stopping, next_ring, io_error;
+    BOOL hook_mode;
     _Alignas(8) volatile LONG64 lost;
     DWORD tls;
     HANDLE pipe, worker, ready;
@@ -90,7 +92,11 @@ static DWORD WINAPI drain(void *unused) {
     /* A synchronous pipe handle serializes its I/O. Keep hello and ACK on
        this thread; reading ACK on Init's thread can block the hello write. */
     unsigned char start_signal=0; DWORD acknowledged=0;
-    if (!ReadFile(state.pipe, &start_signal, 1, &acknowledged, NULL) || acknowledged!=1 || start_signal!=1) {
+    if (!ReadFile(state.pipe, &start_signal, 1, &acknowledged, NULL) || acknowledged!=1 || start_signal!=(state.hook_mode?2:1)) {
+        InterlockedExchange(&state.io_error, ERROR_INVALID_DATA);
+        return 1;
+    }
+    if(state.hook_mode && !hook_exchange(state.pipe)) {
         InterlockedExchange(&state.io_error, ERROR_INVALID_DATA);
         return 1;
     }
@@ -173,7 +179,7 @@ AP_API void APNativeThreadEnd(void) {
     }
     SetLastError(error);
 }
-AP_API BOOL APNativeInit(const wchar_t *name, const APProcedure *procedures, uint32_t count, uint32_t capacity) {
+static BOOL init_producer(const wchar_t *name, const APProcedure *procedures, uint32_t count, uint32_t capacity, BOOL hook_mode) {
     if (state.rings) { SetLastError(ERROR_ALREADY_INITIALIZED); return FALSE; }
     if (!name || wcsncmp(name, L"\\\\.\\pipe\\", 9) || wcschr(name+9, L'\\') || !name[9] || !procedures || !count || count>AP_SELECTION || !capacity || capacity>AP_CAPACITY) { SetLastError(ERROR_INVALID_PARAMETER); return FALSE; }
     LARGE_INTEGER frequency, start;
@@ -196,7 +202,7 @@ AP_API BOOL APNativeInit(const wchar_t *name, const APProcedure *procedures, uin
     }
     state.rings = (Ring *)VirtualAlloc(NULL, sizeof(Ring)*AP_THREADS, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
     if (!state.rings) { TlsFree(state.tls); CloseHandle(state.pipe); return FALSE; }
-    state.count=count; state.capacity=capacity; state.frequency=(uint64_t)frequency.QuadPart; state.start=(uint64_t)start.QuadPart;
+    state.count=count; state.capacity=capacity; state.frequency=(uint64_t)frequency.QuadPart; state.start=(uint64_t)start.QuadPart; state.hook_mode=hook_mode;
     state.image_size=nt->OptionalHeader.SizeOfImage; memcpy(state.procedures, procedures, count*sizeof(APProcedure));
     state.ready=CreateEventW(NULL, TRUE, FALSE, NULL);
     if (!state.ready) { VirtualFree(state.rings, 0, MEM_RELEASE); state.rings=NULL; TlsFree(state.tls); CloseHandle(state.pipe); return FALSE; }
@@ -206,6 +212,17 @@ AP_API BOOL APNativeInit(const wchar_t *name, const APProcedure *procedures, uin
     if (WaitForMultipleObjects(2, startup, FALSE, 5000)!=WAIT_OBJECT_0) { APNativeShutdown(5000); return FALSE; }
     return TRUE;
 }
+AP_API BOOL APNativeInit(const wchar_t *name,const APProcedure *procedures,uint32_t count,uint32_t capacity) {
+    return init_producer(name,procedures,count,capacity,FALSE);
+}
+AP_API BOOL APNativeInitHooks(const wchar_t *name,const APHookProcedure *procedures,uint32_t count,uint32_t capacity) {
+    if(state.rings || !hook_select(procedures,count)) return FALSE;
+    APProcedure selected[AP_HOOK_LIMIT];
+    for(uint32_t i=0;i<count;i++) selected[i]=(APProcedure){procedures[i].id,procedures[i].rva};
+    BOOL ok=init_producer(name,selected,count,capacity,TRUE);
+    if(!ok && !state.rings) hook_retire();
+    return ok;
+}
 AP_API BOOL APNativeShutdown(DWORD timeout_ms) {
     if (!state.rings || !state.worker) return FALSE;
     InterlockedExchange(&state.running, 0); InterlockedExchange(&state.stopping, 1);
@@ -213,6 +230,7 @@ AP_API BOOL APNativeShutdown(DWORD timeout_ms) {
     if (wait != WAIT_OBJECT_0) { CancelSynchronousIo(state.worker); return FALSE; }
     DWORD result = 1;
     GetExitCodeThread(state.worker, &result);
+    if(!hook_retire()) return FALSE;
     CloseHandle(state.worker); CloseHandle(state.ready); CloseHandle(state.pipe); TlsFree(state.tls);
     VirtualFree(state.rings, 0, MEM_RELEASE);
     BOOL ok = !result && !load32(&state.io_error);
