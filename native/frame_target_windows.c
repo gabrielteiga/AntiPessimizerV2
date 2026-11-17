@@ -20,7 +20,9 @@ METHOD uint64_t APFrameRecursive(uint64_t n){
  volatile uint64_t value=n;
  return value?1+APFrameRecursive(value-1):1;
 }
+extern uint64_t APFrameTiny(void);
 METHOD uint64_t APFrameParent(uint64_t n){
+ if(APFrameTiny()!=77)return 0;
  volatile uint64_t value=n;
  uint64_t first=APFrameChild(value);
  uint64_t second=APFrameChild(value+1);
@@ -32,6 +34,8 @@ LONG APFrameFilter(EXCEPTION_POINTERS *p,void *frame){
 }
 extern uint64_t APFrameCatch(void);
 __asm__(
+ ".text\n .globl APFrameTiny\n .def APFrameTiny; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameTiny\n APFrameTiny:\n .seh_endprologue\n movl $77,%eax\n ret\n .seh_endproc\n"
  ".text\n .globl APFrameCatch\n .def APFrameCatch; .scl 2; .type 32; .endef\n"
  ".seh_proc APFrameCatch\n APFrameCatch:\n"
  "subq $40,%rsp\n .seh_stackalloc 40\n .seh_endprologue\n"

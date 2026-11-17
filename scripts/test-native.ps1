@@ -114,3 +114,6 @@ try {
 
 go test -v -count=3 -timeout=45s ./internal/instrumentation/native -run '^TestNativeProducerClearBarrierPreservesOpenCallsAndRecursiveMetrics$'
 if ($LASTEXITCODE -ne 0) { throw 'Repeated all-thread Clear boundaries failed' }
+
+go test -v -count=3 -timeout=45s ./internal/instrumentation/native -run '^TestNativeProducerTinyMethodCountsWithoutPatchingAdjacentCode$'
+if ($LASTEXITCODE -ne 0) { throw 'Repeated six-byte method capture failed' }

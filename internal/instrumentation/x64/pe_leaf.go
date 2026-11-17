@@ -123,7 +123,7 @@ func readPECode(image []byte, rva, size uint32, collectedUnwind *[]byte) ([]byte
 		}
 		return nil, false
 	}
-	if size <= JumpSize || size > 4096 {
+	if (collectedUnwind == nil && size <= JumpSize) || (collectedUnwind != nil && size < NearJumpSize) || size > 4096 {
 		return fail("invalid leaf extent")
 	}
 	code, ok := mapped(rva, size, true)

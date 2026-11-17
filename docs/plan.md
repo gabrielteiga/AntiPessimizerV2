@@ -205,3 +205,10 @@ reinicia os relógios das chamadas abertas conforme ProfilerClearResults, sem
 misturar eventos anteriores/posteriores e sem apagar épocas do histórico.
 Handlers de linguagem Delphi, cobertura de formatos e medições de overhead no
 ambiente alvo continuam os próximos gates.
+
+
+O bloco de entradas pequenas reduz o salto inicial para cinco bytes quando a
+alocação próxima permite E9 rel32. A evidência exige um procedimento real de seis
+bytes, contagem por três threads, retorno correto e planejamento sem tomar bytes
+do vizinho. Métodos menores que cinco bytes, handlers Delphi e formatos não
+suportados continuam fora do gate.
