@@ -65,11 +65,11 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 		if *follow != "" {
 			return desktop.RunFollow(*address, *follow)
 		}
-		if *instrumented {
-			return desktop.RunInstrumentation(*address)
-		}
 		if *replay != "" {
 			return desktop.RunArchive(*address, *replay)
+		}
+		if *instrumented {
+			return desktop.RunInstrumentation(*address)
 		}
 		return desktop.Run(*address)
 	}
