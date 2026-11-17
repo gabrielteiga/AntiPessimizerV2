@@ -206,7 +206,7 @@ func RunLab(parent context.Context, options LabOptions, out io.Writer) (resultEr
 			if _, err := file.ReadAt(data, 0); err != nil {
 				return err
 			}
-			if err := installLeafHooks(conn, data, reader.Header.Procedures); err != nil {
+			if err := installHooks(conn, data, reader.Header.Procedures); err != nil {
 				return err
 			}
 		} else {

@@ -282,3 +282,39 @@ func TestCompletedCallsWithinOneClockTick(t *testing.T) {
 		t.Fatal("clock quantization lost calls or invented time", s)
 	}
 }
+
+func TestNativeCleanupClosesOnlyMatchingTopFrame(t *testing.T) {
+	e := engine(t)
+	check(t, e.Enter(7, 1, 10))
+	check(t, e.Enter(7, 2, 15))
+	before, err := e.Snapshot()
+	check(t, err)
+	for _, op := range []func() error{
+		func() error { return e.ExitUnwound(7, 1, 20) },
+		func() error { return e.ExitUnwound(99, 2, 20) },
+		func() error { return e.ExitUnwound(7, 2, 14) },
+	} {
+		if op() == nil {
+			t.Fatal("invalid cleanup accepted")
+		}
+		after, err := e.Snapshot()
+		check(t, err)
+		if !reflect.DeepEqual(before, after) {
+			t.Fatal("invalid cleanup mutated metrics")
+		}
+	}
+	check(t, e.ExitUnwound(7, 2, 25))
+	check(t, e.ExitUnwound(7, 1, 30))
+	a, b := row(t, e, 7, 1), row(t, e, 7, 2)
+	if a.Calls != 1 || b.Calls != 1 || a.UnwoundCalls != 1 || b.UnwoundCalls != 1 || a.InclusiveTicks != 20 || a.ExclusiveTicks != 10 || b.InclusiveTicks != 10 {
+		t.Fatal(a, b)
+	}
+	s, err := e.Snapshot()
+	check(t, err)
+	if s.Incomplete || s.OpenCalls != 0 || s.AbandonedCalls != 0 {
+		t.Fatal(s)
+	}
+	if e.ExitUnwound(7, 1, 31) == nil {
+		t.Fatal("duplicate cleanup accepted")
+	}
+}

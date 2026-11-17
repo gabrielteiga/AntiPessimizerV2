@@ -69,9 +69,10 @@ func debugOwned(ctx context.Context, d *debugLaunch, dll, pipe string, entryRVA 
 			windows.TerminateJobObject(d.job, 1)
 			debugKernel.NewProc("DebugActiveProcessStop").Call(uintptr(d.process.ProcessId))
 		}
-		for _, h := range threads {
-			windows.CloseHandle(h)
-		}
+		// CREATE_PROCESS/CREATE_THREAD event handles belong to the debug
+		// subsystem. ContinueDebugEvent closes them on the corresponding exit.
+		// Closing them here or before Continue can close an unrelated handle
+		// after Windows reuses that numeric value (including a Go runtime handle).
 		for _, h := range remoteHandles {
 			windows.CloseHandle(h)
 		}
@@ -228,9 +229,6 @@ func debugOwned(ctx context.Context, d *debugLaunch, dll, pipe string, entryRVA 
 				if event.data[0] != 0 {
 					windows.CloseHandle(windows.Handle(event.data[0]))
 				}
-				if event.data[1] != 0 && windows.Handle(event.data[1]) != d.process.Process {
-					defer windows.CloseHandle(windows.Handle(event.data[1]))
-				}
 				threads[event.tid] = windows.Handle(event.data[2])
 				base = uintptr(event.data[3])
 				entry = base + uintptr(entryRVA)
@@ -310,10 +308,7 @@ func debugOwned(ctx context.Context, d *debugLaunch, dll, pipe string, entryRVA 
 				status = 0x80010001 // DBG_EXCEPTION_NOT_HANDLED: preserve application SEH
 			case 4: // EXIT_THREAD_DEBUG_EVENT
 				code := uint32(event.data[0])
-				if h := threads[event.tid]; h != 0 {
-					windows.CloseHandle(h)
-					delete(threads, event.tid)
-				}
+				delete(threads, event.tid)
 				if event.tid == loadTID {
 					if producer == 0 {
 						return fmt.Errorf("native helper did not load (exit %#x)", code)

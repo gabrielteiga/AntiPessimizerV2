@@ -52,3 +52,6 @@ if ($last.metrics.incomplete -or $rows.Count -ne 4 -or @($rows | Where-Object { 
 $view = & (Join-Path $dir 'viewer.exe') --instrumentation --replay $launchArchive
 if ($LASTEXITCODE -ne 0 -or !($view -join "`n").Contains('Lab.Hotspot') -or !($view -join "`n").Contains('LabWorkload')) { throw 'TD32-selected unmodified target metrics did not reach viewer' }
 Write-Host 'PASS: TD32 selection -> unmodified owned process -> native installation -> worker/finalizer calls -> metrics -> independent viewer'
+
+go test -v -count=3 -timeout=45s ./internal/instrumentation/native -run '^TestNativeProducerFramedCallsRecursionAndRealExceptionUnwind$'
+if ($LASTEXITCODE -ne 0) { throw 'Repeated framed calls/recursion/Windows unwind failed' }

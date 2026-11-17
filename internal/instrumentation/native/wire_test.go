@@ -62,7 +62,7 @@ func TestNativeWireLifecycleAndCompletion(t *testing.T) {
 func TestNativeWireRejectsIdentityAndLayout(t *testing.T) {
 	for name, change := range map[string]func([]byte){
 		"magic":   func(b []byte) { b[0] = 'X' },
-		"version": func(b []byte) { b[8] = 2 },
+		"version": func(b []byte) { b[8] = 3 },
 		"size":    func(b []byte) { b[12] = 25 },
 		"pid":     func(b []byte) { b[24] = 43 },
 		"clock": func(b []byte) {
@@ -133,4 +133,54 @@ func FuzzNativeWire(f *testing.F) {
 			}
 		}
 	})
+}
+
+func TestWireV2CleanupAndHeartbeatKeepV1Strict(t *testing.T) {
+	for _, version := range []uint32{1, 2} {
+		data := hello()
+		binary.LittleEndian.PutUint32(data[8:], version)
+		data = append(data, packet(1, 0, 0, [5]uint64{6, 7, 1, 0, 120}, [5]uint64{7, 0, 0, 0, 125})...)
+		data = append(data, packet(2, 0, 130)...)
+		r, err := NewReader(bytes.NewReader(data), 42)
+		if err != nil {
+			t.Fatal(err)
+		}
+		event, err := r.Next()
+		if version == 1 {
+			if err == nil {
+				t.Fatal("v1 accepted cleanup extension")
+			}
+			continue
+		}
+		if err != nil || event.Type != "unwind_exit" || event.Procedure != 1 {
+			t.Fatal(event, err)
+		}
+		event, err = r.Next()
+		if err != nil || event.Type != "heartbeat" || event.Thread != 0 || r.LatestTick() != 125 {
+			t.Fatal(event, err)
+		}
+		if _, err = r.Next(); err != io.EOF || r.FinalTick() != 130 {
+			t.Fatal("v2 completion", err)
+		}
+	}
+	for _, bad := range [][5]uint64{{7, 7, 0, 0, 120}, {7, 0, 1, 0, 120}, {7, 0, 0, 1, 120}, {7, 0, 0, 0, 99}, {6, 0, 1, 0, 120}, {6, 7, 2, 0, 120}, {6, 7, 1, 1, 120}} {
+		data := hello()
+		binary.LittleEndian.PutUint32(data[8:], 2)
+		data = append(data, packet(1, 0, 0, bad)...)
+		r, err := NewReader(bytes.NewReader(data), 42)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = r.Next(); err == nil {
+			t.Fatal("invalid v2 event accepted", bad)
+		}
+	}
+	data := append(hello(), packet(1, 0, 0, [5]uint64{7, 0, 0, 0, 120})...)
+	r, err := NewReader(bytes.NewReader(data), 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.Next(); err == nil {
+		t.Fatal("v1 accepted heartbeat")
+	}
 }

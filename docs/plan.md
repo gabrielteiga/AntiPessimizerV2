@@ -30,7 +30,8 @@ antes de integrar à main. Windows é o alvo; Linux valida o núcleo portável.
 Por orientação do usuário, conduzir o desenvolvimento e a validação de forma
 independente: consultar o AntiPessimizer na revisão fixada para resolver dúvidas,
 transformar seus comportamentos em testes automatizados e executar os testes
-Go a cada incremento. Registrar quais comportamentos foram conferidos na fonte
+Go por bloco funcional completo, agrupando recursos relacionados conforme a
+orientação do usuário de 17/11. Manter o CI do commit exato como gate de merge. Registrar quais comportamentos foram conferidos na fonte
 e quais foram efetivamente executados. Documentar diferenças deliberadas.
 
 Não solicitar ao usuário compilação, fixtures ou testes manuais durante o
@@ -165,8 +166,7 @@ o ponto de entrada e o adapter instala o plano antes de liberar a aplicação.
 O CI exige chamadas de três threads e finalizador, cancelamento incompleto e
 fluxo dos executáveis até o viewer. O artifact inclui comando e DLL nativa.
 
-Próximo trabalho: ampliar para funções com frames/chamadas e tratar unwind/handlers
-Delphi com testes reais; integrar seleção/start/stop e snapshots instrumentados ao
+Próximo trabalho: tratar handlers de linguagem/exceções Delphi com testes reais; integrar seleção/start/stop e snapshots instrumentados ao
 serviço e à GUI. A validação atual de lançamento usa uma carga C própria com TDS
 sintético, não uma prova de paridade de todos os programas Delphi.
 
@@ -176,3 +176,16 @@ sem controlar ou encerrar o coletor. Contagens/tempos/médias atualizam na janel
 com histórico limitado e coalescência. O comando instrument grava diretamente
 por --output, sem sobrescrever arquivos. Ainda falta selecionar/lançar/parar
 instrumentação pelo serviço e GUI, além do suporte a frames/exceções Delphi.
+
+
+## Bloco de chamadas, recursão e unwind nativo
+
+O lançamento sem SDK passa a negociar APHOOK2 e três intervalos de unwind por
+procedimento (entrada, corpo e saída). Preserva prólogo/códigos v1, realoca calls
+e branches, registra cleanup somente na passagem de unwind e exige o ID do topo
+da pilha Go. Handlers de linguagem/chaining continuam rejeitados. O alvo C próprio
+exercita chamadas aninhadas, recursão e SEH real; três threads devem continuar no
+handler externo original e produzir contagens, tempos e médias consistentes.
+Sinais periódicos publicam snapshots mesmo durante chamadas longas, sem simular
+saídas nem incrementar contagens. Próximo gate: controle instrumentado pelo
+serviço/GUI e tratamento específico de handlers Delphi.

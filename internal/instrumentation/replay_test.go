@@ -87,3 +87,21 @@ func FuzzReplay(f *testing.F) {
 		Replay(context.Background(), bytes.NewReader(b), io.Discard, limits())
 	})
 }
+
+func TestReplayExplicitNativeCleanup(t *testing.T) {
+	data := strings.Replace(input(t), `"type":"exit","thread_id":7,"procedure_id":2`, `"type":"unwind_exit","thread_id":7,"procedure_id":2`, 1)
+	if data == input(t) {
+		t.Fatal("fixture cleanup not replaced")
+	}
+	var out bytes.Buffer
+	if err := Replay(context.Background(), strings.NewReader(data), &out, limits()); err != nil {
+		t.Fatal(err)
+	}
+	var result Record
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Metrics.Incomplete || result.Metrics.OpenCalls != 0 || result.Metrics.Rows[1].UnwoundCalls != 1 {
+		t.Fatal(result)
+	}
+}

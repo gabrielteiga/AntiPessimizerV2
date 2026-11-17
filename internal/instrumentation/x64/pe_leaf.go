@@ -34,6 +34,9 @@ type peLeafSection struct{ rva, virtual, raw, offset, flags uint32 }
 // readPELeaf deliberately reads only bounded headers, sections and .pdata.
 // A general COFF parser also loads symbol tables, which are unnecessary here.
 func readPELeaf(image []byte, rva, size uint32) ([]byte, uint32, error) {
+	return readPECode(image, rva, size, nil)
+}
+func readPECode(image []byte, rva, size uint32, collectedUnwind *[]byte) ([]byte, uint32, error) {
 	fail := func(reason string) ([]byte, uint32, error) {
 		return nil, 0, fmt.Errorf("%w: PE: %s", ErrUnsupported, reason)
 	}
@@ -161,8 +164,23 @@ func readPELeaf(image []byte, rva, size uint32) ([]byte, uint32, error) {
 			}
 			// Empty version-1 metadata has no prologue, codes, frame or handler.
 			// All other versions, chains and language-specific handlers are rejected.
-			if info[0] != 1 || info[1] != 0 || info[2] != 0 || info[3] != 0 {
-				return fail("procedure requires unwind/exception handling")
+			if collectedUnwind == nil {
+				if info[0] != 1 || info[1] != 0 || info[2] != 0 || info[3] != 0 {
+					return fail("procedure requires unwind/exception handling")
+				}
+			} else {
+				if info[0] != 1 || uint32(info[1]) > size {
+					return fail("unsupported language handler, chained or non-v1 unwind info")
+				}
+				length := uint32(4 + ((uint32(info[2])+1)&^1)*2)
+				complete, ok := mapped(binary.LittleEndian.Uint32(table[offset+8:]), length, false)
+				if !ok {
+					return fail("truncated function unwind codes")
+				}
+				if err := validateUnwindCodes(complete); err != nil {
+					return nil, 0, err
+				}
+				*collectedUnwind = append([]byte(nil), complete...)
 			}
 		}
 		previousEnd = end

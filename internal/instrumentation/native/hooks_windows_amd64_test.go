@@ -119,7 +119,7 @@ func TestNativeProducerRejectsDifferentOriginalCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := installLeafHooks(&corruptHookSource{ReadWriter: conn}, image, r.Header.Procedures); err == nil {
+	if err := installHooks(&corruptHookSource{ReadWriter: conn}, image, r.Header.Procedures); err == nil {
 		t.Fatal("native installer accepted different original bytes")
 	}
 	select {

@@ -151,6 +151,16 @@ func (e *Engine) Exit(id, proc uint32, tick uint64) error {
 	return e.closeFrames(t, len(t.stack)-1, tick, false)
 }
 
+// ExitUnwound closes exactly the top procedure reported by a native Windows
+// cleanup handler. A handler for a different frame must not corrupt the stack.
+func (e *Engine) ExitUnwound(id, proc uint32, tick uint64) error {
+	t := e.threads[id]
+	if t == nil || len(t.stack) == 0 || t.stack[len(t.stack)-1].key.proc != proc {
+		return errors.New("unwind exit does not match active procedure")
+	}
+	return e.closeFrames(t, len(t.stack)-1, tick, true)
+}
+
 // Unwind closes instrumented frames above keepDepth at the same timestamp and
 // records their calls as unwound. The native adapter must establish that depth
 // from actual Windows unwind events; this method does not guess it from IPs.

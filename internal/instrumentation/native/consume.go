@@ -52,6 +52,8 @@ func consumeCapture(ctx context.Context, reader *Reader, target profiling.Target
 			return err
 		}
 		switch e.Type {
+		case "heartbeat":
+			// Publish liveness without closing calls or changing accounting time.
 		case "thread_start":
 			err = engine.StartThread(e.Thread, e.Tick)
 			if err == nil {
@@ -61,6 +63,8 @@ func consumeCapture(ctx context.Context, reader *Reader, target profiling.Target
 			err = engine.Enter(e.Thread, e.Procedure, e.Tick)
 		case "exit":
 			err = engine.Exit(e.Thread, e.Procedure, e.Tick)
+		case "unwind_exit":
+			err = engine.ExitUnwound(e.Thread, e.Procedure, e.Tick)
 		case "unwind":
 			err = engine.Unwind(e.Thread, e.KeepDepth, e.Tick)
 		case "thread_end":

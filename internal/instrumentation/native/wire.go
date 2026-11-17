@@ -1,6 +1,6 @@
 // Package native consumes bounded events from the native Win64 adapter. It does
 // not infer completed calls after an event loss. Startup hook installation is
-// limited to an explicitly cooperating host and checked native leaf plans.
+// performed at a controlled startup barrier using verified PE/native plans.
 package native
 
 import (
@@ -16,9 +16,9 @@ var ErrLoss = errors.New("native instrumentation events lost")
 
 type Procedure struct{ ID, RVA uint32 }
 type Header struct {
-	PID, ImageSize       uint32
-	Frequency, StartTick uint64
-	Procedures           []Procedure
+	PID, ImageSize, Version uint32
+	Frequency, StartTick    uint64
+	Procedures              []Procedure
 }
 type Reader struct {
 	Header                        Header
@@ -37,8 +37,8 @@ func NewReader(in io.Reader, expectedPID uint32) (*Reader, error) {
 	u32 := binary.LittleEndian.Uint32
 	u64 := binary.LittleEndian.Uint64
 	count := u32(h[28:])
-	header := Header{PID: u32(h[24:]), ImageSize: u32(h[32:]), Frequency: u64(h[16:]), StartTick: u64(h[40:])}
-	if string(h[:8]) != "APNAT01\x00" || u32(h[8:]) != 1 || u32(h[12:]) != 24 || expectedPID == 0 || header.PID != expectedPID || count == 0 || count > 64 || u32(h[36:]) != 0 || header.Frequency == 0 || header.Frequency > 1e12 || header.StartTick == 0 || header.ImageSize == 0 {
+	header := Header{Version: u32(h[8:]), PID: u32(h[24:]), ImageSize: u32(h[32:]), Frequency: u64(h[16:]), StartTick: u64(h[40:])}
+	if string(h[:8]) != "APNAT01\x00" || (u32(h[8:]) != 1 && u32(h[8:]) != 2) || u32(h[12:]) != 24 || expectedPID == 0 || header.PID != expectedPID || count == 0 || count > 64 || u32(h[36:]) != 0 || header.Frequency == 0 || header.Frequency > 1e12 || header.StartTick == 0 || header.ImageSize == 0 {
 		return nil, errors.New("invalid native identity, clock or wire layout")
 	}
 	r := &Reader{Header: header, in: in, selected: map[uint32]bool{}, latest: header.StartTick}
@@ -116,10 +116,15 @@ func (r *Reader) next() (instrumentation.Event, error) {
 	r.pending = r.pending[24:]
 	kind := binary.LittleEndian.Uint32(p)
 	e := instrumentation.Event{Thread: binary.LittleEndian.Uint32(p[4:]), Procedure: binary.LittleEndian.Uint32(p[8:]), KeepDepth: int(binary.LittleEndian.Uint32(p[12:])), Tick: binary.LittleEndian.Uint64(p[16:])}
-	if e.Thread == 0 || e.Tick < r.Header.StartTick {
+	if (e.Thread == 0 && kind != 7) || e.Tick < r.Header.StartTick {
 		return e, errors.New("invalid native event identity/time")
 	}
 	switch kind {
+	case 7:
+		if r.Header.Version != 2 || e.Thread != 0 || e.Procedure != 0 || e.KeepDepth != 0 {
+			return e, errors.New("invalid native heartbeat")
+		}
+		e.Type = "heartbeat"
 	case 1, 4:
 		if e.Procedure != 0 || e.KeepDepth != 0 {
 			return e, errors.New("invalid native lifecycle fields")
@@ -129,14 +134,19 @@ func (r *Reader) next() (instrumentation.Event, error) {
 		} else {
 			e.Type = "thread_end"
 		}
-	case 2, 3:
+	case 2, 3, 6:
+		if kind == 6 && r.Header.Version != 2 {
+			return e, errors.New("unwind exit requires native wire v2")
+		}
 		if !r.selected[e.Procedure] || e.KeepDepth != 0 {
 			return e, errors.New("unselected native procedure or invalid call fields")
 		}
 		if kind == 2 {
 			e.Type = "enter"
-		} else {
+		} else if kind == 3 {
 			e.Type = "exit"
+		} else {
+			e.Type = "unwind_exit"
 		}
 	case 5:
 		if e.Procedure != 0 || e.KeepDepth > 4096 {

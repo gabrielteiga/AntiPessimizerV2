@@ -159,7 +159,7 @@ func Launch(parent context.Context, o LaunchOptions, out io.Writer) (resultErr e
 			return errors.New("instrumented selection changed in target")
 		}
 	}
-	startup := func() error { return installLeafHooks(conn, data, reader.Header.Procedures) }
+	startup := func() error { return installHooks(conn, data, reader.Header.Procedures) }
 	awaitExit := func(ctx context.Context) error {
 		select {
 		case <-d.done:
