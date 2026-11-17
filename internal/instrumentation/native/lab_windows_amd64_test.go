@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"testing"
 	"time"
 
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/instrumentation"
+	"golang.org/x/sys/windows"
 )
 
 func labPath(t *testing.T) string {
@@ -84,11 +87,70 @@ func TestNativeProducerOverflowInvalidatesExactness(t *testing.T) {
 	if !errors.Is(err, ErrLoss) {
 		t.Fatal("native overflow not detected", err)
 	}
-	r, readErr := instrumentation.NewMetricsReader(&out).Next()
+	records, readErr := instrumentation.ReadMetrics(&out)
 	if readErr != nil {
 		t.Fatal(readErr, err)
 	}
+	r := records[len(records)-1]
 	if !r.Metrics.Incomplete || r.Metrics.OpenCalls != 0 {
 		t.Fatal("lost native events advertised exact", r)
+	}
+}
+
+func TestNativeProducerControllerExitKillsChild(t *testing.T) {
+	path := labPath(t)
+	if os.Getenv("AP_NATIVE_CONTROLLER_HELPER") == "1" {
+		err := RunLab(context.Background(), LabOptions{Workload: path, Threads: 2, Iterations: 10000, Capacity: 1024, Timeout: 20 * time.Second}, os.Stdout)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestNativeProducerControllerExitKillsChild$")
+	cmd.Env = append(os.Environ(), "AP_NATIVE_CONTROLLER_HELPER=1")
+	var diagnostics bytes.Buffer
+	cmd.Stderr = &diagnostics
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { cmd.Wait(); close(done) }()
+	defer func() { cmd.Process.Kill(); <-done }()
+	r, err := instrumentation.NewMetricsReader(stdout).Next()
+	if err != nil {
+		cmd.Process.Kill()
+		<-done
+		t.Fatalf("helper capture: %v %s", err, diagnostics.String())
+	}
+	// Abrupt termination bypasses Go defers; kernel job ownership must still
+	// terminate the native target and its drain/worker threads.
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	h, err := windows.OpenProcess(windows.SYNCHRONIZE|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, r.Target.PID)
+	if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer windows.CloseHandle(h)
+	var created, exit, kernel, user windows.Filetime
+	if err := windows.GetProcessTimes(h, &created, &exit, &kernel, &user); err != nil {
+		t.Fatal(err)
+	}
+	if !time.Unix(0, created.Nanoseconds()).UTC().Equal(r.Target.Start) {
+		return
+	} // PID already reused
+	if result, err := windows.WaitForSingleObject(h, 5000); err != nil || result != windows.WAIT_OBJECT_0 {
+		t.Fatalf("owned native target survived controller termination: %d %v", result, err)
 	}
 }

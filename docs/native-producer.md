@@ -19,6 +19,8 @@ Os timestamps e durações são medidos; não são os ticks da fixture sintétic
 
 - Memória das filas pré-alocada em páginas RW, com alinhamento para atomics;
   callbacks não alocam heap nem fazem I/O ou esperam por espaço na fila.
+  Init exige um índice TLS do bloco primário (0..63), evitando alocação de
+  expansão de TLS na primeira chamada de uma thread.
 - Até 64 slots de thread e 64 procedimentos por captura; capacidade por thread
   de 1 a 1024 eventos. Slots não são reciclados durante a captura. TID reutilizado
   é uma perda explícita, nunca mistura silenciosa de instâncias.
@@ -77,6 +79,7 @@ O CI compila o C com warnings como erros e executa:
   Recursive=40 e Float=10 por thread. Confere checksum dos retornos, argumentos
   de pilha, ponto flutuante, isolamento de threads, aninhamento e médias QPC.
 - Cancelamento de uma captura em andamento: erro e snapshot incompleto.
+- Término abrupto do controller, sem executar defers: filho encerrado pelo Job Object.
 - Fila de um evento: overflow detectado, sem anunciar contagens exatas.
 - Executáveis independentes: captura real → arquivo → viewer.
 

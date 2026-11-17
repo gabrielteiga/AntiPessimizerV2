@@ -125,6 +125,9 @@ func RunLab(parent context.Context, options LabOptions, out io.Writer) (resultEr
 	defer listener.Close()
 	ctx, cancel := context.WithTimeout(parent, options.Timeout)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	p, job, err := createOwned(path, []string{"--pipe", address, "--threads", strconv.Itoa(options.Threads), "--iterations", strconv.Itoa(options.Iterations), "--capacity", strconv.Itoa(options.Capacity)})
 	if err != nil {
 		return fmt.Errorf("launch controlled workload: %w", err)

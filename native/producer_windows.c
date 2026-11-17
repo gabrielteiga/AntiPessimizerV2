@@ -174,7 +174,12 @@ AP_API BOOL APNativeInit(const wchar_t *name, const APProcedure *procedures, uin
     state.pipe = CreateFileW(name, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
     if (state.pipe == INVALID_HANDLE_VALUE) return FALSE;
     state.tls = TlsAlloc();
-    if (state.tls == TLS_OUT_OF_INDEXES) { CloseHandle(state.pipe); return FALSE; }
+    /* Expanded TLS can allocate on a thread's first TlsSetValue. Require the
+       primary TEB slots so event callbacks do not trigger that allocation. */
+    if (state.tls == TLS_OUT_OF_INDEXES || state.tls >= TLS_MINIMUM_AVAILABLE) {
+        if (state.tls != TLS_OUT_OF_INDEXES) TlsFree(state.tls);
+        CloseHandle(state.pipe); return FALSE;
+    }
     state.rings = (Ring *)VirtualAlloc(NULL, sizeof(Ring)*AP_THREADS, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
     if (!state.rings) { TlsFree(state.tls); CloseHandle(state.pipe); return FALSE; }
     state.count=count; state.capacity=capacity; state.frequency=(uint64_t)frequency.QuadPart; state.start=(uint64_t)start.QuadPart;
