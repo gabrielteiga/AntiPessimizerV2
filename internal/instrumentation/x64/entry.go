@@ -5,26 +5,46 @@ import (
 	"fmt"
 )
 
-// EntryProbe is a standard Win64/SSE2 entry bridge, not an installer or an exit
-// hook. Helper uses the native Win64 ABI: void Helper(uint32 procedureID).
+// Probe describes a standard Win64/SSE2 native helper bridge, not an installer.
+// Helper uses the native Win64 ABI: void Helper(uint32 procedureID).
 // It must preserve LastError (as the native producer does), nonvolatile registers
 // and XMM6..15. Arithmetic flags and AVX upper halves are volatile in this ABI;
 // custom assembly conventions/vectorcall/AVX arguments are not supported.
 // Image includes code and aligned UNWIND_INFO. The caller must register a native
 // RUNTIME_FUNCTION for it before execution and retire it only when quiescent.
-type EntryProbe struct {
+type Probe struct {
 	Image                                                  []byte
 	CodeSize, UnwindRVA, HelperReturn, Epilogue, StackSize uint32
 }
 
+type EntryProbe = Probe
+
+type ExitProbe = Probe
+
 func BuildEntryProbe(base, helper, continuation uint64, procedureID uint32) (EntryProbe, error) {
-	invalid := func(reason string) (EntryProbe, error) {
-		return EntryProbe{}, fmt.Errorf("%w: entry probe: %s", ErrUnsupported, reason)
+	return buildProbe(base, helper, continuation, procedureID, false)
+}
+
+// BuildExitProbe is entered after the original epilogue has restored the entry
+// RSP and nonvolatile registers, with the original return address still at [RSP].
+// It preserves integer/SSE2 return values across Helper(id), then executes RET.
+// It does not replace return addresses or locate/patch arbitrary return sites.
+func BuildExitProbe(base, helper uint64, procedureID uint32) (ExitProbe, error) {
+	return buildProbe(base, helper, 0, procedureID, true)
+}
+
+func buildProbe(base, helper, continuation uint64, procedureID uint32, exiting bool) (Probe, error) {
+	invalid := func(reason string) (Probe, error) {
+		return Probe{}, fmt.Errorf("%w: native probe: %s", ErrUnsupported, reason)
 	}
 	if procedureID == 0 {
 		return invalid("zero procedure ID")
 	}
-	for _, a := range []uint64{base, helper, continuation} {
+	addresses := []uint64{base, helper}
+	if !exiting {
+		addresses = append(addresses, continuation)
+	}
+	for _, a := range addresses {
 		if a == 0 || a >= maxUserAddress {
 			return invalid("address outside supported user space")
 		}
@@ -81,7 +101,11 @@ func BuildEntryProbe(base, helper, continuation uint64, procedureID uint32) (Ent
 	}
 	epilogue := uint32(len(code))
 	code = append(code, 0x48, 0x81, 0xc4, stackSize, 0, 0, 0) // standard Windows epilogue
-	code = append(code, jump(continuation)...)
+	if exiting {
+		code = append(code, 0xc3)
+	} else {
+		code = append(code, jump(continuation)...)
+	}
 	codeSize := uint32(len(code))
 	for len(code)%4 != 0 {
 		code = append(code, 0x90)
@@ -89,5 +113,5 @@ func BuildEntryProbe(base, helper, continuation uint64, procedureID uint32) (Ent
 	unwind := uint32(len(code))
 	// Version 1, prologue length 7, two slots: UWOP_ALLOC_LARGE(200/8).
 	code = append(code, 1, 7, 2, 0, 7, 1, stackSize/8, 0)
-	return EntryProbe{Image: code, CodeSize: codeSize, UnwindRVA: unwind, HelperReturn: returnPC, Epilogue: epilogue, StackSize: stackSize}, nil
+	return Probe{Image: code, CodeSize: codeSize, UnwindRVA: unwind, HelperReturn: returnPC, Epilogue: epilogue, StackSize: stackSize}, nil
 }

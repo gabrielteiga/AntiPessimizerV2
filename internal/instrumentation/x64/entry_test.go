@@ -59,3 +59,45 @@ func TestEntryProbeRejectsInvalidAddresses(t *testing.T) {
 		}
 	}
 }
+
+func TestExitProbeEncodingAndUnwind(t *testing.T) {
+	p, err := BuildExitProbe(0x10000000, 0x20000000, 123)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.StackSize != 200 || p.UnwindRVA%4 != 0 || p.Image[p.CodeSize-1] != 0xc3 || int(p.UnwindRVA)+8 != len(p.Image) {
+		t.Fatal(p)
+	}
+	var calls, returns int
+	for at := 0; at < int(p.CodeSize); {
+		inst, err := x86asm.Decode(p.Image[at:p.CodeSize], 64)
+		if err != nil {
+			t.Fatal(at, err)
+		}
+		switch inst.Op {
+		case x86asm.CALL:
+			calls++
+		case x86asm.RET:
+			returns++
+			if at+inst.Len != int(p.CodeSize) {
+				t.Fatal("exit RET is not the final instruction")
+			}
+		case x86asm.SUB, x86asm.ADD, x86asm.MOV, x86asm.MOVDQU:
+		default:
+			t.Fatal("unexpected native exit operation", inst)
+		}
+		at += inst.Len
+	}
+	if calls != 1 || returns != 1 {
+		t.Fatal(calls, returns)
+	}
+	u := p.Image[p.UnwindRVA:]
+	if u[0] != 1 || u[1] != 7 || u[2] != 2 || u[4] != 7 || u[5] != 1 || binary.LittleEndian.Uint16(u[6:])*8 != uint16(p.StackSize) {
+		t.Fatal("invalid exit unwind", u)
+	}
+	for _, args := range [][3]uint64{{0, 0x20000000, 1}, {0x10000000, 0, 1}, {0x10000000, 0x10000010, 1}, {maxUserAddress - 100, 0x20000000, 1}, {0x10000000, 0x20000000, 0}} {
+		if _, err := BuildExitProbe(args[0], args[1], uint32(args[2])); !errors.Is(err, ErrUnsupported) {
+			t.Fatal("invalid exit probe accepted", args, err)
+		}
+	}
+}

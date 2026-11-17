@@ -201,7 +201,7 @@ RIP-relative, o redirecionamento de entrada e a restauração, conferindo retorn
 de patching concorrente, DLL injetada, exceções Delphi ou ABI do relay de hooks.
 Esses gates permanecem obrigatórios antes de expor instrumentação live.
 
-## Probe de entrada Win64/SSE2
+## Probes de entrada e saída Win64/SSE2
 
 `x64.BuildEntryProbe` gera um shim separado para chamar um helper C nativo com
 o ID do procedimento e continuar para o código original/trampolim. Não instala
@@ -226,5 +226,12 @@ de entrada, corpo e epílogo. São contextos controlados, não exceções Delphi
 O contrato é a ABI Win64/SSE2 padrão: flags aritméticos e metades superiores AVX
 são voláteis. Convenções assembly próprias, vectorcall, argumentos AVX, políticas
 CFG/CET e instalação em threads em execução precisam de gates separados.
-Captura de retorno/exit relay permanece pendente; este shim registra apenas a
-fronteira de entrada e não autoriza anunciar chamadas concluídas por si só.
+A entrada isolada não autoriza anunciar chamadas concluídas.
+
+BuildExitProbe acrescenta a chamada ao helper de saída, preservando RAX, RDX e
+XMM0..5 antes de executar RET sobre o endereço de retorno original. Só pode ser
+acionado quando o epílogo original já restaurou RSP e registradores não voláteis.
+O teste nativo confere retornos inteiros/SSE2 e RtlVirtualUnwind também para esse
+blob. Ele não encontra nem instala patches em retornos de funções arbitrárias,
+não substitui o endereço de retorno e não resolve tail calls ou handlers Delphi.
+O instalador/exit relay geral e a validação das exceções continuam pendentes.
