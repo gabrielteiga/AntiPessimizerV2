@@ -127,3 +127,9 @@ probe Go Win64/SSE2 acrescenta preservação dos argumentos voláteis e metadado
 dinâmicos de unwind para o próprio shim, com testes Windows controlados. Nenhum
 desses testes comprova retorno/handlers Delphi, políticas CFG/CET ou instalação
 coordenada em aplicação sem modificações.
+
+Para o caminho restrito de funções simples, a adaptação acrescenta um gate de
+seções PE/pdata e só aceita unwind ausente ou vazio. É uma restrição deliberada:
+o tratamento de exceções separado em HookedExceptionHandler não é substituído
+por aceitar um prólogo decodificável. O teste Windows compara a tabela de uma
+DLL C própria com o loader nativo e rejeita o frame antes de gerar qualquer patch.

@@ -254,6 +254,21 @@ terminar em RET e ter até 4096 bytes. O chamador deve verificar que não há
 metadados de exceção/handlers nem entradas externas no interior da função.
 O planejador não lê PE/pdata para comprovar essas condições e não escreve memória.
 
+`x64.BuildPELeaf` acrescenta essa checagem para um executável PE32+ AMD64 em
+arquivo. Valida mapeamento de seções, backing no arquivo, intervalos ordenados
+de RUNTIME_FUNCTION e informação de unwind. Só aceita ausência de intervalo
+sobreposto ou um intervalo exatamente igual ao procedimento, com UNWIND_INFO v1
+vazio, sem prólogo/códigos/frame/handler. Rejeita sobreposições parciais, handlers,
+chaining, versões não suportadas, diretórios truncados e seções ambíguas. A base
+carregada real continua explícita; a nova alocação não pode sobrepor a imagem.
+
+A leitura é limitada a 256 MiB de imagem, 96 seções e 12 MiB de diretório de
+exceções, sem carregar tabela de símbolos COFF. O teste Windows compara o
+intervalo de APNativeInit de uma DLL GCC real com RtlLookupFunctionEntry e exige
+rejeição por seu unwind não vazio. Isso verifica o gate, não trata suas exceções.
+Tabelas dinâmicas, bytes vivos, identidade de TDS e quiescência continuam a exigir
+verificação pelo futuro instalador. O planejamento não modifica o alvo.
+
 O teste Windows aplica o plano exclusivamente numa função própria alocada pelo
 teste, com chamadores quiescentes. A função soma seis argumentos, passando pelos
 probes e pela DLL real até o núcleo Go. Exige dez chamadas completas, tempos e

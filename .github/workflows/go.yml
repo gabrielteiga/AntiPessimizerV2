@@ -42,7 +42,7 @@ jobs:
 
       - if: runner.os == 'Windows'
         name: Controlled x64 code and unwind
-        run: go test -v -count=1 -timeout=30s ./internal/instrumentation/x64 -run 'Test(ControlledNativeTrampolineAndRestore|NativeCallProbesABIAndVirtualUnwind)$'
+        run: go test -v -count=1 -timeout=30s ./internal/instrumentation/x64 -run 'Test(ControlledNativeTrampolineAndRestore|NativeCallProbesABIAndVirtualUnwind|NativePELeafUnwindEligibility)$'
 
       - if: runner.os == 'Windows'
         name: Controlled ETW integration

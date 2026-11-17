@@ -66,6 +66,8 @@ A ligação dos probes à DLL já tem teste Windows com chamadas reais, incluind
 redirecionamento/restauração de uma função simples em memória própria. Instalação
 geral x64, exceções Delphi e serviço para coleta ao vivo ainda são os próximos
 gates de paridade, detalhados em [instrumentation.md](instrumentation.md).
+O plano PE de funções simples já valida seções e diretório de exceções antes de
+aceitar uma função; frames/handlers que exigem unwind seguem rejeitados.
 
 ## Matriz alvo
 
