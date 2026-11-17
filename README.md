@@ -103,8 +103,19 @@ condições, repetições e múltiplas saídas. Procedimentos não suportados s�
 rejeitados. A validação executada usa um alvo C próprio sem SDK do profiler e
 símbolos TDS sintéticos derivados dos seus endereços; não comprova todos os
 binários Delphi 10.4. A contagem inclui finalizadores anteriores a ExitProcess.
-A janela abre o arquivo após a captura; controle/seleção instrumentados ao vivo
-pela GUI ainda estão pendentes.
+O visualizador pode abrir o arquivo após a captura ou acompanhá-lo enquanto o
+coletor grava. Em duas janelas de terminal:
+
+```bat
+instrument.exe --image caminho\app.exe --unit MinhaUnidade --output chamadas.ndjson
+viewer.exe --gui --instrumentation --follow chamadas.ndjson
+```
+
+`--output` exige um arquivo novo e grava cada snapshot sem depender do terminal.
+Fechar o viewer ou usar **Desconectar** interrompe só o acompanhamento; o coletor
+e o programa alvo continuam. A janela retém até 256 snapshots, 100.000 linhas e
+64 MiB, sem somar totais cumulativos. Seleção/start/stop da instrumentação dentro
+da GUI ainda estão pendentes.
 
 ## Símbolos Delphi
 

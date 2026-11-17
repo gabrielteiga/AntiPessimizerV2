@@ -54,7 +54,7 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 			return desktop.RunFollow(*address, *follow)
 		}
 		if *instrumented {
-			return errors.New("GUI detects the archive mode; use --gui --replay without --instrumentation")
+			return errors.New("use --gui --instrumentation --follow <file> for live metrics, or --gui --replay <file> for an archive")
 		}
 		if *replay != "" {
 			return desktop.RunArchive(*address, *replay)
