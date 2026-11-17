@@ -19,7 +19,7 @@ typedef struct {
     Event events[AP_CAPACITY];
 } Ring;
 static struct {
-    volatile LONG running, stopping, next_ring, io_error;
+    volatile LONG running, stopping, next_ring, io_error, writers;
     BOOL hook_mode;
     _Alignas(8) volatile LONG64 lost;
     DWORD tls;
@@ -157,12 +157,14 @@ static Ring *thread_ring(void) {
 }
 static void record(uint32_t type, uint32_t procedure, uint32_t depth) {
     DWORD error = GetLastError();
+    InterlockedIncrement(&state.writers);
     if (load32(&state.running)) {
         BOOL selected = !procedure;
         for (uint32_t i=0; i<state.count && !selected; i++) selected = state.procedures[i].id == procedure;
         if (!selected) lost();
         else { Ring *r = thread_ring(); if (r) enqueue(r, type, procedure, depth); }
     }
+    InterlockedDecrement(&state.writers);
     SetLastError(error);
 }
 AP_API void APNativeEnter(uint32_t procedure) { if (procedure) record(AP_ENTER, procedure, 0); else { DWORD e=GetLastError(); if(load32(&state.running)) lost(); SetLastError(e); } }
@@ -237,3 +239,5 @@ AP_API BOOL APNativeShutdown(DWORD timeout_ms) {
     ZeroMemory(&state, sizeof(state));
     return ok;
 }
+
+#include "bootstrap_windows.h"
