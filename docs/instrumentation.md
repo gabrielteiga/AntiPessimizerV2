@@ -4,7 +4,8 @@ A instrumentação passa a ser requisito da adaptação por instrução do usuá
 incluindo contagens de chamadas, tempos inclusivos/exclusivos e médias, como no
 AntiPessimizer de referência. O modo ETW continua com seu contrato de amostragem.
 Este documento substitui a classificação anterior de instrumentação como apenas
-futuro opcional; a coleta nativa ainda precisa ser implementada e validada.
+futuro opcional. O produtor nativo já tem integração em carga C cooperativa;
+a instalação dos hooks e a captura em um Delphi sem modificações seguem pendentes.
 
 ## Estado implementado
 
@@ -61,7 +62,12 @@ o collector para substituir os dados do arquivo.
 O CI Windows exige os valores conhecidos nos executáveis independentes e na
 janela nativa, além de manter os testes reais ETW/Named Pipes. O pacote inclui
 instrument-replay.exe. A captura instrumentada ao vivo e sua integração ao
-serviço ainda dependem do produtor nativo; abrir a fixture não mede Delphi.
+serviço ainda dependem da ligação do produtor aos hooks; abrir a fixture não mede Delphi.
+
+`native/producer_windows.c` e `cmd/native-lab` acrescentam captura de callbacks
+nativos/QPC sobre carga C própria, com filas limitadas, perdas e lifecycle.
+O [contrato e os testes do produtor](native-producer.md) distinguem essa execução
+do replay sintético e da instalação dos hooks Delphi ainda pendente.
 
 ## Semântica correspondente à referência
 

@@ -60,8 +60,10 @@ O CLI instrument-replay e os testes automatizados validam o contrato. O viewer
 terminal/Win32 já consome arquivos instrumentados com as cinco métricas do
 original, filtros, ordenação, navegação e preservação das épocas de Clear. O
 planejador de prólogos x64 tem teste nativo controlado de trampolim/restauração.
-O produtor nativo/hook x64 e sua ligação ao serviço para coleta ao vivo ainda
-são os próximos gates de paridade, detalhados em [instrumentation.md](instrumentation.md).
+O produtor nativo C/QPC, filas limitadas e controller Go já podem ser validados
+com callbacks de uma carga C cooperativa, descrita em [native-producer.md](native-producer.md).
+A ligação ao relay/instalador x64, exceções Delphi e serviço para coleta ao vivo
+ainda são os próximos gates de paridade, detalhados em [instrumentation.md](instrumentation.md).
 
 ## Matriz alvo
 
