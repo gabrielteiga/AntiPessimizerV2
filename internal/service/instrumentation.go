@@ -197,9 +197,12 @@ func (c *Controller) MetricView() (Status, *instrumentation.Record) {
 }
 func (c *Controller) MetricHistory() []instrumentation.Record {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	result := make([]instrumentation.Record, len(c.metricHistory))
-	for i, r := range c.metricHistory {
+	// Published records are immutable. Copy their headers under the owner lock,
+	// then copy row arrays outside it so history clients cannot stall ingestion.
+	records := append([]instrumentation.Record(nil), c.metricHistory...)
+	c.mu.Unlock()
+	result := make([]instrumentation.Record, len(records))
+	for i, r := range records {
 		result[i] = r.Clone()
 	}
 	return result

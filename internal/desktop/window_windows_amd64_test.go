@@ -193,6 +193,8 @@ func TestNativeInstrumentedFollowWindowSmoke(t *testing.T) {
 			return fmt.Errorf("stop did not disconnect the follower")
 		}
 		before := w.model.Last
+		w.metricUpdates <- metricFollowUpdate{stopped: true}
+		w.tick() // terminal notification can arrive just after explicit disconnect
 		next := records[1].Clone()
 		next.Sequence++
 		next.At++

@@ -651,7 +651,9 @@ func (a *window) tick() {
 				text(a.status, "Erro no acompanhamento: "+u.err.Error())
 			}
 			if u.stopped {
-				a.followCancel()
+				if a.followCancel != nil {
+					a.followCancel()
+				}
 				a.followCancel = nil
 				user.NewProc("EnableWindow").Call(a.stop, 0)
 				user.NewProc("EnableWindow").Call(a.replay, 1)
