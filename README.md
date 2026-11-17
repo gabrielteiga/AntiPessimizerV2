@@ -5,7 +5,7 @@ comportamentos do [AntiPessimizer](https://github.com/Hoshoyo/AntiPessimizer).
 Collector e viewer são processos independentes. A coleta ao vivo pela interface
 usa amostragem ETW e mede amostras de CPU por procedimento/thread. O comando
 `instrument` também lança um executável próprio para contar chamadas reais no
-subconjunto Win64 sem frame, selecionado por símbolos TD32/TDS. O núcleo de
+subconjunto Win64 com prólogos e unwind verificados, selecionado por símbolos TD32/TDS. O núcleo de
 instrumentação também calcula chamadas, tempos inclusivos/exclusivos e médias a
 partir de eventos explícitos; seus resultados já podem ser abertos no viewer.
 
@@ -23,11 +23,12 @@ Revisado em 17 de novembro de 2026.
 | Instalação em processo de teste | Coletor Go instala medidores em funções sem frame, incluindo condições/repetições, de outro processo próprio; testes de três threads, resultados corretos, perdas e restauração do código ao encerrar |
 | Preparação dos hooks x64 | Planejador de prólogos/trampolins, probes Win64/SSE2 e plano restrito para funções simples, com validação de seções e metadados de unwind PE; integração controlada com a DLL e contagem Go, redirecionamento e restauração em memória própria |
 | Lançamento instrumentado | Comando `instrument`, seleção TD32/TDS e DLL carregada antes do ponto de entrada; teste Windows em EXE C sem SDK do profiler, com threads, finalizadores, cancelamento e viewer |
-| Paridade de instrumentação Delphi | **Pendente:** funções com frames/chamadas/handlers, exceções Delphi e integração ao vivo ao serviço/viewer; não foram comprovadas todas as versões Delphi |
+| Funções com pilha e chamadas | Plano PE com prólogo/unwind v1 preservados, chamadas diretas/indiretas e recursão; testes Windows em alvo C sem SDK, com exceção real e handler externo original |
+| Paridade de instrumentação Delphi | **Pendente:** handlers/exceções Delphi e controle ao vivo pelo serviço/viewer; não foram comprovadas todas as versões Delphi |
 
 A adaptação ainda não tem funcionamento completo equivalente ao AntiPessimizer
 do Hoshoyo. As principais etapas restantes são ampliar a captura para funções
-com frames/chamadas/exceções Delphi e integrá-la à interface ao vivo. O teste do trampolim não comprova a instalação dos hooks
+com handlers/exceções Delphi e integrar seu controle à interface ao vivo. O teste do trampolim não comprova a instalação dos hooks
 em aplicações Delphi; amostras ETW não são contagens de chamadas. O próximo bloco
 inclui seleção dos procedimentos e fluxo de lançamento instrumentado, lifecycle
 e buffer limitado de eventos, integração ao vivo e validação de overhead e
@@ -98,11 +99,15 @@ Este comando inicia e possui um **novo processo**. O prazo padrão é um minuto;
 processo próprio. `--arg valor` passa argumentos ao programa. A DLL distribuída
 é carregada antes do ponto de entrada; o EXE original não é alterado em disco.
 
-O incremento aceita até 16 procedimentos sem frame/chamadas/handlers, incluindo
-condições, repetições e múltiplas saídas. Procedimentos não suportados são
+O lançamento aceita até 16 procedimentos com unwind v1 sem handlers próprios,
+incluindo prólogos de pilha verificados, chamadas, recursão, condições, repetições
+e múltiplas saídas. Saídas por exceção são registradas durante o unwind nativo;
+o handler original que recebe a exceção precisa ficar fora da seleção. Procedimentos não suportados são
 rejeitados. A validação executada usa um alvo C próprio sem SDK do profiler e
 símbolos TDS sintéticos derivados dos seus endereços; não comprova todos os
-binários Delphi 10.4. A contagem inclui finalizadores anteriores a ExitProcess.
+binários Delphi 10.4. Handlers de linguagem, tabelas encadeadas, saltos externos
+e instruções não suportadas seguem rejeitados. A contagem inclui finalizadores
+anteriores a ExitProcess.
 O visualizador pode abrir o arquivo após a captura ou acompanhá-lo enquanto o
 coletor grava. Em duas janelas de terminal:
 
@@ -115,7 +120,9 @@ viewer.exe --gui --instrumentation --follow chamadas.ndjson
 Fechar o viewer ou usar **Desconectar** interrompe só o acompanhamento; o coletor
 e o programa alvo continuam. A janela retém até 256 snapshots, 100.000 linhas e
 64 MiB, sem somar totais cumulativos. Seleção/start/stop da instrumentação dentro
-da GUI ainda estão pendentes.
+da GUI ainda estão pendentes. A DLL publica sinais periódicos durante chamadas
+longas: a janela mostra chamadas abertas sem inventar duração ou contagem de
+chamadas concluídas.
 
 ## Símbolos Delphi
 

@@ -8,9 +8,11 @@ import (
 )
 
 type leafInstruction struct {
+	absolute uint64
+
 	offset, relocated, length int
 	inst                      x86asm.Inst
-	kind                      byte // 0=ordinary, 1=return, 2=jump, 3=conditional
+	kind                      byte // 0=ordinary, 1=return, 2=jump, 3=conditional, 4=call
 	condition                 byte
 	target                    int
 }
@@ -26,6 +28,9 @@ type leafBody struct {
 // No direct/indirect calls, external branches or implicit stack changes exist in
 // this subset. The copied body therefore remains a native leaf for unwind.
 func rewriteLeafBody(code []byte, source, base uint64) (leafBody, error) {
+	return rewriteFunctionBody(code, source, base, false, 0)
+}
+func rewriteFunctionBody(code []byte, source, base uint64, framed bool, prologue int) (leafBody, error) {
 	fail := func(reason string) (leafBody, error) {
 		return leafBody{}, fmt.Errorf("%w: leaf: %s", ErrUnsupported, reason)
 	}
@@ -61,8 +66,22 @@ func rewriteLeafBody(code []byte, source, base uint64) (leafBody, error) {
 			d.kind = 3
 			d.condition = code[offset+1] & 15
 			d.length = 6
+		case framed && inst.Op == x86asm.CALL && code[offset] == 0xe8 && inst.Len == 5:
+			d.kind = 4
+			rel, ok := inst.Args[0].(x86asm.Rel)
+			if !ok {
+				return fail("invalid relative call")
+			}
+			target, ok := address(source+uint64(offset+inst.Len), int64(rel))
+			if !ok || target == 0 || target >= maxUserAddress {
+				return fail("invalid call target")
+			}
+			if target > source && target < source+uint64(len(code)) {
+				return fail("call into procedure interior")
+			}
+			d.absolute = target
 		default:
-			if !leafOperations[inst.Op.String()] {
+			if !leafOperations[inst.Op.String()] && !(framed && frameOperations[inst.Op.String()]) {
 				return fail("unsupported operation: " + inst.Op.String())
 			}
 		}
@@ -77,6 +96,9 @@ func rewriteLeafBody(code []byte, source, base uint64) (leafBody, error) {
 			}
 			d.target = int(target - source)
 		}
+		if offset < prologue && d.length != inst.Len {
+			return fail("relocation changes original prologue offsets")
+		}
 		offsets[offset] = len(instructions)
 		instructions = append(instructions, d)
 		if offset < JumpSize {
@@ -88,8 +110,12 @@ func rewriteLeafBody(code []byte, source, base uint64) (leafBody, error) {
 		}
 		offset += inst.Len
 	}
-	if len(instructions) == 0 || instructions[len(instructions)-1].kind != 1 {
+	if len(instructions) == 0 {
 		return fail("missing final RET")
+	}
+	last := instructions[len(instructions)-1].kind
+	if last != 1 && !(framed && last == 2) {
+		return fail("body falls through its declared extent")
 	}
 	for _, d := range instructions {
 		if d.kind == 2 || d.kind == 3 {
@@ -119,6 +145,15 @@ func rewriteLeafBody(code []byte, source, base uint64) (leafBody, error) {
 			binary.LittleEndian.PutUint32(dst[at:], uint32(delta))
 			continue
 		}
+		if d.kind == 4 {
+			delta := int64(d.absolute) - int64(base+512+uint64(d.relocated+5))
+			if delta < -1<<31 || delta > 1<<31-1 {
+				return fail("call target too far from clone")
+			}
+			dst[0] = 0xe8
+			binary.LittleEndian.PutUint32(dst[1:], uint32(int32(delta)))
+			continue
+		}
 		copy(dst, code[d.offset:d.offset+d.inst.Len])
 		hasRIP := false
 		for operand, arg := range d.inst.Args {
@@ -126,17 +161,17 @@ func rewriteLeafBody(code []byte, source, base uint64) (leafBody, error) {
 			case x86asm.Rel:
 				return fail("unsupported relative control flow")
 			case x86asm.Reg:
-				if !volatileLeafRegister(arg) {
+				if !volatileLeafRegister(arg) && !(framed && nativeFrameRegister(arg)) {
 					return fail("stack, nonvolatile or unsupported register")
 				}
 			case x86asm.Mem:
-				if arg.Segment != 0 || arg.Base == x86asm.EIP {
+				if arg.Segment != 0 && !(framed && (arg.Segment == x86asm.GS || arg.Segment == x86asm.FS)) || arg.Base == x86asm.EIP {
 					return fail("segmented/address-size memory")
 				}
-				if arg.Index == x86asm.RSP || arg.Index == x86asm.ESP {
+				if !framed && (arg.Index == x86asm.RSP || arg.Index == x86asm.ESP) {
 					return fail("stack index")
 				}
-				if arg.Base == x86asm.RSP && (operand == 0 || arg.Index != 0 || arg.Disp < 8) {
+				if !framed && arg.Base == x86asm.RSP && (operand == 0 || arg.Index != 0 || arg.Disp < 8) {
 					return fail("stack write or non-argument stack read")
 				}
 				if arg.Base == x86asm.ESP {
@@ -172,4 +207,10 @@ func rewriteLeafBody(code []byte, source, base uint64) (leafBody, error) {
 		}
 	}
 	return out, nil
+}
+
+var frameOperations = map[string]bool{"PUSH": true, "POP": true, "LEAVE": true, "CALL": true, "INC": true, "DEC": true, "NEG": true, "NOT": true, "IMUL": true, "MUL": true, "IDIV": true, "DIV": true, "SHL": true, "SHR": true, "SAR": true, "SAL": true, "ADC": true, "SBB": true, "CDQE": true, "CQO": true, "CDQ": true, "CMOVE": true, "CMOVNE": true, "CMOVG": true, "CMOVGE": true, "CMOVL": true, "CMOVLE": true, "CMOVA": true, "CMOVAE": true, "CMOVB": true, "CMOVBE": true, "SETE": true, "SETNE": true, "SETG": true, "SETGE": true, "SETL": true, "SETLE": true, "CVTSI2SD": true, "CVTTSD2SI": true, "UCOMISD": true, "COMISD": true}
+
+func nativeFrameRegister(r x86asm.Reg) bool {
+	return r >= x86asm.AL && r <= x86asm.R15B || r >= x86asm.AX && r <= x86asm.R15W || r >= x86asm.EAX && r <= x86asm.R15L || r >= x86asm.RAX && r <= x86asm.R15 || r >= x86asm.X0 && r <= x86asm.X15
 }

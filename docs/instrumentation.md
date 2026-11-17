@@ -322,8 +322,9 @@ no viewer. Isso comprova a ligação; não afirma compilação Delphi dessa fixt
 O pacote inclui instrument.exe, a DLL e notices dos runtimes. A interface de
 controle continua ETW; a GUI abre os arquivos instrumentados para análise.
 
-O recorte mantém funções com frame, calls, handlers e formatos não suportados
-rejeitados, até existir relocação/unwind e evidência Windows correspondentes.
+O caminho APHOOK1 mantém seu recorte sem frame. O lançamento APHOOK2 aceita
+frames e calls conforme o bloco abaixo; handlers de linguagem e formatos não
+suportados continuam rejeitados.
 Compatibilidade de todas as versões Delphi e políticas CFG/CET continua pendente.
 
 
@@ -347,3 +348,37 @@ Os testes cobrem append parcial, dados inconsistentes, truncamento, cancelamento
 retenção e uso do escritor após desligar o viewer. O smoke Windows acrescenta
 dados enquanto a janela está aberta, confere contagens/totais/colunas e testa
 Desconectar. O teste de executáveis usa o novo arquivo exclusivo no fluxo real.
+
+
+## Funções com pilha, chamadas e exceções nativas
+
+`BuildPEFunction` mantém os bytes e offsets do prólogo original e copia seus
+códigos UNWIND_INFO v1. Valida PUSH_NONVOL, ALLOC_SMALL/LARGE, SET_FPREG e
+SAVE_NONVOL/XMM128 contra as instruções, registradores, tamanhos e posições salvas.
+Mudanças de comprimento no prólogo são rejeitadas. O corpo pode chamar outras
+funções, inclusive a própria entrada original instrumentada; calls indiretas e
+memória RIP-relative mantêm seus destinos. Branches internos são remapeados,
+todos os RET passam pela saída e não há fallthrough para fora do intervalo.
+
+A DLL registra um cleanup `UNW_FLAG_UHANDLER` para o corpo copiado. Na segunda
+passagem de uma exceção Windows, registra `unwind_exit` para o procedimento
+removido da pilha; a primeira passagem e o frame sobrevivente não fecham chamadas.
+O Go exige correspondência com o topo, contabiliza a saída como unwind e mantém
+recursão/totais conforme a semântica do original. O handler é C nativo, nunca um
+callback Go. Thunks e dados do handler são relocados por procedimento dentro da
+alocação compartilhada. Não altera endereços de retorno do chamador.
+
+APHOOK2 acrescenta o endereço do helper de cleanup à oferta; APPLAN1 passa a
+conter três RUNTIME_FUNCTION por procedimento. Wire nativo v2 acrescenta tipos
+6 (`unwind_exit`) e 7 (`heartbeat`, sem thread/procedimento). V1 rejeita ambos.
+O worker publica heartbeat a cada 250 ms, sem chamadas ao pipe nos probes; o
+consumidor publica métricas com chamadas abertas sem inventar tempos concluídos.
+
+O teste Windows lança APFrameTarget.exe, sem SDK, exige 11 chamadas Parent,
+21 Child e 40 Recursive por cada uma de três threads, incluindo uma saída
+excepcional Parent/Child. A exceção real deve continuar no handler SEH externo
+original e o programa precisa sair com resultado correto. As somas de tempos
+e médias são conferidas no consumidor. Outra execução mantém Child por 700 ms
+e exige publicação antes do retorno. A fixture é C/GCC com unwind v1: não
+comprova handlers Delphi, chaining, todas as versões do compilador, CFG/CET,
+AVX/vectorcall, tail calls, entrada no interior ou funções acima de 4096 bytes.

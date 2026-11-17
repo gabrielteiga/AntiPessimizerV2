@@ -49,7 +49,7 @@ func hookOffer() []byte {
 func TestHookExchangeIncludesExactSourceAndCompleteUnwindTable(t *testing.T) {
 	for _, chunk := range []int{0, 1, 17} {
 		stream := &hookStream{in: bytes.NewReader(hookOffer()), chunk: chunk}
-		if err := installLeafHooks(stream, hookImage(), []Procedure{{1, 0x5020}}); err != nil {
+		if err := installHooks(stream, hookImage(), []Procedure{{1, 0x5020}}); err != nil {
 			t.Fatal(err)
 		}
 		b := stream.out.Bytes()
@@ -87,23 +87,65 @@ func TestHookExchangeRejectsInvalidOfferWithoutSendingCode(t *testing.T) {
 		offer := hookOffer()
 		mutate(offer)
 		s := &hookStream{in: bytes.NewReader(offer)}
-		if err := installLeafHooks(s, hookImage(), []Procedure{{1, 0x5020}}); err == nil || s.out.Len() != 1 {
+		if err := installHooks(s, hookImage(), []Procedure{{1, 0x5020}}); err == nil || s.out.Len() != 1 {
 			t.Fatal("bad offer sent an install plan", err, s.out.Len())
 		}
 	}
 	for n := 0; n < 53; n++ {
 		s := &hookStream{in: bytes.NewReader(hookOffer()[:n])}
-		if err := installLeafHooks(s, hookImage(), []Procedure{{1, 0x5020}}); err == nil {
+		if err := installHooks(s, hookImage(), []Procedure{{1, 0x5020}}); err == nil {
 			t.Fatalf("truncated at %d accepted", n)
 		}
 	}
 	s := &hookStream{in: bytes.NewReader(hookOffer()), fail: true}
-	if err := installLeafHooks(s, hookImage(), []Procedure{{1, 0x5020}}); !errors.Is(err, io.ErrClosedPipe) {
+	if err := installHooks(s, hookImage(), []Procedure{{1, 0x5020}}); !errors.Is(err, io.ErrClosedPipe) {
 		t.Fatal(err)
 	}
 	offer := hookOffer()
 	offer[52] = 0
-	if err := installLeafHooks(&hookStream{in: bytes.NewReader(offer)}, hookImage(), []Procedure{{1, 0x5020}}); err == nil {
+	if err := installHooks(&hookStream{in: bytes.NewReader(offer)}, hookImage(), []Procedure{{1, 0x5020}}); err == nil {
 		t.Fatal("native rejection ignored")
+	}
+}
+
+func TestGeneralHookExchangeRelocatesEachProcedureCleanupThunk(t *testing.T) {
+	image := hookImage()
+	copy(image[0x260:], image[0x220:0x234])
+	offer := make([]byte, 65)
+	copy(offer, hookOffer()[:48])
+	copy(offer, "APHOOK2\x00")
+	binary.LittleEndian.PutUint32(offer[24:], 2*hookStride)
+	binary.LittleEndian.PutUint32(offer[28:], 2)
+	binary.LittleEndian.PutUint64(offer[48:], 0x200200)
+	binary.LittleEndian.PutUint32(offer[56:], 20)
+	binary.LittleEndian.PutUint32(offer[60:], 20)
+	offer[64] = 1
+	s := &hookStream{in: bytes.NewReader(offer), chunk: 3}
+	if err := installHooks(s, image, []Procedure{{1, 0x5020}, {2, 0x5060}}); err != nil {
+		t.Fatal(err)
+	}
+	h, p := s.out.Bytes()[1:25], s.out.Bytes()[25:25+2*hookStride]
+	table := int(binary.LittleEndian.Uint32(h[16:]))
+	if binary.LittleEndian.Uint32(h[20:]) != 6 {
+		t.Fatal("missing body ranges")
+	}
+	previous := uint32(0)
+	for i := 0; i < 6; i++ {
+		row := p[table+i*12:]
+		begin, end, u := binary.LittleEndian.Uint32(row), binary.LittleEndian.Uint32(row[4:]), binary.LittleEndian.Uint32(row[8:])
+		if begin < previous || end <= begin || end >= uint32(table) {
+			t.Fatal("invalid sorted ranges")
+		}
+		previous = end
+		if i%3 != 1 {
+			continue
+		}
+		info := p[u:]
+		at := 4 + ((int(info[2])+1)&^1)*2
+		thunk := binary.LittleEndian.Uint32(info[at:])
+		stride := uint32(i/3) * hookStride
+		if info[0] != 17 || thunk < stride || thunk >= stride+hookStride || binary.LittleEndian.Uint32(info[at+4:]) != uint32(i/3+1) || binary.LittleEndian.Uint64(p[thunk+6:]) != 0x200200 {
+			t.Fatal("wrong per-procedure cleanup relocation", i, thunk)
+		}
 	}
 }

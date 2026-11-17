@@ -8,7 +8,7 @@
 #include "hooks_windows.h"
 
 enum { AP_THREADS = 64, AP_CAPACITY = 1024, AP_BATCH = 256, AP_SELECTION = 64 };
-enum { AP_START = 1, AP_ENTER = 2, AP_EXIT = 3, AP_END = 4, AP_UNWIND = 5 };
+enum { AP_START = 1, AP_ENTER = 2, AP_EXIT = 3, AP_END = 4, AP_UNWIND = 5, AP_UNWIND_EXIT = 6, AP_HEARTBEAT = 7 };
 typedef struct { uint32_t type, tid, procedure, depth; uint64_t tick; } Event;
 _Static_assert(sizeof(void *) == 8, "Windows x64 is required");
 _Static_assert(sizeof(Event) == 24, "event layout changed");
@@ -82,7 +82,7 @@ static BOOL batch(const Event *events, uint32_t count, uint64_t sequence, uint64
 static DWORD WINAPI drain(void *unused) {
     (void)unused;
     unsigned char hello[48] = { 'A','P','N','A','T','0','1',0 }, catalog[AP_SELECTION*8];
-    put32(hello+8, 1); put32(hello+12, 24); put64(hello+16, state.frequency);
+    put32(hello+8, state.hook_mode==2?2:1); put32(hello+12, 24); put64(hello+16, state.frequency);
     put32(hello+24, GetCurrentProcessId()); put32(hello+28, state.count);
     put32(hello+32, state.image_size); put64(hello+40, state.start);
     for (uint32_t i=0; i<state.count; i++) {
@@ -96,13 +96,14 @@ static DWORD WINAPI drain(void *unused) {
         InterlockedExchange(&state.io_error, ERROR_INVALID_DATA);
         return 1;
     }
-    if(state.hook_mode && !hook_exchange(state.pipe)) {
+    if(state.hook_mode && !hook_exchange(state.pipe,state.hook_mode==2)) {
         InterlockedExchange(&state.io_error, ERROR_INVALID_DATA);
         return 1;
     }
     InterlockedExchange(&state.running, 1);
     SetEvent(state.ready);
     uint64_t sequence = 0;
+    ULONGLONG last_heartbeat=GetTickCount64();
     for (;;) {
         /* If shutdown was observed before this scan, all selected callers are
            already quiescent and every published head must be drained. */
@@ -123,6 +124,14 @@ static DWORD WINAPI drain(void *unused) {
             any = TRUE;
         }
         if (stopping && !any) break;
+        /* Worker-owned liveness only: never advance a measured frame or invent
+           elapsed time for an open call. V1 cooperative hosts stay unchanged. */
+        ULONGLONG now=GetTickCount64();
+        if(state.hook_mode==2 && now-last_heartbeat>=250) {
+            Event heartbeat={AP_HEARTBEAT,0,0,0,ticks()};
+            if(!batch(&heartbeat,1,++sequence,0)) return 1;
+            last_heartbeat=now;
+        }
         if (!any) Sleep(1);
     }
     return batch(NULL, 0, ++sequence, ticks()) ? 0 : 1;
@@ -166,6 +175,14 @@ static void record(uint32_t type, uint32_t procedure, uint32_t depth) {
     }
     InterlockedDecrement(&state.writers);
     SetLastError(error);
+}
+static EXCEPTION_DISPOSITION WINAPI function_unwind(PEXCEPTION_RECORD exception,PVOID frame,PCONTEXT context,PDISPATCHER_CONTEXT dispatcher) {
+    (void)frame; (void)context;
+    if((exception->ExceptionFlags&EXCEPTION_UNWINDING) && !(exception->ExceptionFlags&EXCEPTION_TARGET_UNWIND) && dispatcher && dispatcher->HandlerData) {
+        uint32_t id=*(const uint32_t *)dispatcher->HandlerData;
+        record(AP_UNWIND_EXIT,id,0);
+    }
+    return ExceptionContinueSearch;
 }
 AP_API void APNativeEnter(uint32_t procedure) { if (procedure) record(AP_ENTER, procedure, 0); else { DWORD e=GetLastError(); if(load32(&state.running)) lost(); SetLastError(e); } }
 AP_API void APNativeExit(uint32_t procedure) { if (procedure) record(AP_EXIT, procedure, 0); else { DWORD e=GetLastError(); if(load32(&state.running)) lost(); SetLastError(e); } }
@@ -217,14 +234,16 @@ static BOOL init_producer(const wchar_t *name, const APProcedure *procedures, ui
 AP_API BOOL APNativeInit(const wchar_t *name,const APProcedure *procedures,uint32_t count,uint32_t capacity) {
     return init_producer(name,procedures,count,capacity,FALSE);
 }
-AP_API BOOL APNativeInitHooks(const wchar_t *name,const APHookProcedure *procedures,uint32_t count,uint32_t capacity) {
+static BOOL init_selected_hooks(const wchar_t *name,const APHookProcedure *procedures,uint32_t count,uint32_t capacity,BOOL mode) {
     if(state.rings || !hook_select(procedures,count)) return FALSE;
     APProcedure selected[AP_HOOK_LIMIT];
     for(uint32_t i=0;i<count;i++) selected[i]=(APProcedure){procedures[i].id,procedures[i].rva};
-    BOOL ok=init_producer(name,selected,count,capacity,TRUE);
+    BOOL ok=init_producer(name,selected,count,capacity,mode);
     if(!ok && !state.rings) hook_retire();
     return ok;
 }
+AP_API BOOL APNativeInitHooks(const wchar_t *name,const APHookProcedure *procedures,uint32_t count,uint32_t capacity){return init_selected_hooks(name,procedures,count,capacity,1);}
+AP_API BOOL APNativeInitFunctions(const wchar_t *name,const APHookProcedure *procedures,uint32_t count,uint32_t capacity){return init_selected_hooks(name,procedures,count,capacity,2);}
 AP_API BOOL APNativeShutdown(DWORD timeout_ms) {
     if (!state.rings || !state.worker) return FALSE;
     InterlockedExchange(&state.running, 0); InterlockedExchange(&state.stopping, 1);

@@ -1,4 +1,4 @@
-/* Private startup-only leaf installer. The cooperating host guarantees that no
+/* Private startup-only installer. The cooperating host guarantees that no
  * selected caller runs before Init returns or during Shutdown. Never DllMain. */
 #ifndef AP_HOOKS_WINDOWS_H
 #define AP_HOOKS_WINDOWS_H
@@ -92,22 +92,25 @@ static BOOL hook_allocate(void) {
     }
     return FALSE;
 }
-static BOOL hook_exchange(HANDLE pipe) {
+static EXCEPTION_DISPOSITION WINAPI function_unwind(PEXCEPTION_RECORD,PVOID,PCONTEXT,PDISPATCHER_CONTEXT);
+static BOOL hook_exchange(HANDLE pipe,BOOL general) {
     if(!hook_allocate()) return FALSE;
-    unsigned char offer[48]={'A','P','H','O','O','K','1',0};
+    unsigned char offer[56]={'A','P','H','O','O','K','1',0};
     hook_put64(offer+8,(uintptr_t)GetModuleHandleW(NULL));
     hook_put64(offer+16,(uintptr_t)hooks.memory);
     hook_put32(offer+24,hooks.bytes); hook_put32(offer+28,hooks.count);
     hook_put64(offer+32,(uintptr_t)APNativeEnter); hook_put64(offer+40,(uintptr_t)APNativeExit);
-    if(!hook_io(pipe,offer,sizeof(offer),TRUE)) return FALSE;
+    if(general){offer[6]='2';hook_put64(offer+48,(uintptr_t)function_unwind);}
+    if(!hook_io(pipe,offer,general?56:48,TRUE)) return FALSE;
     for(uint32_t i=0;i<hooks.count;i++) {
         unsigned char extent[4]; hook_put32(extent,hooks.selected[i].size);
         if(!hook_io(pipe,extent,4,TRUE)) return FALSE;
     }
     unsigned char header[24];
     if(!hook_io(pipe,header,sizeof(header),FALSE) || memcmp(header,"APPLAN1",8)) return FALSE;
+    uint32_t per=general?3:2;
     uint32_t count=hook_u32(header+8),size=hook_u32(header+12),table=hook_u32(header+16),entries=hook_u32(header+20);
-    if(count!=hooks.count || size>hooks.bytes || size<16 || entries!=2*count || table%4 || (uint64_t)table+entries*12>size) return FALSE;
+    if(count!=hooks.count || size>hooks.bytes || size<16 || entries!=per*count || table%4 || (uint64_t)table+entries*12>size) return FALSE;
     if(!hook_io(pipe,hooks.memory,size,FALSE)) return FALSE;
     hooks.table=(RUNTIME_FUNCTION *)(hooks.memory+table);
     uint32_t previous=0;
@@ -115,7 +118,12 @@ static BOOL hook_exchange(HANDLE pipe) {
         RUNTIME_FUNCTION *f=&hooks.table[i];
         if(f->BeginAddress<previous || f->EndAddress<=f->BeginAddress || f->EndAddress>table || f->UnwindData%4 || (uint64_t)f->UnwindData+8>table) return FALSE;
         unsigned char *info=hooks.memory+f->UnwindData;
-        if(info[0]!=1 || info[1]!=7 || info[2]!=2 || info[3]!=0 || info[4]!=7 || info[5]!=1 || info[6]!=25 || info[7]!=0) return FALSE;
+        if(general && i%per==1) {
+            uint32_t extra=4+((info[2]+1)&~1)*2;
+            if(info[0]!=17 || (uint64_t)f->UnwindData+extra+8>table) return FALSE;
+            uint32_t handler=hook_u32(info+extra);
+            if((uint64_t)handler+14>table || memcmp(hooks.memory+handler,"\xff\x25\0\0\0\0",6) || hook_u64(hooks.memory+handler+6)!=(uintptr_t)function_unwind || hook_u32(info+extra+4)!=hooks.selected[i/per].id) return FALSE;
+        } else if(info[0]!=1 || info[1]!=7 || info[2]!=2 || info[3]!=0 || info[4]!=7 || info[5]!=1 || info[6]!=25 || info[7]!=0) return FALSE;
         previous=f->EndAddress;
     }
     unsigned char patches[AP_HOOK_LIMIT][AP_HOOK_PREFIX];
@@ -126,7 +134,7 @@ static BOOL hook_exchange(HANDLE pipe) {
         uint32_t length=hook_u32(item),prefix=hook_u32(item+4);
         if(length!=hooks.selected[i].size || prefix<14 || prefix>AP_HOOK_PREFIX || prefix>length) return FALSE;
         if(!hook_io(pipe,expected,length,FALSE) || !hook_io(pipe,patches[i],prefix,FALSE)) return FALSE;
-        if(memcmp(expected,image+hooks.selected[i].rva,length) || memcmp(patches[i],"\xff\x25\0\0\0\0",6) || hook_u64(patches[i]+6)!=(uintptr_t)hooks.memory+hooks.table[i*2].BeginAddress) return FALSE;
+        if(memcmp(expected,image+hooks.selected[i].rva,length) || memcmp(patches[i],"\xff\x25\0\0\0\0",6) || hook_u64(patches[i]+6)!=(uintptr_t)hooks.memory+hooks.table[i*per].BeginAddress) return FALSE;
         for(uint32_t j=14;j<prefix;j++) if(patches[i][j]!=0x90) return FALSE;
         memcpy(hooks.originals[i],expected,prefix);
         hooks.lengths[i]=prefix;

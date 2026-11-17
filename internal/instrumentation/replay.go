@@ -151,6 +151,8 @@ func Replay(ctx context.Context, in io.Reader, out io.Writer, limits Config) err
 			err = engine.Enter(e.Thread, e.Procedure, e.Tick)
 		case "exit":
 			err = engine.Exit(e.Thread, e.Procedure, e.Tick)
+		case "unwind_exit":
+			err = engine.ExitUnwound(e.Thread, e.Procedure, e.Tick)
 		case "unwind":
 			err = engine.Unwind(e.Thread, e.KeepDepth, e.Tick)
 		case "thread_end":
@@ -192,7 +194,7 @@ func (e Event) validate() error {
 		if e.Thread == 0 || e.Procedure != 0 || e.KeepDepth != 0 {
 			return errors.New("invalid thread lifecycle fields")
 		}
-	case "enter", "exit":
+	case "enter", "exit", "unwind_exit":
 		if e.Thread == 0 || e.Procedure == 0 || e.KeepDepth != 0 {
 			return errors.New("invalid entry/exit fields")
 		}

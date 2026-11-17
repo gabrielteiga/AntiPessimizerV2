@@ -158,3 +158,10 @@ Nomes/extensões ainda vêm do manifesto da carga própria. Frames, chamadas,
 exceções e integração ao vivo permanecem pendentes. Para o lançamento sem SDK,
 veja o comando `instrument` em [instrumentation.md](instrumentation.md).
 O laboratório cooperativo não comprova um Delphi arbitrário.
+
+
+O lançamento sem SDK agora negocia APHOOK2 para funções com prólogo/unwind v1,
+chamadas e recursão. Um cleanup nativo relata saídas por exceção real e o worker
+publica sinais de vida enquanto chamadas permanecem abertas. A API cooperativa
+APHOOK1 e os callbacks mantêm wire v1. Evidência e limites estão na seção de
+[funções com pilha](instrumentation.md#funções-com-pilha-chamadas-e-exceções-nativas).
