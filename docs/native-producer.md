@@ -38,7 +38,8 @@ Os timestamps e durações são medidos; não são os ticks da fixture sintétic
 - O endpoint tem nome aleatório e ACL do usuário local. A carga aguarda ACK
   antes de executar as chamadas selecionadas. PID, criação do processo, hash do
   arquivo e RVAs executáveis são registrados/conferidos. O catálogo de nomes
-  e RVAs é declarado pela carga controlada, não vem de TD32 neste laboratório.
+  e RVAs é declarado pela carga controlada, não vem de TD32 neste laboratório;
+  não se inventa uma unidade Pascal para as funções C.
 
 ## Protocolo binário v1
 

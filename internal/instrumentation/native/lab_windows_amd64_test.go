@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -21,6 +22,34 @@ func labPath(t *testing.T) string {
 		t.Skip("enabled after building the controlled native producer in Windows CI")
 	}
 	return p
+}
+
+func TestNativeProducerUnicodeWorkloadPath(t *testing.T) {
+	original := labPath(t)
+	dir := filepath.Join(t.TempDir(), "carga nativa – ação")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{filepath.Base(original), "AntiPessimizerNative.dll"} {
+		b, err := os.ReadFile(filepath.Join(filepath.Dir(original), name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), b, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out bytes.Buffer
+	if err := RunLab(context.Background(), LabOptions{Workload: filepath.Join(dir, filepath.Base(original)), Threads: 1, Iterations: 1, Capacity: 1024, Timeout: 10 * time.Second}, &out); err != nil {
+		t.Fatal(err)
+	}
+	records, err := instrumentation.ReadMetrics(&out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records[len(records)-1].Metrics.Rows) != 4 {
+		t.Fatal("native path capture lost procedures")
+	}
 }
 func TestNativeProducerCallsTimesAndThreadIsolation(t *testing.T) {
 	path := labPath(t)

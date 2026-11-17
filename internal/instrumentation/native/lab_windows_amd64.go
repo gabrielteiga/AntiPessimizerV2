@@ -191,7 +191,7 @@ func RunLab(parent context.Context, options LabOptions, out io.Writer) (resultEr
 		if !executable {
 			return errors.New("native procedure RVA is not executable image code")
 		}
-		procedures = append(procedures, instrumentation.Procedure{ID: proc.ID, Location: profiling.Location{ModuleID: build, Module: target.Image, Unit: "NativeLab", Procedure: names[proc.ID], RVA: fmt.Sprintf("0x%016x", proc.RVA), Status: "resolved"}})
+		procedures = append(procedures, instrumentation.Procedure{ID: proc.ID, Location: profiling.Location{ModuleID: build, Module: target.Image, Procedure: names[proc.ID], RVA: fmt.Sprintf("0x%016x", proc.RVA), Status: "resolved"}})
 	}
 	engine, err := instrumentation.New(instrumentation.Config{Frequency: reader.Header.Frequency, MaxThreads: 64, MaxDepth: 1024, MaxRows: 4096}, procedures)
 	if err != nil {
