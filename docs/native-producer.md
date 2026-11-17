@@ -149,6 +149,9 @@ O Windows exige 10 chamadas por cada uma de 3 threads, argumentos inteiros,
 leitura RIP-relative, retorno e LastError preservados, perda explicitada e
 execução correta após restauração. Também rejeita bytes originais divergentes.
 O teste dos executáveis abre o arquivo resultante no viewer independente.
+A função medida agora contém condição, repetição e dois retornos. O teste alterna
+os caminhos e exige os mesmos dez eventos completos por thread. A constante
+relativa fica antes da função para verificar deslocamento original negativo.
 Nomes/extensões ainda vêm do manifesto da carga própria. Frames, chamadas,
 exceções, entrada em processo sem cooperação e integração ao vivo permanecem
 pendentes; este comando não mede um Delphi arbitrário.

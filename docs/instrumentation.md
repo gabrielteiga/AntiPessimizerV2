@@ -239,8 +239,8 @@ O instalador/exit relay geral e a validação das exceções continuam pendentes
 ## Plano para funções simples sem frame
 
 `x64.BuildLeaf` acrescenta um plano restrito para funções Win64 sem chamadas,
-desvios, alterações de RSP ou registradores não voláteis. Copia o corpo inteiro,
-ajusta referências RIP-relative e substitui o RET final da cópia por um salto
+alterações de RSP ou registradores não voláteis. Copia o corpo inteiro,
+ajusta referências RIP-relative e substitui cada RET da cópia por um salto
 ao probe de saída. A entrada original recebe um salto para o probe de entrada;
 o endereço de retorno do chamador permanece em sua posição original. O plano
 fornece bytes de restauração e os dois intervalos de RUNTIME_FUNCTION dos probes.
@@ -248,7 +248,7 @@ O corpo copiado permanece uma função sem frame para o unwinder Windows.
 
 O subconjunto aceita operações inteiras/SSE2 explícitas e argumentos de pilha
 somente para leitura. Rejeita acesso ao slot do retorno, instruções de strings,
-AVX, prefixo LOCK, retornos com limpeza de pilha, controle de fluxo e referências
+AVX, prefixo LOCK, retornos com limpeza de pilha, saltos externos/indiretos e referências
 RIP ao próprio procedimento. A extensão conhecida deve conter apenas código,
 terminar em RET e ter até 4096 bytes. O chamador deve verificar que não há
 metadados de exceção/handlers nem entradas externas no interior da função.
@@ -287,3 +287,13 @@ resultados preservados e restauração ao sair. O arquivo chega ao viewer pelo
 mesmo protocolo de métricas. O fluxo e seus limites estão em
 [native-producer.md](native-producer.md#instalação-pelo-coletor-em-outro-processo).
 Isso não implementa injeção/attach geral ou suporte a frames e exceções Delphi.
+
+
+Condições e saltos diretos internos já são remapeados no corpo copiado, inclusive
+loops e múltiplos retornos. Cada destino precisa coincidir com uma instrução
+completa. Saltos curtos viram saltos de 32 bits, preservando a condição; todos os
+retornos passam pelo medidor de saída. LOOP/JRCXZ, transferências externas,
+chamadas e branches com prefixos não suportados continuam rejeitados. A cópia
+expandida é limitada a 6144 bytes e mantém RSP/registradores não voláteis intactos.
+A carga Windows verifica ambos os retornos, a repetição e uma leitura RIP com
+deslocamento original negativo, além dos valores e contagens já exigidos.

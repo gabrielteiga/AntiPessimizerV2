@@ -59,7 +59,7 @@ func TestLeafPlanRelocatesRIPData(t *testing.T) {
 func TestLeafPlanRejectsUnsupportedBehavior(t *testing.T) {
 	cases := map[string][]byte{
 		"call":                    leafCode(0xe8, 0, 0, 0, 0),
-		"branch":                  leafCode(0x75, 0),
+		"external branch":         leafCode(0x75, 0x7f),
 		"jump":                    leafCode(0xff, 0xe0),
 		"push":                    leafCode(0x50),
 		"pop":                     leafCode(0x58),
@@ -75,7 +75,6 @@ func TestLeafPlanRejectsUnsupportedBehavior(t *testing.T) {
 		"segmented memory":        leafCode(0x65, 0x48, 0x8b, 0x04, 0x25, 0x30, 0, 0, 0),
 		"AVX":                     leafCode(0xc5, 0xf8, 0x57, 0xc0),
 		"lock":                    leafCode(0xf0, 0x48, 0x01, 0x01),
-		"embedded return":         leafCode(0xc3, 0x90),
 		"ret pop":                 append(bytes.Repeat([]byte{0x90}, 16), 0xc2, 0x10, 0),
 		"missing return":          bytes.Repeat([]byte{0x90}, 32),
 		"truncated":               append(bytes.Repeat([]byte{0x90}, 16), 0x48, 0x8b),

@@ -9,17 +9,22 @@
 
 extern uint64_t APHookSum(uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
 extern const unsigned char APHookSumEnd[];
-const uint64_t APHookConstant=35;
+
 __asm__(
  ".text\n"
+ ".p2align 3\n .LAPHookConstant: .quad 35\n"
  ".globl APHookSum\n"
  ".def APHookSum; .scl 2; .type 32; .endef\n"
  "APHookSum:\n"
  ".rept 16\n nop\n .endr\n"
- "leaq (%rcx,%rdx),%rax\n"
+ "movl $2,%r10d\n"
+ "1: subq $1,%r10\n jne 1b\n"
+ "testq %rcx,%rcx\n jne 2f\n"
+ "movq $777,%rax\n ret\n"
+ "2: leaq (%rcx,%rdx),%rax\n"
  "addq %r8,%rax\n addq %r9,%rax\n"
  "addq 40(%rsp),%rax\n addq 48(%rsp),%rax\n"
- "addq APHookConstant(%rip),%rax\n"
+ "addq .LAPHookConstant(%rip),%rax\n"
  "ret\n"
  ".globl APHookSumEnd\n APHookSumEnd:\n"
 );
@@ -30,7 +35,7 @@ static DWORD WINAPI worker(void *unused) {
  if(WaitForSingleObject(start_workers,5000)!=WAIT_OBJECT_0) return 1;
  for(uint32_t i=0;i<iterations;i++) {
   SetLastError(0x12345678);
-  if(APHookSum(7+i,11,13,17,19,23)!=125+i || GetLastError()!=0x12345678) return 2;
+  if(APHookSum(i%2?0:7+i,11,13,17,19,23)!=(i%2?777:125+i) || GetLastError()!=0x12345678) return 2;
  }
  APNativeThreadEnd();
  return 0;
@@ -49,8 +54,8 @@ int wmain(int argc,wchar_t **argv) {
  if(!pipe || !threads || threads>16 || !iterations || iterations>100000) return 2;
  uintptr_t base=(uintptr_t)GetModuleHandleW(NULL);
  uint32_t size=(uint32_t)((uintptr_t)APHookSumEnd-(uintptr_t)APHookSum);
- if(size>64) return 3;
- unsigned char original[64]; memcpy(original,(const void *)APHookSum,size);
+ if(size>256) return 3;
+ unsigned char original[256]; memcpy(original,(const void *)APHookSum,size);
  APHookProcedure selected={1,(uint32_t)((uintptr_t)APHookSum-base),size};
  if(!APNativeInitHooks(pipe,&selected,1,capacity)) {
   if(memcmp(original,(const void *)APHookSum,size) || APHookSum(7,11,13,17,19,23)!=125) return 8;

@@ -18,7 +18,7 @@ Revisado em 17 de novembro de 2026.
 | Viewer e arquivos | Interface Win32 e terminal, filtros, ordenação, histórico, salvar/replay e comparação de sampling; testes Windows dos executáveis e da janela |
 | Contagens, tempos e médias | Núcleo instrumentado e replay, com recursão, threads, unwind, Clear e perdas; testes sintéticos e callbacks nativos em carga C própria |
 | Produtor nativo controlado | DLL C com QPC, filas por thread, detecção de perdas e controller Go; integração Windows com carga própria, sem instalação de hooks Delphi |
-| Instalação em processo de teste | Coletor Go instala medidores em funções simples de outro processo próprio; testes de três threads, resultados corretos, perdas e restauração do código ao encerrar |
+| Instalação em processo de teste | Coletor Go instala medidores em funções sem frame, incluindo condições/repetições, de outro processo próprio; testes de três threads, resultados corretos, perdas e restauração do código ao encerrar |
 | Preparação dos hooks x64 | Planejador de prólogos/trampolins, probes Win64/SSE2 e plano restrito para funções simples, com validação de seções e metadados de unwind PE; integração controlada com a DLL e contagem Go, redirecionamento e restauração em memória própria |
 | Captura instrumentada Delphi ao vivo | **Pendente:** instalação geral coordenada, ABI/retornos/exceções Delphi e integração ao serviço/viewer |
 
