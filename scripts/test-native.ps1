@@ -91,7 +91,18 @@ try {
     if ($LASTEXITCODE -ne 0 -or @($archive.metrics).Count -eq 0) { throw 'Service retained no instrumented history' }
     $null = & (Join-Path $dir 'viewer.exe') --address $servicePipe --op instrument-start --image $launchTarget --image-id $catalog.catalog.image_id --catalog-id $catalog.catalog.catalog_id --procedure-ids $procedureID --arg=--threads --arg=2 --arg=--iterations --arg=10000
     if ($LASTEXITCODE -ne 0) { throw 'Service restart failed' }
-    Start-Sleep -Milliseconds 300
+    $running = $false
+    for ($attempt = 0; $attempt -lt 100; $attempt++) {
+        $state = & (Join-Path $dir 'viewer.exe') --address $servicePipe --op latest | ConvertFrom-Json
+        if ($state.status.state -eq 'error') { throw 'Restarted capture failed' }
+        if ($state.status.state -eq 'running') { $running = $true; break }
+        Start-Sleep -Milliseconds 50
+    }
+    if (!$running) { throw 'Restarted capture did not become ready for Clear' }
+    $cleared = & (Join-Path $dir 'viewer.exe') --address $servicePipe --op instrument-clear | ConvertFrom-Json
+    if ($LASTEXITCODE -ne 0) { throw 'Native all-thread Clear failed through the service' }
+    $state = & (Join-Path $dir 'viewer.exe') --address $servicePipe --op latest | ConvertFrom-Json
+    if ($state.metric.metrics.clear_epoch -ne 1) { throw 'Clear acknowledged before publishing its epoch' }
     $null = & (Join-Path $dir 'viewer.exe') --address $servicePipe --op stop
     if ($LASTEXITCODE -ne 0) { throw 'Service Stop failed' }
     $state = & (Join-Path $dir 'viewer.exe') --address $servicePipe --op latest | ConvertFrom-Json
@@ -100,3 +111,6 @@ try {
 } finally {
     if (!$collector.HasExited) { Stop-Process -Id $collector.Id -Force; $collector.WaitForExit(5000) | Out-Null }
 }
+
+go test -v -count=3 -timeout=45s ./internal/instrumentation/native -run '^TestNativeProducerClearBarrierPreservesOpenCallsAndRecursiveMetrics$'
+if ($LASTEXITCODE -ne 0) { throw 'Repeated all-thread Clear boundaries failed' }

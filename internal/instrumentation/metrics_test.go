@@ -222,3 +222,27 @@ func TestCumulativeMetricsRejectRegressionAndAllowClear(t *testing.T) {
 		})
 	}
 }
+
+func TestIncrementalMetricValidatorRetainsIdentityAcrossEmptyClear(t *testing.T) {
+	first := metricFixture(t)
+	var validator MetricValidator
+	if err := validator.Accept(first); err != nil {
+		t.Fatal(err)
+	}
+	clear := first.Clone()
+	clear.Sequence++
+	clear.At++
+	clear.Metrics.Epoch++
+	clear.Metrics.Rows = nil
+	if err := validator.Accept(clear); err != nil {
+		t.Fatal(err)
+	}
+	changed := first.Clone()
+	changed.Sequence = clear.Sequence + 1
+	changed.At = clear.At + 1
+	changed.Metrics.Epoch = clear.Metrics.Epoch
+	changed.Metrics.Rows[0].Procedure = "OtherProcedure"
+	if err := validator.Accept(changed); err == nil {
+		t.Fatal("procedure identity reused after Clear")
+	}
+}

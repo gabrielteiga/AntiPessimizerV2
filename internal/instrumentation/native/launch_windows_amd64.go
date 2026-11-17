@@ -23,6 +23,12 @@ import (
 // entry point, loads the native adapter and installs checked leaf hooks before
 // resuming application startup. It never attaches to an unrelated process.
 func Launch(parent context.Context, o LaunchOptions, out io.Writer) (resultErr error) {
+	if o.Control != nil {
+		if err := o.Control.claim(); err != nil {
+			return err
+		}
+		defer close(o.Control.done)
+	}
 	if err := o.validate(); err != nil {
 		return err
 	}
@@ -87,6 +93,14 @@ func Launch(parent context.Context, o LaunchOptions, out io.Writer) (resultErr e
 	defer listener.Close()
 	ctx, cancel := context.WithTimeout(parent, o.Timeout)
 	defer cancel()
+	var commandsDone chan struct{}
+	defer func() {
+		cancel()
+		if commandsDone != nil {
+			<-commandsDone
+		}
+	}()
+	clearAck := make(chan error, 1)
 	selected := make([]debugSelection, len(o.Procedures))
 	for i, p := range o.Procedures {
 		selected[i] = debugSelection{p.ID, p.RVA, p.Size}
@@ -159,7 +173,19 @@ func Launch(parent context.Context, o LaunchOptions, out io.Writer) (resultErr e
 			return errors.New("instrumented selection changed in target")
 		}
 	}
-	startup := func() error { return installHooks(conn, data, reader.Header.Procedures) }
+	startup := func() error {
+		if err := installHooks(conn, data, reader.Header.Procedures); err != nil {
+			return err
+		}
+		if o.Control != nil {
+			if reader.Header.Version != 3 {
+				return errors.New("native adapter does not support synchronized Clear")
+			}
+			commandsDone = make(chan struct{})
+			go func() { defer close(commandsDone); runCommands(ctx, conn, o.Control, clearAck, cancel) }()
+		}
+		return nil
+	}
 	awaitExit := func(ctx context.Context) error {
 		select {
 		case <-d.done:
@@ -174,7 +200,7 @@ func Launch(parent context.Context, o LaunchOptions, out io.Writer) (resultErr e
 		}
 		return nil
 	}
-	return consumeCapture(ctx, reader, target, session, procedures, out, startup, awaitExit)
+	return consumeCaptureControlled(ctx, reader, target, session, procedures, out, startup, awaitExit, clearAck)
 }
 
 func canonicalLaunchFile(path string) (string, error) {

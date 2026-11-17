@@ -37,6 +37,7 @@ type StartOptions struct {
 	Top      int    `json:"top"`
 }
 type Controller struct {
+	nativeControl           *native.Control
 	metricHistory           []instrumentation.Record
 	metricSizes             []int
 	metricBytes, metricRows int

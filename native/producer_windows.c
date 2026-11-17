@@ -8,7 +8,7 @@
 #include "hooks_windows.h"
 
 enum { AP_THREADS = 64, AP_CAPACITY = 1024, AP_BATCH = 256, AP_SELECTION = 64 };
-enum { AP_START = 1, AP_ENTER = 2, AP_EXIT = 3, AP_END = 4, AP_UNWIND = 5, AP_UNWIND_EXIT = 6, AP_HEARTBEAT = 7 };
+enum { AP_START = 1, AP_ENTER = 2, AP_EXIT = 3, AP_END = 4, AP_UNWIND = 5, AP_UNWIND_EXIT = 6, AP_HEARTBEAT = 7, AP_CLEAR = 8 };
 typedef struct { uint32_t type, tid, procedure, depth; uint64_t tick; } Event;
 _Static_assert(sizeof(void *) == 8, "Windows x64 is required");
 _Static_assert(sizeof(Event) == 24, "event layout changed");
@@ -19,7 +19,7 @@ typedef struct {
     Event events[AP_CAPACITY];
 } Ring;
 static struct {
-    volatile LONG running, stopping, next_ring, io_error, writers;
+    volatile LONG running, stopping, next_ring, io_error, writers, frozen;
     BOOL hook_mode;
     _Alignas(8) volatile LONG64 lost;
     DWORD tls;
@@ -79,10 +79,56 @@ static BOOL batch(const Event *events, uint32_t count, uint64_t sequence, uint64
     }
     return write_all(header, sizeof(header)) && (!count || write_all(payload, count*24));
 }
+/* Only the drain owner consumes rings. With writers gated, repeat until every
+ * event before a Clear boundary has been published, across all thread rings. */
+static int drain_rings(uint64_t *sequence) {
+    BOOL any=FALSE;
+    LONG count=load32(&state.next_ring);
+    if(count>AP_THREADS)count=AP_THREADS;
+    for(LONG i=0;i<count;i++){
+        Ring *r=&state.rings[i];
+        uint64_t tail=load64(&r->tail),head=load64(&r->head);
+        uint32_t n=(uint32_t)(head-tail);
+        if(!n)continue;
+        if(n>AP_BATCH)n=AP_BATCH;
+        Event copy[AP_BATCH];
+        for(uint32_t j=0;j<n;j++)copy[j]=r->events[(tail+j)%state.capacity];
+        InterlockedExchange64(&r->tail,(LONG64)(tail+n));
+        if(!batch(copy,n,++*sequence,0))return -1;
+        any=TRUE;
+    }
+    return any?1:0;
+}
+static BOOL writer_gate(BOOL require_running){
+    for(;;){
+        while(load32(&state.frozen)){
+            if(require_running && !load32(&state.running))return FALSE;
+            SwitchToThread();
+        }
+        InterlockedIncrement(&state.writers);
+        if(!load32(&state.frozen))return TRUE;
+        InterlockedDecrement(&state.writers);
+    }
+}
+static BOOL clear_boundary(uint64_t *sequence){
+    InterlockedExchange(&state.frozen,1);
+    ULONGLONG deadline=GetTickCount64()+2000;
+    while(load32(&state.writers)){
+        if(GetTickCount64()>=deadline){lost();InterlockedExchange(&state.frozen,0);return FALSE;}
+        SwitchToThread();
+    }
+    uint64_t at=ticks();
+    int drained;
+    do{drained=drain_rings(sequence);}while(drained>0);
+    Event clear={AP_CLEAR,0,0,0,at};
+    BOOL ok=drained==0 && at && batch(&clear,1,++*sequence,0);
+    InterlockedExchange(&state.frozen,0);
+    return ok;
+}
 static DWORD WINAPI drain(void *unused) {
     (void)unused;
     unsigned char hello[48] = { 'A','P','N','A','T','0','1',0 }, catalog[AP_SELECTION*8];
-    put32(hello+8, state.hook_mode==2?2:1); put32(hello+12, 24); put64(hello+16, state.frequency);
+    put32(hello+8, state.hook_mode==2?3:1); put32(hello+12, 24); put64(hello+16, state.frequency);
     put32(hello+24, GetCurrentProcessId()); put32(hello+28, state.count);
     put32(hello+32, state.image_size); put64(hello+40, state.start);
     for (uint32_t i=0; i<state.count; i++) {
@@ -108,21 +154,17 @@ static DWORD WINAPI drain(void *unused) {
         /* If shutdown was observed before this scan, all selected callers are
            already quiescent and every published head must be drained. */
         BOOL stopping = load32(&state.stopping);
-        BOOL any = FALSE;
-        LONG count = load32(&state.next_ring);
-        if (count > AP_THREADS) count = AP_THREADS;
-        for (LONG i=0; i<count; i++) {
-            Ring *r = &state.rings[i];
-            uint64_t tail = load64(&r->tail), head = load64(&r->head);
-            uint32_t n = (uint32_t)(head-tail);
-            if (!n) continue;
-            if (n > AP_BATCH) n = AP_BATCH;
-            Event copy[AP_BATCH];
-            for (uint32_t j=0; j<n; j++) copy[j]=r->events[(tail+j)%state.capacity];
-            InterlockedExchange64(&r->tail, (LONG64)(tail+n));
-            if (!batch(copy, n, ++sequence, 0)) return 1;
-            any = TRUE;
+        if(state.hook_mode==2 && !stopping){
+            DWORD available=0;
+            if(!PeekNamedPipe(state.pipe,NULL,0,NULL,&available,NULL))return 1;
+            if(available){
+                unsigned char command=0;DWORD read=0;
+                if(!ReadFile(state.pipe,&command,1,&read,NULL)||read!=1||command!=3||!clear_boundary(&sequence))return 1;
+            }
         }
+        int drained=drain_rings(&sequence);
+        if(drained<0)return 1;
+        BOOL any=drained!=0;
         if (stopping && !any) break;
         /* Worker-owned liveness only: never advance a measured frame or invent
            elapsed time for an open call. V1 cooperative hosts stay unchanged. */
@@ -166,7 +208,7 @@ static Ring *thread_ring(void) {
 }
 static void record(uint32_t type, uint32_t procedure, uint32_t depth) {
     DWORD error = GetLastError();
-    InterlockedIncrement(&state.writers);
+    if(!writer_gate(TRUE)){SetLastError(error);return;}
     if (load32(&state.running)) {
         BOOL selected = !procedure;
         for (uint32_t i=0; i<state.count && !selected; i++) selected = state.procedures[i].id == procedure;
@@ -189,6 +231,7 @@ AP_API void APNativeExit(uint32_t procedure) { if (procedure) record(AP_EXIT, pr
 AP_API void APNativeUnwind(uint32_t depth) { record(AP_UNWIND, 0, depth); }
 AP_API void APNativeThreadEnd(void) {
     DWORD error = GetLastError();
+    if (!writer_gate(TRUE)){SetLastError(error);return;}
     if (load32(&state.running)) {
         Ring *r = TlsGetValue(state.tls);
         if (r && r != (Ring *)(uintptr_t)1) enqueue(r, AP_END, 0, 0);
@@ -196,6 +239,7 @@ AP_API void APNativeThreadEnd(void) {
            second lifetime. The host must call ThreadEnd at actual thread end. */
         TlsSetValue(state.tls, (void *)(uintptr_t)1);
     }
+    InterlockedDecrement(&state.writers);
     SetLastError(error);
 }
 static BOOL init_producer(const wchar_t *name, const APProcedure *procedures, uint32_t count, uint32_t capacity, BOOL hook_mode) {

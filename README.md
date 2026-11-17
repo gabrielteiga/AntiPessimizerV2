@@ -24,8 +24,8 @@ Revisado em 17 de novembro de 2026.
 
 **Ainda não há paridade completa com o original.** Handlers/exceções específicos
 Delphi, tabelas de unwind encadeadas, tail calls e outros formatos/instruções
-continuam fora do subconjunto aceito. Clear já existe no núcleo/replay, mas não
-como comando sincronizado da captura nativa. A compatibilidade com todas as
+continuam fora do subconjunto aceito. A limpeza de métricas já usa uma barreira sincronizada na captura nativa,
+preservando as chamadas em andamento e o histórico das épocas anteriores. A compatibilidade com todas as
 variantes do Delphi 10.4 e o overhead nesse ambiente ainda não foram comprovados.
 Fixtures C e TDS sintéticos não são apresentados como binários compilados no Delphi.
 
@@ -62,7 +62,8 @@ viewer.exe --gui --instrumentation
 O coletor inicia e possui um **novo processo**. Não faz attach ao programa que já
 está aberto. O EXE não é alterado em disco. **Parar** encerra o novo processo e
 marca a captura interrompida como incompleta; fechar o viewer mantém o coletor e
-o alvo independentes. O prazo padrão é 60 segundos. A tabela mostra chamadas,
+o alvo independentes. O prazo padrão é 60 segundos. **Limpar métricas** zera os resultados e reinicia o tempo das chamadas abertas
+numa nova época, sem encerrar o programa. A tabela mostra chamadas,
 totais e médias inclusivas/exclusivas, thread, unidade, unwind e frames abertos.
 Sinais periódicos atualizam a janela durante chamadas longas, sem inventar
 contagens ou tempos de chamadas concluídas. O histórico pode ser salvo e reaberto.
@@ -113,6 +114,7 @@ retornados para iniciar no coletor:
 viewer.exe --op instrument-start --image C:\app\app.exe --image-id SHA_DO_EXE --catalog-id SHA_DO_CATALOGO --procedure-ids 7,12 --timeout 5m
 viewer.exe --op latest
 viewer.exe --op instrument-history
+viewer.exe --op instrument-clear
 viewer.exe --op instrument-subscribe > chamadas.ndjson
 viewer.exe --op stop
 ```

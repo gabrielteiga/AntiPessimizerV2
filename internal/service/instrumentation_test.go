@@ -265,3 +265,45 @@ func TestInstrumentedRPCObserverDisconnectDoesNotCancelOwner(t *testing.T) {
 		t.Fatal(c.Status())
 	}
 }
+
+func TestNativeSnapshotWritePublishesEpochBeforeAcknowledgement(t *testing.T) {
+	c, o := instrumentController(t)
+	records := callRecords(t)
+	c.LaunchInstrumented = func(_ context.Context, _ native.LaunchOptions, out io.Writer) error {
+		r := records[0]
+		if err := instrumentation.WriteRecord(out, r); err != nil {
+			return err
+		}
+		r.Sequence++
+		r.At++
+		r.Metrics.Epoch++
+		if err := instrumentation.WriteRecord(out, r); err != nil {
+			return err
+		}
+		_, retained := c.MetricView()
+		if retained == nil || retained.Metrics.Epoch != 1 {
+			return errors.New("native writer returned before service retained Clear")
+		}
+		return nil
+	}
+	if err := c.StartInstrumented(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	awaitInstrumentedStop(t, c)
+	if c.Status().State != "stopped" {
+		t.Fatal(c.Status())
+	}
+}
+func TestClearRejectsInactiveAndSamplingSessions(t *testing.T) {
+	c := New()
+	if err := c.Clear(context.Background()); err == nil {
+		t.Fatal("Clear accepted idle session")
+	}
+	if err := c.Start(context.Background(), StartOptions{Demo: true}); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Stop()
+	if err := c.Clear(context.Background()); err == nil {
+		t.Fatal("native Clear changed sampling")
+	}
+}

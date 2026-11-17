@@ -402,3 +402,28 @@ retenção, imutabilidade e observador lento/desconectado. O smoke Win32 selecio
 procedimento, envia argumentos e confere métricas; o teste dos executáveis exige
 captura nativa via collector, consulta/history, reinício e Stop. Clear nativo e
 handlers específicos Delphi permanecem fora deste bloco.
+
+
+## Limpeza sincronizada durante a captura
+
+`instrument-clear` e o botão **Limpar métricas** enviam um comando ao adapter
+nativo, não zeram apenas a tabela. O worker bloqueia brevemente a entrada dos
+probes, espera os produtores ativos terminarem e drena todas as filas. Publica
+um marcador Clear com QPC depois dos eventos anteriores e libera os produtores.
+Eventos posteriores não podem atravessar essa fronteira com timestamp anterior.
+Chamadas abertas reiniciam sua medição nesse tick e contam ao sair, seguindo
+`ProfilerClearResults` do original. O histórico preserva as épocas anteriores.
+
+Wire v3 acrescenta tipo 8 Clear; v1/v2 rejeitam esse marcador. APHOOK2 continua
+negociando os planos de funções. O Go só confirma o comando após aplicar o Clear
+e publicar seu snapshot; no serviço, a publicação é síncrona e validada antes de
+confirmar. Pedidos são serializados; mesmo que um cliente expire, sua resposta
+pendente não pode confirmar o próximo Clear. Falha de escrita/barreira e timeout
+encerram a captura própria, preservando o diagnóstico de incompletude.
+
+Não suspende threads arbitrárias por APIs de debugger durante a captura: a
+barreira usa o contador de writers dos probes, com timeout e liberação garantida.
+A finalização nativa participa da mesma barreira. O teste Windows limpa duas
+vezes enquanto três threads têm Parent/Child abertos, exige seis frames mantidos,
+contagens reiniciadas, recursão/exceções posteriores corretas e saída completa.
+O teste dos executáveis exige que o collector retenha a nova época antes do ACK.

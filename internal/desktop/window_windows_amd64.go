@@ -96,6 +96,7 @@ type update struct {
 	Note        string
 }
 type window struct {
+	clearButton                                                                    uintptr
 	instrumentMode                                                                 bool
 	imagePath, symbolSearch, programArgs, launchTimeout, procedureList, modeButton uintptr
 	catalog                                                                        *service.CatalogPage
@@ -296,6 +297,7 @@ func (a *window) open() error {
 	a.threads = child(a.hwnd, "BUTTON", "Threads", 0x10000, 16)
 	a.cursor = child(a.hwnd, "msctls_trackbar32", "", 0x10000, 17)
 	a.details = child(a.hwnd, "STATIC", "Selecione um procedimento. Filtros: texto, TID (0=todos), últimos segundos.", 0, 15)
+	a.clearButton = child(a.hwnd, "BUTTON", "Limpar métricas", 0x10000, 24)
 	a.modeButton = child(a.hwnd, "BUTTON", "Chamadas", 0x10000, 18)
 	a.imagePath = child(a.hwnd, "EDIT", "", 0x00810080, 19)
 	a.symbolSearch = child(a.hwnd, "EDIT", "", 0x00810080, 20)
@@ -389,7 +391,9 @@ func (a *window) layout() {
 		pos(a.imagePath, 12, 12, w-710, 28)
 		pos(a.symbolSearch, 12, 90, w/2-24, 28)
 		pos(a.programArgs, w/2, 90, w/2-150, 28)
-		pos(a.launchTimeout, w-140, 90, 125, 28)
+		pos(a.launchTimeout, w-290, 90, 125, 28)
+		pos(a.clearButton, w-155, 90, 140, 28)
+		pos(a.programArgs, w/2, 90, w/2-300, 28)
 		pos(a.procedureList, 12, 130, w-24, 92)
 		pos(a.status, 12, 230, w-24, 42)
 		pos(a.table, 12, 280, w-24, h-490)
@@ -516,6 +520,8 @@ func (a *window) command(id int) {
 			a.lastBuild = ""
 		}
 		a.request(service.Request{Op: "start", Start: service.StartOptions{PID: a.targets[selected].PID}})
+	case 24:
+		a.request(service.Request{Op: "instrument-clear"})
 	case 4:
 		a.request(service.Request{Op: "stop"})
 	case 5:
@@ -915,7 +921,7 @@ func (a *window) configureMode() {
 		visible = 5
 		sampling = 0
 	}
-	for _, h := range []uintptr{a.imagePath, a.symbolSearch, a.programArgs, a.launchTimeout, a.procedureList} {
+	for _, h := range []uintptr{a.imagePath, a.symbolSearch, a.programArgs, a.launchTimeout, a.procedureList, a.clearButton} {
 		user.NewProc("ShowWindow").Call(h, visible)
 	}
 	for _, h := range []uintptr{a.processes, a.demo} {

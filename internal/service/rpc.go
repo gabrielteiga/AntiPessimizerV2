@@ -156,6 +156,10 @@ func handle(ctx context.Context, conn net.Conn, c *Controller) {
 		if err == nil {
 			r.Catalog = &page
 		}
+	case "instrument-clear":
+		controlCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		err = c.Clear(controlCtx)
+		cancel()
 	case "instrument-start":
 		err = c.StartInstrumented(ctx, q.Instrument)
 	case "instrument-history":

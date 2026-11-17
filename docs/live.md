@@ -118,3 +118,10 @@ retém 256 frames/100.000 linhas/64 MiB e entrega cópias independentes. Reinici
 limpa o histórico anterior e gera outra identidade de sessão. Não permite ETW e
 instrumentação sobrepostos no mesmo controller. A janela nativa faz apenas RPCs;
 seleção, argumentos/prazo, início/parada e métricas são testados automaticamente.
+
+
+`instrument-clear` exige sessão instrumentada ativa e aguarda a barreira nativa e
+a publicação da nova `clear_epoch`. A janela oferece **Limpar métricas**. Clear
+não muda a identidade da sessão, não altera a seleção e não apaga o histórico:
+a navegação mantém cada snapshot cumulativo na sua própria época. Requests
+concomitantes são serializados, sem reaproveitar ACK de um pedido que expirou.
