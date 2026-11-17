@@ -62,8 +62,10 @@ original, filtros, ordenação, navegação e preservação das épocas de Clear
 planejador de prólogos x64 tem teste nativo controlado de trampolim/restauração.
 O produtor nativo C/QPC, filas limitadas e controller Go já podem ser validados
 com callbacks de uma carga C cooperativa, descrita em [native-producer.md](native-producer.md).
-A ligação ao relay/instalador x64, exceções Delphi e serviço para coleta ao vivo
-ainda são os próximos gates de paridade, detalhados em [instrumentation.md](instrumentation.md).
+A ligação dos probes à DLL já tem teste Windows com chamadas reais, incluindo
+redirecionamento/restauração de uma função simples em memória própria. Instalação
+geral x64, exceções Delphi e serviço para coleta ao vivo ainda são os próximos
+gates de paridade, detalhados em [instrumentation.md](instrumentation.md).
 
 ## Matriz alvo
 

@@ -32,7 +32,7 @@ var prefixOperations = map[string]bool{
 	"AND": true, "OR": true, "XOR": true, "TEST": true, "CMP": true, "NOP": true,
 	"XCHG": true, "MOVZX": true, "MOVSX": true, "MOVSXD": true,
 	"MOVAPS": true, "MOVUPS": true, "MOVAPD": true, "MOVUPD": true,
-	"MOVDQA": true, "MOVDQU": true, "MOVQ": true, "MOVD": true, "MOVSD": true, "MOVSS": true,
+	"MOVDQA": true, "MOVDQU": true, "MOVQ": true, "MOVD": true, "MOVSD": true, "MOVSD_XMM": true, "MOVSS": true,
 	"PXOR": true, "XORPS": true, "XORPD": true,
 }
 

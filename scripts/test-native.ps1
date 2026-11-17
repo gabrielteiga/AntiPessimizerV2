@@ -1,6 +1,8 @@
 $ErrorActionPreference = "Stop"
 go test -v -count=1 -timeout=45s ./internal/instrumentation/native -run TestNativeProducer
 if ($LASTEXITCODE -ne 0) { throw 'Native producer integration failed' }
+go test -v -count=5 -timeout=45s ./internal/instrumentation/native -run '^TestNativeProducerGeneratedProbesEndToEnd$'
+if ($LASTEXITCODE -ne 0) { throw 'Repeated native probe startup/capture/retirement failed' }
 $dir = Join-Path $env:RUNNER_TEMP 'ap-native-e2e'
 New-Item -ItemType Directory -Force $dir | Out-Null
 foreach ($name in @('native-lab', 'viewer')) {

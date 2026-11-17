@@ -1,6 +1,7 @@
 package native_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/binary"
@@ -27,6 +28,11 @@ import (
 // This is an explicitly prepared private assembly fixture, not an installer for
 // arbitrary procedures. Its entry/exit addresses are configured while quiescent.
 func TestNativeProducerGeneratedProbesEndToEnd(t *testing.T) {
+	t.Run("prepared-leaf", func(t *testing.T) { nativeProbeCapture(t, false) })
+	t.Run("relocated-leaf", func(t *testing.T) { nativeProbeCapture(t, true) })
+}
+
+func nativeProbeCapture(t *testing.T, relocate bool) {
 	lab := os.Getenv("AP_NATIVE_LAB")
 	if lab == "" {
 		t.Skip("requires the native DLL built in Windows CI")
@@ -86,22 +92,46 @@ func TestNativeProducerGeneratedProbesEndToEnd(t *testing.T) {
 			t.Fatalf("write native probe: %d %v", n, err)
 		}
 	}
-	in, err := x64.BuildEntryProbe(uint64(code), uint64(enterProc), uint64(body), 1)
-	if err != nil {
-		t.Fatal(err)
+	var functions [2]x64.RuntimeFunction
+	var leaf x64.LeafPlan
+	if relocate {
+		// An ordinary native leaf with its original RET, in private memory.
+		// Only the entry prefix is patched; the clone routes RET to the exit.
+		original := append(bytes.Repeat([]byte{0x90}, 16), []byte{
+			0x48, 0x8d, 0x04, 0x11, // lea rax,[rcx+rdx]
+			0x4c, 0x01, 0xc0, 0x4c, 0x01, 0xc8, // add rax,r8; add rax,r9
+			0x48, 0x03, 0x44, 0x24, 0x28, // add rax,[rsp+40]
+			0x48, 0x03, 0x44, 0x24, 0x30, 0xc3, // add rax,[rsp+48]; ret
+		}...)
+		leaf, err = x64.BuildLeaf(original, uint64(code+2048), uint64(code), uint64(enterProc), uint64(exitProc), 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		write(code+2048, original)
+		write(code+2048, leaf.Patch)
+		write(code, leaf.Image)
+		functions = leaf.Functions
+		fixture.SetProbes(code+2048, 0)
+	} else {
+		in, err := x64.BuildEntryProbe(uint64(code), uint64(enterProc), uint64(body), 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := x64.BuildExitProbe(uint64(code+512), uint64(exitProc), 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		write(code, in.Image)
+		write(code+512, out.Image)
+		functions = [2]x64.RuntimeFunction{{Begin: 0, End: in.CodeSize, Unwind: in.UnwindRVA}, {Begin: 512, End: 512 + out.CodeSize, Unwind: 512 + out.UnwindRVA}}
+		fixture.SetProbes(code, code+512)
 	}
-	out, err := x64.BuildExitProbe(uint64(code+512), uint64(exitProc), 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	write(code, in.Image)
-	write(code+512, out.Image)
 	var table [24]byte
-	binary.LittleEndian.PutUint32(table[4:], in.CodeSize)
-	binary.LittleEndian.PutUint32(table[8:], in.UnwindRVA)
-	binary.LittleEndian.PutUint32(table[12:], 512)
-	binary.LittleEndian.PutUint32(table[16:], 512+out.CodeSize)
-	binary.LittleEndian.PutUint32(table[20:], 512+out.UnwindRVA)
+	for i, f := range functions {
+		binary.LittleEndian.PutUint32(table[i*12:], f.Begin)
+		binary.LittleEndian.PutUint32(table[i*12+4:], f.End)
+		binary.LittleEndian.PutUint32(table[i*12+8:], f.Unwind)
+	}
 	write(code+1024, table[:])
 	var old uint32
 	if err := windows.VirtualProtect(code, 4096, windows.PAGE_EXECUTE_READ, &old); err != nil {
@@ -114,7 +144,6 @@ func TestNativeProducerGeneratedProbesEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	registered = true
-	fixture.SetProbes(code, code+512)
 
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
@@ -263,6 +292,23 @@ func TestNativeProducerGeneratedProbesEndToEnd(t *testing.T) {
 	}
 	if row.AverageInclusiveNS != float64(row.InclusiveTicks)*1e9/float64(s.Frequency)/10 {
 		t.Fatal("native bridge average mismatch", row)
+	}
+	if relocate {
+		// All selected calls and the DLL worker are now quiescent. Restore only
+		// the saved entry prefix, then execute the original body/RET again.
+		if err := windows.VirtualProtect(code, 4096, windows.PAGE_READWRITE, &old); err != nil {
+			t.Fatal(err)
+		}
+		write(code+2048, leaf.Original)
+		if err := windows.VirtualProtect(code, 4096, windows.PAGE_EXECUTE_READ, &old); err != nil {
+			t.Fatal(err)
+		}
+		if ok, _, err := windows.NewLazySystemDLL("kernel32.dll").NewProc("FlushInstructionCache").Call(uintptr(windows.CurrentProcess()), code, 4096); ok == 0 {
+			t.Fatal(err)
+		}
+		if got, _, _ := syscall.SyscallN(entry, 7, 11, 13, 17, 19, 23); got != 90 {
+			t.Fatal("restored native leaf changed its result", got)
+		}
 	}
 	t.Logf("Go-generated native probes -> C DLL -> QPC/ring/pipe -> Go accounting: %d calls, %d inclusive ticks", row.Calls, row.InclusiveTicks)
 }
