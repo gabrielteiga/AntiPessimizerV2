@@ -34,10 +34,11 @@ extern uint64_t APLeafCompare(uint64_t *,uint64_t,uint64_t);
 static volatile uint64_t atomic_total;
 enum { AP_CLEANUP_EXCEPTION=0xe0424243u,AP_COLLISION_EXCEPTION=0xe0424244u };
 static volatile LONG cleanup_count,cleanup_bad,collision_seen;
-static BOOL cleanup_throws;
+static BOOL cleanup_throws,normal_cleanup_throws;
 extern uint64_t APUnwindParent(uint64_t);
 extern unsigned char APUnwindParentEnd[];
-extern uint64_t APUnwindCatch(void);
+extern uint64_t APUnwindCatch(uint64_t);
+METHOD uint64_t APUnwindOuter(uint64_t n){return APUnwindParent(n)+1;}
 METHOD uint64_t APUnwindThrower(uint64_t n){
  if(!n)RaiseException(AP_CLEANUP_EXCEPTION,0,0,NULL);
  return n+3;
@@ -50,7 +51,7 @@ METHOD uint64_t APUnwindWork(uint64_t n){
 void APUnwindFinally(BOOL abnormal,void *frame){
  uint64_t n=*(uint64_t *)((unsigned char *)frame+32);
  if((abnormal && n!=0)||(!abnormal && n!=7))InterlockedExchange(&cleanup_bad,1);
- (void)APUnwindWork(abnormal && cleanup_throws?0:1);
+ (void)APUnwindWork((abnormal && cleanup_throws)||(!abnormal && normal_cleanup_throws)?0:1);
 }
 EXCEPTION_DISPOSITION APUnwindLanguageHandler(PEXCEPTION_RECORD record,PVOID frame,PCONTEXT context,PDISPATCHER_CONTEXT dispatcher){
  DWORD64 image=(DWORD64)(uintptr_t)GetModuleHandleW(NULL);
@@ -61,7 +62,7 @@ EXCEPTION_DISPOSITION APUnwindLanguageHandler(PEXCEPTION_RECORD record,PVOID fra
 LONG APUnwindFilter(EXCEPTION_POINTERS *p,void *frame){
  (void)frame;
  if(!p)return EXCEPTION_CONTINUE_SEARCH;
- if(cleanup_throws && p->ExceptionRecord->ExceptionCode==AP_COLLISION_EXCEPTION){InterlockedIncrement(&collision_seen);return EXCEPTION_EXECUTE_HANDLER;}
+ if((cleanup_throws || normal_cleanup_throws) && p->ExceptionRecord->ExceptionCode==AP_COLLISION_EXCEPTION){InterlockedIncrement(&collision_seen);return EXCEPTION_EXECUTE_HANDLER;}
  return p->ExceptionRecord->ExceptionCode==AP_CLEANUP_EXCEPTION?EXCEPTION_EXECUTE_HANDLER:EXCEPTION_CONTINUE_SEARCH;
 }
 /* The early RET expands before the protected region. Successful cleanup thus
@@ -77,7 +78,7 @@ __asm__(
  ".rva .Lcleanup_try_begin,.Lcleanup_try_end,APUnwindFinally\n .long 0\n .text\n .seh_endproc\n"
  ".globl APUnwindCatch\n .def APUnwindCatch; .scl 2; .type 32; .endef\n"
  ".seh_proc APUnwindCatch\n APUnwindCatch:\n subq $40,%rsp\n .seh_stackalloc 40\n .seh_endprologue\n"
- ".Lcleanup_outer_begin:\n xorq %rcx,%rcx\n call APUnwindParent\n nop\n .Lcleanup_outer_end:\n xorq %rax,%rax\n addq $40,%rsp\n ret\n"
+ ".Lcleanup_outer_begin:\n call APUnwindOuter\n nop\n .Lcleanup_outer_end:\n xorq %rax,%rax\n addq $40,%rsp\n ret\n"
  ".Lcleanup_catch:\n movl $779,%eax\n addq $40,%rsp\n ret\n"
  ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
  ".rva .Lcleanup_outer_begin,.Lcleanup_outer_end,APUnwindFilter,.Lcleanup_catch\n .text\n .seh_endproc\n"
@@ -192,7 +193,9 @@ static DWORD WINAPI worker(void *unused){
  for(uint32_t i=0;i<iterations;i++)if(APFrameParent(i+1)!=17+2*i)return 2;
  if(APFrameCatch()!=777)return 3;
  if(APFrameMemoryCatch()!=888)return 4;
- if(APUnwindParent(7)!=10 || APUnwindParent(999)!=999 || APUnwindCatch()!=779 || cleanup_bad)return 6;
+ if(normal_cleanup_throws){if(APUnwindCatch(7)!=779)return 6;}
+ else if(APUnwindOuter(7)!=11)return 6;
+ if(APUnwindOuter(999)!=1000 || APUnwindCatch(0)!=779 || cleanup_bad)return 6;
  return 0;
 }
 int wmain(int argc,wchar_t **argv){
@@ -204,6 +207,7 @@ int wmain(int argc,wchar_t **argv){
   else if(!wcscmp(argv[i],L"--rounds"))rounds=(uint32_t)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--delay-ms"))child_delay_ms=(DWORD)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--cleanup-throws"))cleanup_throws=(BOOL)wcstoul(argv[i+1],NULL,10);
+  else if(!wcscmp(argv[i],L"--normal-cleanup-throws"))normal_cleanup_throws=(BOOL)wcstoul(argv[i+1],NULL,10);
   else return 2;
  }
  if(!threads||threads>16||!rounds||rounds>1000||!iterations||iterations>1000||child_delay_ms>5000)return 2;
@@ -217,5 +221,5 @@ int wmain(int argc,wchar_t **argv){
   GetExitCodeThread(handles[i],&code);CloseHandle(handles[i]);result|=code;
  }
  }
- CloseHandle(barrier);return result||atomic_total!=(uint64_t)threads*rounds*(iterations+1)||cleanup_count!=(LONG)(threads*rounds*2)||(cleanup_throws && collision_seen<(LONG)(threads*rounds))?5:0;
+ CloseHandle(barrier);return result||atomic_total!=(uint64_t)threads*rounds*(iterations+1)||cleanup_count!=(LONG)(threads*rounds*2)||collision_seen<(LONG)(threads*rounds*(!!cleanup_throws+!!normal_cleanup_throws))?5:0;
 }
