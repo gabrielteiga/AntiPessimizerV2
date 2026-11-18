@@ -132,7 +132,7 @@ func TestReferenceDelphiExceptionHandlerPreservesCatchAndReraise(t *testing.T) {
 	creation := windows.Filetime{LowDateTime: uint32(offer.Created), HighDateTime: uint32(offer.Created >> 32)}
 	target := profiling.Target{PID: offer.PID, Start: time.Unix(0, creation.Nanoseconds()).UTC(), Image: "APReferenceException.exe"}
 	var metrics bytes.Buffer
-	if err := consumeCapture(ctx, readerNative, target, "original-delphi-exceptions", []instrumentation.Procedure{{ID: 17, Location: profiling.Location{ModuleID: "sha256:" + referenceExceptionDLLSHA, Module: "AntiPessimizerDLL.dll", RVA: "0x000000000000a930", Status: "unknown", Reason: "reviewed reference RVA without TDS"}}}, &metrics, func() error { return nil }, func(context.Context) error { return nil }); err != nil {
+	if err := consumeCapture(ctx, readerNative, target, "original-delphi-exceptions", []instrumentation.Procedure{{ID: 17, Location: profiling.Location{ModuleID: "sha256:" + referenceExceptionDLLSHA, Module: "AntiPessimizerDLL.dll", RVA: "0x000000000000a930", Procedure: "reviewed RVA 0xa930 (no TDS)", Status: "resolved"}}}, &metrics, func() error { return nil }, func(context.Context) error { return nil }); err != nil {
 		t.Fatal("real Delphi native accounting", err)
 	}
 	records, err := instrumentation.ReadMetrics(bytes.NewReader(metrics.Bytes()))

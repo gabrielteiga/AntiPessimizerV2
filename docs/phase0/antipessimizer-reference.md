@@ -253,7 +253,7 @@ ao filho é lida pelo consumidor nativo e núcleo Go: exige 200 chamadas, 100 sa
 por unwind, zero frames abertos/abandonados/perdas e totais/médias QPC consistentes.
 O relatório inclui o snapshot e um arquivo de métricas NDJSON. A identidade
 do processo vem de GetProcessTimes; a localização usa o RVA e hash reais, sem
-inventar um nome TDS. A thread encerra explicitamente a medição antes do filho sair.
+inventar um nome TDS: o rótulo é explicitamente "reviewed RVA 0xa930 (no TDS)". A thread encerra explicitamente a medição antes do filho sair.
 O binário original não é alterado, e a DLL permanece carregada até encerrar o
 filho. O relatório Reference-Delphi inclui hashes, RVAs e resultados.
 Isso complementa a contabilidade integrada C e o corpus sem inicialização;
