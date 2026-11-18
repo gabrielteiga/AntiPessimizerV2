@@ -26,6 +26,7 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 	flags := flag.NewFlagSet("viewer", flag.ContinueOnError)
 	flags.SetOutput(diagnostics)
 	gui := flags.Bool("gui", false, "open native Windows desktop")
+	timeUnit := flags.String("time-unit", "ms", "instrumentation display unit: ns, us, ms, s, ticks")
 	instrumented := flags.Bool("instrumentation", false, "read explicit call/time metrics instead of CPU samples")
 	address := flags.String("address", transport.DefaultAddress(), "local collector endpoint")
 	op := flags.String("op", "", "processes, start, stop, status, latest, history, subscribe, instrument-catalog, instrument-start, instrument-clear, instrument-history, instrument-subscribe")
@@ -51,6 +52,12 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 	thread := flags.Uint64("thread", 0, "thread ID filter; 0 means all")
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	if !desktop.MetricTimeUnit(*timeUnit).Valid() {
+		return errors.New("invalid --time-unit; choose ns, us, ms, s or ticks")
+	}
+	if *timeUnit != "ms" && (!*instrumented || *gui) {
+		return errors.New("--time-unit requires terminal --instrumentation; use the unit selector in the GUI")
 	}
 	if flags.NArg() != 0 || *thread > 1<<32-1 || *pid > 1<<32-1 {
 		return errors.New("invalid arguments/thread ID")
@@ -145,7 +152,7 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 		in = f
 	}
 	if *instrumented {
-		return viewInstrumentation(in, out, report.Filter{Unit: *unit, Module: *module, Thread: uint32(*thread)})
+		return viewInstrumentation(in, out, report.Filter{Unit: *unit, Module: *module, Thread: uint32(*thread)}, desktop.MetricTimeUnit(*timeUnit))
 	}
 	reader := stream.NewReader(in)
 	var previous uint64

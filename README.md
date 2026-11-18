@@ -8,7 +8,7 @@ ETW e lançamento instrumentado com contagens reais de chamadas, tempos e média
 
 ## Estado atual
 
-Revisado em 17 de novembro de 2026.
+Revisado em 18 de novembro de 2026.
 
 | Capacidade | Implementação e evidência |
 |---|---|
@@ -65,6 +65,8 @@ marca a captura interrompida como incompleta; fechar o viewer mantém o coletor 
 o alvo independentes. O prazo padrão é 60 segundos. **Limpar métricas** zera os resultados e reinicia o tempo das chamadas abertas
 numa nova época, sem encerrar o programa. A tabela mostra chamadas,
 totais e médias inclusivas/exclusivas, thread, unidade, unwind e frames abertos.
+O seletor de tempo oferece ns, us, ms, s e ticks do relógio. Ticks QPC não são
+ciclos de CPU. A troca de unidade preserva contagens, ordenação e arquivo.
 Sinais periódicos atualizam a janela durante chamadas longas, sem inventar
 contagens ou tempos de chamadas concluídas. O histórico pode ser salvo e reaberto.
 
@@ -162,6 +164,7 @@ O contrato instrumentado pode ser exercitado sem Windows com a fixture sintétic
 ```sh
 go run ./cmd/instrument-replay --input testdata/instrumentation/nested.ndjson > metrics.ndjson
 go run ./cmd/viewer --instrumentation --replay metrics.ndjson
+go run ./cmd/viewer --instrumentation --replay metrics.ndjson --time-unit us
 ```
 
 Para Lab.Parent, são 2 chamadas, 40 ms inclusivos, 30 ms exclusivos e médias de

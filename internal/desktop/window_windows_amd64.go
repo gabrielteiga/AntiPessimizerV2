@@ -96,6 +96,7 @@ type update struct {
 	Note        string
 }
 type window struct {
+	metricUnits                                                                    uintptr
 	clearButton                                                                    uintptr
 	instrumentMode                                                                 bool
 	imagePath, symbolSearch, programArgs, launchTimeout, procedureList, modeButton uintptr
@@ -139,6 +140,10 @@ var wndProc = windows.NewCallback(func(hwnd uintptr, msg uint32, w uintptr, nati
 		a.layout()
 		return 0
 	case 0x0111: // WM_COMMAND
+		if w&0xffff == 25 && w>>16 == 1 {
+			a.lastBuild = ""
+			return 0
+		}
 		if w>>16 == 0 {
 			a.command(int(w & 0xffff))
 		}
@@ -297,6 +302,11 @@ func (a *window) open() error {
 	a.threads = child(a.hwnd, "BUTTON", "Threads", 0x10000, 16)
 	a.cursor = child(a.hwnd, "msctls_trackbar32", "", 0x10000, 17)
 	a.details = child(a.hwnd, "STATIC", "Selecione um procedimento. Filtros: texto, TID (0=todos), últimos segundos.", 0, 15)
+	a.metricUnits = child(a.hwnd, "COMBOBOX", "", 0x00200003|0x10000, 25)
+	for _, label := range []string{"ns", "us", "ms", "s", "ticks"} {
+		send.Call(a.metricUnits, 0x143, 0, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(label))))
+	}
+	send.Call(a.metricUnits, 0x14e, 2, 0)
 	a.clearButton = child(a.hwnd, "BUTTON", "Limpar métricas", 0x10000, 24)
 	a.modeButton = child(a.hwnd, "BUTTON", "Chamadas", 0x10000, 18)
 	a.imagePath = child(a.hwnd, "EDIT", "", 0x00810080, 19)
@@ -308,6 +318,7 @@ func (a *window) open() error {
 		send.Call(h, 0x1501, 0, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(label))))
 	}
 	a.configureMode()
+	user.NewProc("ShowWindow").Call(a.metricUnits, 0)
 	a.layout()
 	user.NewProc("SetTimer").Call(a.hwnd, 1, 250, 0)
 	if a.followPath != "" {
@@ -379,6 +390,7 @@ func (a *window) layout() {
 	pos(a.filter, 12, 52, w-300, 28)
 	pos(a.thread, w-275, 52, 120, 28)
 	pos(a.seconds, w-140, 52, 125, 28)
+	pos(a.metricUnits, w-140, 52, 125, 180)
 	pos(a.status, 12, 90, w-24, 42)
 	pos(a.table, 12, 140, w-24, h-350)
 	pos(a.cursor, 12, h-205, w-24, 25)
@@ -776,7 +788,21 @@ func (a *window) tick() {
 			draining = false
 		}
 	}
-	key := a.model.Session + "|" + value(a.filter) + "|" + value(a.thread) + "|" + value(a.seconds)
+	instrumented := a.instrumentMode || len(a.model.Metrics) > 0
+	showUnits, showSeconds := uintptr(0), uintptr(5)
+	if instrumented {
+		showUnits, showSeconds = 5, 0
+	}
+	user.NewProc("ShowWindow").Call(a.metricUnits, showUnits)
+	user.NewProc("ShowWindow").Call(a.seconds, showSeconds)
+	if instrumented {
+		index, _, _ := send.Call(a.metricUnits, 0x147, 0, 0)
+		units := []MetricTimeUnit{Nanoseconds, Microseconds, Milliseconds, Seconds, ClockTicks}
+		if int(index) >= 0 && int(index) < len(units) {
+			a.model.MetricUnit = units[index]
+		}
+	}
+	key := string(a.model.MetricUnit) + "|" + a.model.Session + "|" + value(a.filter) + "|" + value(a.thread) + "|" + value(a.seconds)
 	if key != a.lastBuild || a.lastSequence != a.model.Last {
 		seconds, err := strconv.Atoi(value(a.seconds))
 		if err != nil || seconds < 1 || seconds > 120 {

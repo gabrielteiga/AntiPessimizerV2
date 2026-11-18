@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -23,7 +24,7 @@ func (m *Model) ReplaceMetrics(records []instrumentation.Record) error {
 			omitted += r.Sequence - records[i-1].Sequence - 1
 		}
 	}
-	*m = Model{Metrics: clone, Session: clone[0].SessionID, Last: clone[len(clone)-1].Sequence, Omitted: omitted, SortColumn: 1}
+	*m = Model{MetricUnit: m.MetricUnit, Metrics: clone, Session: clone[0].SessionID, Last: clone[len(clone)-1].Sequence, Omitted: omitted, SortColumn: 1}
 	return nil
 }
 
@@ -45,7 +46,8 @@ func (m *Model) CurrentMetrics() (instrumentation.Record, bool) {
 
 func (m *Model) Headers() []string {
 	if len(m.Metrics) > 0 {
-		return []string{"Chamadas", "Exclusivo (ms)", "Média exclusiva (ms)", "Inclusivo (ms)", "Média inclusiva (ms)", "Thread", "Instância (ticks)", "Módulo", "Procedimento", "RVA", "Unidade Pascal", "Unwind", "Frames abertos"}
+		unit := m.MetricUnit.label()
+		return []string{"Chamadas", "Exclusivo (" + unit + ")", "Média exclusiva (" + unit + ")", "Inclusivo (" + unit + ")", "Média inclusiva (" + unit + ")", "Thread", "Instância (ticks)", "Módulo", "Procedimento", "RVA", "Unidade Pascal", "Unwind", "Frames abertos"}
 	}
 	if m.Comparison != nil {
 		return []string{"Antes", "Depois", "Δ amostras/s", "Módulo", "Procedimento", "RVA", "Presença", "Unidade Pascal"}
@@ -72,6 +74,10 @@ func (m *Model) SequenceAt(index int) uint64 {
 func milliseconds(ns uint64) string { return fmt.Sprintf("%d.%06d", ns/1e6, ns%1e6) }
 
 func (m *Model) rebuildMetrics(f report.Filter) error {
+	unit := m.MetricUnit.normalized()
+	if !unit.Valid() {
+		return errors.New("unknown instrumentation time unit")
+	}
 	m.Rows = nil
 	r, ok := m.CurrentMetrics()
 	if !ok {
@@ -130,7 +136,7 @@ func (m *Model) rebuildMetrics(f report.Filter) error {
 		return order > 0
 	})
 	for _, row := range rows {
-		m.Rows = append(m.Rows, []string{strconv.FormatUint(row.Calls, 10), milliseconds(row.ExclusiveNS), fmt.Sprintf("%.6f", row.AverageExclusiveNS/1e6), milliseconds(row.InclusiveNS), fmt.Sprintf("%.6f", row.AverageInclusiveNS/1e6), strconv.FormatUint(uint64(row.ThreadID), 10), strconv.FormatUint(row.ThreadInstance, 10), row.Module, row.Procedure, row.RVA, row.Unit, strconv.FormatUint(row.UnwoundCalls, 10), strconv.FormatUint(uint64(row.ActiveFrames), 10)})
+		m.Rows = append(m.Rows, []string{strconv.FormatUint(row.Calls, 10), unit.total(row.ExclusiveNS, row.ExclusiveTicks), unit.average(row.AverageExclusiveNS, row.ExclusiveTicks, row.Calls), unit.total(row.InclusiveNS, row.InclusiveTicks), unit.average(row.AverageInclusiveNS, row.InclusiveTicks, row.Calls), strconv.FormatUint(uint64(row.ThreadID), 10), strconv.FormatUint(row.ThreadInstance, 10), row.Module, row.Procedure, row.RVA, row.Unit, strconv.FormatUint(row.UnwoundCalls, 10), strconv.FormatUint(uint64(row.ActiveFrames), 10)})
 	}
 	return nil
 }

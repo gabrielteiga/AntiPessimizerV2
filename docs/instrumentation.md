@@ -1,3 +1,9 @@
+> Estado em 18/11/2026: chamadas/recursão, unwind nativo com handler externo,
+> serviço/GUI ao vivo, Clear sincronizado e entradas pequenas estão implementados
+> e têm CI Windows. Handlers específicos Delphi e a compatibilidade completa
+> continuam pendentes. As primeiras seções registram a evolução técnica dos
+> incrementos; a sequência atual está em [plan.md](plan.md).
+
 # Instrumentação — contagens, tempos e médias
 
 A instrumentação passa a ser requisito da adaptação por instrução do usuário,
@@ -445,3 +451,19 @@ rel32, fallback, seleção menor que cinco bytes e um método Windows de seis by
 que retorna 77, chamado onze vezes por cada uma de três threads. Os bytes vizinhos
 não podem ser usados para completar o patch. Isso amplia o subconjunto de métodos
 pequenos; não habilita instruções, handlers ou formatos antes rejeitados.
+
+
+## Apresentação das unidades de tempo
+
+Conferido `src/gui.cpp` do original: o usuário escolhe unidade sem alterar a
+contagem nem a ordenação dos valores medidos. A janela e o terminal Go oferecem
+ns/us/ms/s/ticks, mantendo ms como padrão. Totais em ns são inteiros; conversões
+para us/ms/s usam divisão e resto inteiros, preservando valores acima da precisão
+inteira de float64. Médias continuam derivadas dos totais/chamadas. O modo ticks
+mostra a unidade do relógio da captura, não ciclos de CPU; QPC não permite anunciar
+ciclos de CPU. Trocar a unidade não muda arquivo, épocas, filtros ou sort por ticks.
+
+O CLI aceita `--instrumentation --time-unit ns|us|ms|s|ticks`. Na GUI, use o seletor
+quando estiver exibindo instrumentação. O smoke Win32 troca a unidade, confere
+colunas/valores e preserva calls. Testes também cobrem valores inteiros grandes e
+rejeitam a unidade enganosa cycles.

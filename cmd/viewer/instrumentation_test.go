@@ -84,3 +84,28 @@ func TestViewerInstrumentedCumulativeAndGaps(t *testing.T) {
 		t.Fatal(out.String())
 	}
 }
+
+func TestViewerMetricTimeUnits(t *testing.T) {
+	events, err := os.ReadFile("../../testdata/instrumentation/nested.ndjson")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire bytes.Buffer
+	if err := instrumentation.Replay(context.Background(), bytes.NewReader(events), &wire, instrumentation.Config{MaxThreads: 16, MaxDepth: 32, MaxRows: 64}); err != nil {
+		t.Fatal(err)
+	}
+	for unit, want := range map[string]string{"ns": "exclusive_ns=30000000", "us": "exclusive_us=30000.000", "s": "exclusive_s=0.030000000", "ticks": "exclusive_ticks=30"} {
+		var output bytes.Buffer
+		if err := run([]string{"--instrumentation", "--time-unit", unit}, bytes.NewReader(wire.Bytes()), &output, io.Discard); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(output.String(), want) || !strings.Contains(output.String(), "calls=2") {
+			t.Fatal(unit, output.String())
+		}
+	}
+	for _, args := range [][]string{{"--time-unit", "cycles"}, {"--time-unit", "ns"}} {
+		if err := run(args, bytes.NewReader(wire.Bytes()), io.Discard, io.Discard); err == nil {
+			t.Fatal("incompatible unit accepted", args)
+		}
+	}
+}
