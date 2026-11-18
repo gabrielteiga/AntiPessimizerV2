@@ -30,6 +30,7 @@ Revisado em 18 de novembro de 2026.
 | Evidência do original | Dez rotinas conferidas da DLL Delphi v0.3: 1.000 pares de retornos originais/relocados, sem inicializar a DLL; sem certificação de Delphi 10.4 |
 | Qualidade | Testes Go/race, integração nativa Windows, ETW, janela Win32, executáveis e empacotamento; merge somente com CI aprovado no commit exato |
 | Carga e recursos | Ensaio C de 320 vidas de thread/32.001 chamadas, memória/handles por rodada e perda explícita sob saturação; relatório bruto no CI |
+| Contadores nativos | Leituras atômicas sequencialmente consistentes; CI compara DLLs com/sem RMW no mesmo alvo e runner |
 | Medição de custo | Pares baseline/instrumentado no mesmo alvo C, com checksums e contagens exatas; relatório QPC bruto nos artefatos do CI |
 
 **Ainda não há paridade completa com o original.** Handlers/exceções específicos

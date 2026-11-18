@@ -154,7 +154,7 @@ func TestNativeStressThreadReuseMemoryAndSaturation(t *testing.T) {
 				var workerRows, finalizers int
 				for _, row := range s.Rows {
 					key := fmt.Sprintf("%d/%d", row.ThreadID, row.ThreadInstance)
-					if instances[key] || row.UnwoundCalls != 0 || row.InclusiveTicks == 0 || row.ExclusiveTicks != row.InclusiveTicks {
+					if instances[key] || row.UnwoundCalls != 0 || row.ExclusiveTicks != row.InclusiveTicks {
 						t.Fatal("reuse merged thread instances or corrupted times", row)
 					}
 					instances[key] = true

@@ -261,3 +261,34 @@ dispatcher real, inclusive se a limpeza lançar outra exceção. O unwind confir
 fecha a métrica antes do cleanup; a passagem COLLIDED_UNWIND não a fecha duas
 vezes. EHANDLER, combinações EH/UH e chains continuam recusados. A integração
 controlada é C/assembly, não evidência de emissão/execução pelo Delphi 10.4.
+
+
+## Leituras dos contadores compartilhados
+
+O adaptador Win64 usa __atomic_load_n com __ATOMIC_SEQ_CST para leituras de
+LONG/LONG64 naturalmente alinhados. Static assertions exigem que essas leituras
+sejam sempre lock-free no compilador alvo. As atualizações continuam usando
+Interlocked; publicação de head/tail, freeze/writers, Clear e encerramento mantêm
+suas barreiras. Não são loads C comuns nem uma redução para ordenação relaxed.
+A leitura evita o RMW com escrita na cache line que CompareExchange(0,0) realiza.
+
+O build de laboratório também gera AntiPessimizerNativeRMW.dll, com o caminho
+anterior habilitado em compilação. Esse binário de comparação não entra no
+pacote do produto. TestNativeCostAtomicLoadsComparedWithRMWLoads executa três
+pares com ordem alternada para uma/três threads, usando o mesmo EXE/runner e
+300 chamadas por worker; cada captura exige contagens/finalizador/checksums
+exatos e ausência de perda. Native-cost inclui native-load-cost.ndjson com
+intervalos QPC, SHA do EXE e identidade das variantes. A velocidade é observada,
+sem threshold de runner ou extrapolação para Delphi. A suíte nativa de Clear,
+threads, perdas, exceções e entrega ao vivo permanece obrigatória para o novo
+caminho, junto dos demais gates Windows.
+
+
+Primeiro ensaio pareado (CI 44323815141, commit 986737d): medianas atomic/RMW
+0,943 com uma thread (−90,3 ns/chamada) e 0,965 com três (−88,8 ns/chamada).
+Um dos pares com três threads teve +64,2 ns; a variabilidade fica no relatório.
+São valores deste runner/loop C, incluindo seu custo base, sem extrapolação para
+Delphi ou promessa de ganho fixo. Os relatórios seguintes identificam também o
+SHA256 de cada DLL comparada. O teste de cleanup aceita zero ticks para uma
+chamada normal menor que a resolução QPC, preservando contagens e o equilíbrio
+exato dos tempos; não impõe nem inventa duração mínima.

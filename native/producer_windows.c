@@ -32,8 +32,21 @@ static struct {
     uint64_t frequency, start;
 } state;
 
+/* Native Windows x64 counters are naturally aligned and all updates remain
+ * Interlocked operations. Keep sequential consistency while reading without a
+ * locked RMW/cache-line write. The RMW build exists only for paired CI evidence. */
+#ifndef AP_NATIVE_RMW_LOADS
+#define AP_NATIVE_RMW_LOADS 0
+#endif
+#if AP_NATIVE_RMW_LOADS
 static uint64_t load64(volatile LONG64 *p) { return (uint64_t)InterlockedCompareExchange64(p, 0, 0); }
 static LONG load32(volatile LONG *p) { return InterlockedCompareExchange(p, 0, 0); }
+#else
+_Static_assert(__atomic_always_lock_free(sizeof(LONG),0),"32-bit counter loads must be lock-free");
+_Static_assert(__atomic_always_lock_free(sizeof(LONG64),0),"64-bit counter loads must be lock-free");
+static uint64_t load64(volatile LONG64 *p) { return (uint64_t)__atomic_load_n(p,__ATOMIC_SEQ_CST); }
+static LONG load32(volatile LONG *p) { return __atomic_load_n(p,__ATOMIC_SEQ_CST); }
+#endif
 static void lost(void) { InterlockedIncrement64(&state.lost); }
 /* Coalesce publication notifications while the worker is active. The worker
  * clears this flag and rescans every ring before waiting, closing the race
