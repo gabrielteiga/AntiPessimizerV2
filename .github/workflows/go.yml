@@ -51,6 +51,17 @@ jobs:
         run: go test -v -count=1 -timeout=45s ./internal/platform -run TestETWControlledWorkload
 
       - if: runner.os == 'Windows'
+        name: Reviewed original Delphi routines
+        run: ./scripts/test-reference-delphi.ps1
+
+      - if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Reference-Delphi-${{ github.run_id }}
+          path: ${{ runner.temp }}/ap-reference-delphi/reference-delphi.json
+          if-no-files-found: error
+
+      - if: runner.os == 'Windows'
         name: Controlled native cost measurement
         env:
           AP_NATIVE_COST: '1'
