@@ -462,3 +462,21 @@ ponteiros nulo e desalinhado. O teste Windows instala os três métodos em conju
 e exige 24/11/2 chamadas por thread, com somente as duas saídas excepcionais do
 CAS e médias QPC consistentes. O corpus Delphi original inclui separadamente
 dois corpos com CMPXCHG16B e valida o estado da lista em 100 pares cada.
+
+
+## Handles do runtime Go durante o teste repetido
+
+Uma execução após o merge de #48 observou duas novas threads do runtime entre
+as capturas 6 e 7: Thread(self) +2, Event +4, IRTimer +4 e WaitCompletionPacket
++2, total +12; DebugObject e todos os demais tipos permaneceram iguais. Os
+contadores de threads Go criadas e threads OS também aumentaram exatamente dois.
+Esse vetor corresponde a mpreinit/minit de runtime/os_windows.go no Go 1.27.
+O antigo limite bruto de oito handles tratava esse caso como vazamento.
+
+O teste mantém os limites anteriores de handles, goroutines e heap. Acima do
+limite bruto, permite somente o vetor completo e exato de seis handles por nova
+thread Go, com os dois contadores de threads concordando e no máximo oito novas
+threads. Qualquer handle de outro tipo, vetor incompleto, objeto de depuração ou
+crescimento adicional continua falhando. Casos negativos portáveis reproduzem
+vazamentos de File/Process/Thread(other)/DebugObject e handles excedentes. A
+verificação independente de zero DebugObjects e as 320 capturas continuam ativas.
