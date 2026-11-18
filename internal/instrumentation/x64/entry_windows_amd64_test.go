@@ -98,6 +98,9 @@ func TestNativeCallProbesABIAndVirtualUnwind(t *testing.T) {
 	for i := byte(0); i < 6; i++ {
 		helper = append(helper, 0x66, 0x0f, 0xef, 0xc0|(i<<3)|i)
 	}
+	// A conforming helper can change volatile MXCSR exception-status bits.
+	// Set the invalid-operation flag without changing control/rounding bits.
+	helper = append(helper, 0x0f, 0xae, 0x5c, 0x24, 8, 0x83, 0x4c, 0x24, 8, 1, 0x0f, 0xae, 0x54, 0x24, 8)
 	helper = append(helper, 0xc3)
 	write(code+1024, helper)
 	// Sum six Win64 arguments (including the two stack arguments).
@@ -130,6 +133,26 @@ func TestNativeCallProbesABIAndVirtualUnwind(t *testing.T) {
 	}
 	vector = append(vector, 0x66, 0x48, 0x0f, 0x7e, 0xc0, 0xc3)
 	write(code+1792, vector)
+	// Seed nondefault rounding/status, execute the chosen entry/exit path, and
+	// restore the original environment before returning to Go. The saved original
+	// and observed values sit above the six arguments' home/stack slots.
+	controlCaller := []byte{
+		0x48, 0x83, 0xec, 56, // sub rsp,56
+		0x0f, 0xae, 0x5c, 0x24, 48, // stmxcsr [rsp+48]
+		0xc7, 0x44, 0x24, 52, 0x84, 0x5f, 0, 0, // new MXCSR=0x5f84
+		0x0f, 0xae, 0x54, 0x24, 52, // ldmxcsr [rsp+52]
+		0x48, 0x89, 0xc8, // mov rax,rcx (chosen native target)
+		0xb9, 1, 0, 0, 0, 0xba, 2, 0, 0, 0,
+		0x41, 0xb8, 3, 0, 0, 0, 0x41, 0xb9, 4, 0, 0, 0,
+		0x48, 0xc7, 0x44, 0x24, 32, 5, 0, 0, 0,
+		0x48, 0xc7, 0x44, 0x24, 40, 6, 0, 0, 0,
+		0xff, 0xd0, // call rax
+		0x0f, 0xae, 0x5c, 0x24, 52, // observed MXCSR
+		0x0f, 0xae, 0x54, 0x24, 48, // restore original before returning to Go
+		0x8b, 0x44, 0x24, 52,
+		0x48, 0x83, 0xc4, 56, 0xc3,
+	}
+	write(code+2304, controlCaller)
 	var old uint32
 	if err := windows.VirtualProtect(code, 4096, windows.PAGE_EXECUTE_READ, &old); err != nil {
 		t.Fatal(err)
@@ -166,6 +189,11 @@ func TestNativeCallProbesABIAndVirtualUnwind(t *testing.T) {
 	}
 	if integer, floating, _ := syscall.SyscallN(code+3712, uintptr(bits)); integer != 0x44332211 || uint64(floating) != bits {
 		t.Fatalf("native exit return values changed: RAX=%#x XMM0=%#x", integer, floating)
+	}
+	for _, target := range []uintptr{code, code + 3600} {
+		if got, _, _ := syscall.SyscallN(code+2304, target); got != 0x5f84 {
+			t.Fatalf("inserted helper changed MXCSR control/status: %#x", got)
+		}
 	}
 	// Synthetic CONTEXT AMD64 (1232 bytes) on aligned native memory. Exercise
 	// entry, body and both epilogue states without unwinding any Go stack.

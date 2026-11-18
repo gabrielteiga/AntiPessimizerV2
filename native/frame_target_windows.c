@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <wchar.h>
+#include <xmmintrin.h>
 
 enum { AP_FRAME_EXCEPTION=0xe0424242u };
 #define METHOD __attribute__((noinline))
@@ -24,6 +25,8 @@ extern uint64_t APFrameTiny(void);
 extern uint64_t APLeafMath(uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
 extern double APLeafConvert(float);
 extern uint64_t APFrameSignedAlloc(uint64_t);
+extern uint32_t APLeafSetControl(const uint32_t *);
+extern uint32_t APLeafGetControl(void);
 extern void *APFrameCopy(void *,const void *,uint64_t);
 extern uint64_t APFrameFill(void *,uint64_t,uint64_t);
 extern uint64_t APLeafAtomic(volatile uint64_t *,uint64_t);
@@ -42,6 +45,14 @@ AP_BATCH_METHODS(AP_BATCH_ASSEMBLY)
 static uint64_t (*const batch_methods[])(void)={AP_BATCH_METHODS(AP_BATCH_ADDRESS)};
 METHOD uint64_t APFrameParent(uint64_t n){
  if(APFrameTiny()!=77)return 0;
+ uint32_t original_control=_mm_getcsr();
+ BOOL control_ok=TRUE;
+ for(uint32_t mode=0;mode<4;mode++){
+  uint32_t control=(original_control&~0x603fu)|0x1fa4u|(mode<<13);
+  if(APLeafSetControl(&control)!=control||APLeafGetControl()!=control)control_ok=FALSE;
+ }
+ _mm_setcsr(original_control);
+ if(!control_ok)return 0;
  for(uint32_t i=0;i<64;i++)if(batch_methods[i]()!=(uint64_t)i+1)return 0;
  uint64_t source[16],copied[16],filled[16];
  for(uint32_t i=0;i<16;i++){source[i]=n+i+1;copied[i]=0;filled[i]=99;}
@@ -75,6 +86,10 @@ LONG APFrameMemoryFilter(EXCEPTION_POINTERS *p,void *frame){
 }
 extern uint64_t APFrameMemoryCatch(void);
 __asm__(
+ ".text\n .globl APLeafSetControl\n .def APLeafSetControl; .scl 2; .type 32; .endef\n"
+ ".seh_proc APLeafSetControl\n APLeafSetControl:\n .seh_endprologue\n ldmxcsr (%rcx)\n movl (%rcx),%eax\n ret\n .seh_endproc\n"
+ ".text\n .globl APLeafGetControl\n .def APLeafGetControl; .scl 2; .type 32; .endef\n"
+ ".seh_proc APLeafGetControl\n APLeafGetControl:\n .seh_endprologue\n stmxcsr 8(%rsp)\n movl 8(%rsp),%eax\n ret\n .seh_endproc\n"
  ".text\n .globl APFrameTiny\n .def APFrameTiny; .scl 2; .type 32; .endef\n"
  ".seh_proc APFrameTiny\n APFrameTiny:\n .seh_endprologue\n movl $77,%eax\n ret\n .seh_endproc\n"
  ".text\n .globl APLeafMath\n .def APLeafMath; .scl 2; .type 32; .endef\n"

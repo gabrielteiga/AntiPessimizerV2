@@ -43,6 +43,8 @@ mesmos intervalos runtime, aceitou 7.075 planos após MOVS/STOS com frame e oper
 LOCK permitidas. Continuam recusadas 1.562 entradas com handlers, 114 fora dos
 limites de tamanho e 26 por instruções/fluxos/prefixos ainda não cobertos.
 Stores sem frame permanecem limitados aos home slots; strings sem frame, CPUID,
-x87/AVX, MXCSR e handlers continuam rejeitados. Não transformar
+x87/AVX e handlers continuam rejeitados. O suporte posterior a LDMXCSR/STMXCSR
+acrescenta preservação explícita do estado SSE no bridge; a tabela acima registra
+as medições anteriores a esse suporte e não foi extrapolada. Não transformar
 esta tabela numa porcentagem de paridade ou garantia de execução Delphi. Os
 resultados nativos publicados no CI continuam vindo de cargas C/assembly próprias.

@@ -8,7 +8,8 @@ import (
 // Probe describes a standard Win64/SSE2 native helper bridge, not an installer.
 // Helper uses the native Win64 ABI: void Helper(uint32 procedureID).
 // It must preserve LastError (as the native producer does), nonvolatile registers
-// and XMM6..15. Arithmetic flags and AVX upper halves are volatile in this ABI;
+// and XMM6..15. The bridge preserves complete MXCSR control/status across Helper.
+// Arithmetic flags and AVX upper halves are volatile in this ABI;
 // custom assembly conventions/vectorcall/AVX arguments are not supported.
 // Image includes code and aligned UNWIND_INFO. The caller must register a native
 // RUNTIME_FUNCTION for it before execution and retire it only when quiescent.
@@ -85,6 +86,11 @@ func buildProbe(base, helper, continuation uint64, procedureID uint32, exiting b
 	for i := byte(0); i < 6; i++ {
 		moveSIMD(false, i, 96+uint32(i)*16)
 	}
+	// Four unused bytes between GPR and SIMD saves hold MXCSR. Preserve status
+	// too: an inserted helper may change these volatile flags even when the
+	// application only observes them with STMXCSR after an ordinary instruction.
+	code = append(code, 0x0f, 0xae, 0x9c, 0x24) // stmxcsr [rsp+88]
+	append32(88)
 	code = append(code, 0xb9)
 	append32(procedureID) // mov ecx,id
 	code = append(code, 0x48, 0xb8)
@@ -93,6 +99,8 @@ func buildProbe(base, helper, continuation uint64, procedureID uint32, exiting b
 	code = append(code, addr[:]...)
 	code = append(code, 0xff, 0xd0) // call rax with aligned RSP and independent home slots
 	returnPC := uint32(len(code))
+	code = append(code, 0x0f, 0xae, 0x94, 0x24) // ldmxcsr [rsp+88]
+	append32(88)
 	for i := byte(0); i < 6; i++ {
 		moveSIMD(true, i, 96+uint32(i)*16)
 	}
