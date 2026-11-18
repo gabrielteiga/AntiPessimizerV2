@@ -1,8 +1,10 @@
 package x64
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
+	"sort"
 )
 
 // BuildPELeaf checks the on-disk Windows x64 section and exception directory
@@ -42,10 +44,45 @@ type functionUnwind struct {
 func readPELeaf(image []byte, rva, size uint32) ([]byte, uint32, error) {
 	return readPECode(image, rva, size, nil)
 }
-func readPECode(image []byte, rva, size uint32, collectedUnwind *functionUnwind) ([]byte, uint32, error) {
-	fail := func(reason string) ([]byte, uint32, error) {
-		return nil, 0, fmt.Errorf("%w: PE: %s", ErrUnsupported, reason)
+
+// PEImage is an immutable snapshot of a validated Windows x64 image. Preparing
+// it once avoids scanning the complete exception directory for every procedure.
+// It proves static structure only, never live bytes, quiescence or runtime ABI.
+type PEImage struct {
+	data                    []byte
+	sections                []peLeafSection
+	imageSize, directoryRVA uint32
+	table                   []byte
+}
+
+// NewPEImage owns a detached snapshot. Subsequent changes to image or previously
+// returned plans cannot affect this prepared image. Concurrent plans are safe.
+func NewPEImage(image []byte) (*PEImage, error) {
+	p, err := parsePEImage(image)
+	if err != nil {
+		return nil, err
 	}
+	p.data = bytes.Clone(image)
+	if len(p.table) > 0 {
+		p.table, _ = p.mapped(p.directoryRVA, uint32(len(p.table)), false)
+	}
+	return p, nil
+}
+func (p *PEImage) ImageSize() uint32 {
+	if p == nil {
+		return 0
+	}
+	return p.imageSize
+}
+func readPECode(image []byte, rva, size uint32, unwind *functionUnwind) ([]byte, uint32, error) {
+	p, err := parsePEImage(image)
+	if err != nil {
+		return nil, 0, err
+	}
+	return p.readCode(rva, size, unwind)
+}
+func parsePEImage(image []byte) (*PEImage, error) {
+	fail := func(reason string) (*PEImage, error) { return nil, fmt.Errorf("%w: PE: %s", ErrUnsupported, reason) }
 	if len(image) < 64 || len(image) > 256<<20 || string(image[:2]) != "MZ" {
 		return fail("invalid DOS image")
 	}
@@ -109,45 +146,20 @@ func readPECode(image []byte, rva, size uint32, collectedUnwind *functionUnwind)
 		}
 		sections = append(sections, s)
 	}
-	mapped := func(start, length uint32, executable bool) ([]byte, bool) {
-		if length == 0 || uint64(start)+uint64(length) > uint64(imageSize) {
-			return nil, false
-		}
-		for _, s := range sections {
-			if start < s.rva {
-				continue
-			}
-			delta := uint64(start) - uint64(s.rva)
-			if delta+uint64(length) > uint64(s.virtual) || delta+uint64(length) > uint64(s.raw) {
-				continue
-			}
-			if executable && s.flags&0x20000000 == 0 {
-				return nil, false
-			}
-			offset := uint64(s.offset) + delta
-			return image[offset : offset+uint64(length)], true
-		}
-		return nil, false
-	}
-	if (collectedUnwind == nil && size <= JumpSize) || (collectedUnwind != nil && size < NearJumpSize) || size > 4096 {
-		return fail("invalid leaf extent")
-	}
-	code, ok := mapped(rva, size, true)
-	if !ok {
-		return fail("leaf is not wholly in one executable raw-backed section")
-	}
-	var directoryRVA, directorySize uint32
+
+	p := &PEImage{data: image, sections: sections, imageSize: imageSize}
+	var directorySize uint32
 	if directories > 3 {
-		directoryRVA = u32(h[136:])
+		p.directoryRVA = u32(h[136:])
 		directorySize = u32(h[140:])
 	}
-	if directoryRVA == 0 && directorySize == 0 {
-		return append([]byte(nil), code...), imageSize, nil
+	if p.directoryRVA == 0 && directorySize == 0 {
+		return p, nil
 	}
-	if directoryRVA == 0 || directorySize == 0 || directorySize%12 != 0 || directorySize > 12<<20 {
+	if p.directoryRVA == 0 || directorySize == 0 || directorySize%12 != 0 || directorySize > 12<<20 {
 		return fail("invalid exception directory")
 	}
-	table, ok := mapped(directoryRVA, directorySize, false)
+	table, ok := p.mapped(p.directoryRVA, directorySize, false)
 	if !ok {
 		return fail("exception directory is not raw-backed")
 	}
@@ -157,13 +169,59 @@ func readPECode(image []byte, rva, size uint32, collectedUnwind *functionUnwind)
 		if begin >= end || begin < previousEnd || unwind == 0 || unwind%4 != 0 {
 			return fail("invalid or overlapping runtime functions")
 		}
-		if _, ok := mapped(begin, end-begin, true); !ok {
+		if _, ok := p.mapped(begin, end-begin, true); !ok {
 			return fail("runtime function outside executable section")
 		}
-		info, ok := mapped(unwind, 4, false)
-		if !ok {
+		if _, ok := p.mapped(unwind, 4, false); !ok {
 			return fail("unwind info is not raw-backed")
 		}
+		previousEnd = end
+	}
+	p.table = table
+	return p, nil
+}
+func (p *PEImage) mapped(start, length uint32, executable bool) ([]byte, bool) {
+	if length == 0 || uint64(start)+uint64(length) > uint64(p.imageSize) {
+		return nil, false
+	}
+	for _, s := range p.sections {
+		if start < s.rva {
+			continue
+		}
+		delta := uint64(start) - uint64(s.rva)
+		if delta+uint64(length) > uint64(s.virtual) || delta+uint64(length) > uint64(s.raw) {
+			continue
+		}
+		if executable && s.flags&0x20000000 == 0 {
+			return nil, false
+		}
+		offset := uint64(s.offset) + delta
+		return p.data[offset : offset+uint64(length)], true
+	}
+	return nil, false
+}
+
+func (p *PEImage) readCode(rva, size uint32, collectedUnwind *functionUnwind) ([]byte, uint32, error) {
+	fail := func(reason string) ([]byte, uint32, error) {
+		return nil, 0, fmt.Errorf("%w: PE: %s", ErrUnsupported, reason)
+	}
+	if p == nil || len(p.data) == 0 {
+		return fail("uninitialized image")
+	}
+	if (collectedUnwind == nil && size <= JumpSize) || (collectedUnwind != nil && size < NearJumpSize) || size > 4096 {
+		return fail("invalid leaf extent")
+	}
+	code, ok := p.mapped(rva, size, true)
+	if !ok {
+		return fail("leaf is not wholly in one executable raw-backed section")
+	}
+	u32 := binary.LittleEndian.Uint32
+	table := p.table
+	index := sort.Search(len(table)/12, func(i int) bool { return u32(table[i*12+4:]) > rva })
+	if index < len(table)/12 {
+		offset := index * 12
+		begin, end, unwind := u32(table[offset:]), u32(table[offset+4:]), u32(table[offset+8:])
+		info, _ := p.mapped(unwind, 4, false) // validated for every entry during preparation
 		if uint64(begin) < uint64(rva)+uint64(size) && rva < end {
 			if begin != rva || uint64(end) != uint64(rva)+uint64(size) {
 				return fail("partial runtime-function overlap")
@@ -180,7 +238,7 @@ func readPECode(image []byte, rva, size uint32, collectedUnwind *functionUnwind)
 					return fail("unsupported language handler, chained or non-v1 unwind info")
 				}
 				length := uint32(4 + ((uint32(info[2])+1)&^1)*2)
-				complete, ok := mapped(binary.LittleEndian.Uint32(table[offset+8:]), length, false)
+				complete, ok := p.mapped(binary.LittleEndian.Uint32(table[offset+8:]), length, false)
 				if !ok {
 					return fail("truncated function unwind codes")
 				}
@@ -189,24 +247,23 @@ func readPECode(image []byte, rva, size uint32, collectedUnwind *functionUnwind)
 				if err := validateUnwindCodes(original); err != nil {
 					return nil, 0, err
 				}
-				*collectedUnwind = functionUnwind{info: original, runtimeRVA: directoryRVA + uint32(offset), infoRVA: unwind}
+				*collectedUnwind = functionUnwind{info: original, runtimeRVA: p.directoryRVA + uint32(offset), infoRVA: unwind}
 				if info[0] == 17 {
-					if uint64(unwind)+uint64(length)+4 > uint64(imageSize) {
+					if uint64(unwind)+uint64(length)+4 > uint64(p.imageSize) {
 						return fail("truncated original unwind handler")
 					}
-					handler, ok := mapped(unwind+length, 4, false)
+					handler, ok := p.mapped(unwind+length, 4, false)
 					if !ok {
 						return fail("original unwind handler is not raw-backed")
 					}
 					collectedUnwind.handlerRVA = u32(handler)
 					collectedUnwind.handlerDataRVA = unwind + length + 4
-					if _, ok := mapped(collectedUnwind.handlerRVA, 1, true); !ok || collectedUnwind.handlerRVA >= rva && uint64(collectedUnwind.handlerRVA) < uint64(rva)+uint64(size) {
+					if _, ok := p.mapped(collectedUnwind.handlerRVA, 1, true); !ok || collectedUnwind.handlerRVA >= rva && uint64(collectedUnwind.handlerRVA) < uint64(rva)+uint64(size) {
 						return fail("invalid or self-referential original unwind handler")
 					}
 				}
 			}
 		}
-		previousEnd = end
 	}
-	return append([]byte(nil), code...), imageSize, nil
+	return bytes.Clone(code), p.imageSize, nil
 }

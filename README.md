@@ -21,7 +21,7 @@ Revisado em 18 de novembro de 2026.
 | Memória e sincronização | MOVS/STOS com frame/unwind verificado e operações LOCK de memória; testes de cópia/preenchimento, compare/exchange e contador compartilhado |
 | Estado SSE | Probes preservam controle/status MXCSR dos callbacks; setter/getter instrumentados conferem os quatro modos de arredondamento |
 | Controle pela interface | Catálogo pesquisável, seleção de até 64 procedimentos, argumentos, prazo, iniciar/parar pelo coletor e métricas ao vivo na janela |
-| Pré-validação | Catálogo identifica funções fora do subconjunto aceito; serviço e launcher recusam a seleção antes de abrir o programa |
+| Pré-validação | Imagem/tabela PE preparadas uma vez por lote, seleção por intervalo e snapshot independente; catálogo identifica funções fora do subconjunto aceito; serviço e launcher recusam a seleção antes de abrir o programa |
 | Independência do viewer | Fechar a janela/desconectar observador não encerra a captura; Parar cancela explicitamente o novo processo instrumentado |
 | Diagnóstico de perda nativa | Quantidade observada preservada em métricas v3, histórico/replay e viewer; perda encerra a captura como incompleta |
 | Arquivos e histórico | Salvar/replay, acompanhamento de arquivo crescente, filtros, ordenação e histórico limitado; comparação entre sessões de sampling e instrumentação |
