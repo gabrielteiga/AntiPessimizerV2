@@ -3,16 +3,17 @@ package native
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/instrumentation"
 )
 
 func TestNativeProducerForwardsOriginalCleanupAndCollidedUnwind(t *testing.T) {
-	for _, collision := range []string{"0", "1"} {
-		t.Run("cleanup-throws-"+collision, func(t *testing.T) {
-			o := frameSelectionFixture(t, map[string]uint32{"APUnwindParent": 1, "APUnwindThrower": 2, "APUnwindWork": 3})
-			o.Args = append(o.Args, "--cleanup-throws", collision)
+	for _, mode := range [][2]string{{"0", "0"}, {"1", "0"}, {"0", "1"}, {"1", "1"}} {
+		t.Run(fmt.Sprintf("abnormal-%s-normal-%s", mode[0], mode[1]), func(t *testing.T) {
+			o := frameSelectionFixture(t, map[string]uint32{"APUnwindParent": 1, "APUnwindThrower": 2, "APUnwindWork": 3, "APUnwindOuter": 4})
+			o.Args = append(o.Args, "--cleanup-throws", mode[0], "--normal-cleanup-throws", mode[1])
 			var output bytes.Buffer
 			if err := Launch(context.Background(), o, &output); err != nil {
 				t.Fatal(err, output.String())
@@ -22,29 +23,45 @@ func TestNativeProducerForwardsOriginalCleanupAndCollidedUnwind(t *testing.T) {
 				t.Fatal(err)
 			}
 			s := records[len(records)-1].Metrics
-			if s.Incomplete || s.OpenCalls != 0 || s.AbandonedCalls != 0 || len(s.Rows) != 9 {
+			if s.Incomplete || s.OpenCalls != 0 || s.AbandonedCalls != 0 || len(s.Rows) != 12 {
 				t.Fatal("original cleanup left incomplete frames", s)
 			}
-			threads := map[uint32]map[uint32]bool{}
+			threads := map[uint32]map[uint32]instrumentation.Row{}
 			for _, row := range s.Rows {
-				calls := map[uint32]uint64{1: 3, 2: 2, 3: 2}[row.ProcedureID]
+				calls := map[uint32]uint64{1: 3, 2: 2, 3: 2, 4: 3}[row.ProcedureID]
 				unwound := uint64(1)
-				if row.ProcedureID == 3 && collision == "0" {
+				if (row.ProcedureID == 1 || row.ProcedureID == 4) && mode[1] == "1" {
+					unwound++
+				} else if row.ProcedureID == 3 {
 					unwound = 0
+					for _, value := range mode {
+						if value == "1" {
+							unwound++
+						}
+					}
 				}
-				if row.Calls != calls || row.UnwoundCalls != unwound || row.InclusiveTicks == 0 || row.ExclusiveTicks > row.InclusiveTicks {
+				// A successful tiny cleanup can complete within one QPC tick.
+				// Exception paths still include the actual Windows dispatch/unwind.
+				zeroAllowed := row.ProcedureID == 3 && unwound == 0
+				if row.Calls != calls || row.UnwoundCalls != unwound || row.InclusiveTicks == 0 && !zeroAllowed || row.ExclusiveTicks > row.InclusiveTicks {
 					t.Fatal("cleanup changed native counts/times", row)
 				}
 				if threads[row.ThreadID] == nil {
-					threads[row.ThreadID] = map[uint32]bool{}
+					threads[row.ThreadID] = map[uint32]instrumentation.Row{}
 				}
-				if threads[row.ThreadID][row.ProcedureID] {
+				if _, duplicate := threads[row.ThreadID][row.ProcedureID]; duplicate {
 					t.Fatal("duplicated cleanup identity", row)
 				}
-				threads[row.ThreadID][row.ProcedureID] = true
+				threads[row.ThreadID][row.ProcedureID] = row
 			}
 			if len(threads) != 3 {
 				t.Fatal("cleanup worker identities merged", threads)
+			}
+			for _, rows := range threads {
+				parent, thrower, work, outer := rows[1], rows[2], rows[3], rows[4]
+				if len(rows) != 4 || outer.InclusiveTicks != outer.ExclusiveTicks+parent.ExclusiveTicks+thrower.InclusiveTicks+work.InclusiveTicks || thrower.InclusiveTicks != thrower.ExclusiveTicks || work.InclusiveTicks != work.ExclusiveTicks {
+					t.Fatal("cleanup time lost between abandoned frame and active outer frame", rows)
+				}
 			}
 		})
 	}

@@ -712,3 +712,15 @@ planejamento neste caso; não mede overhead dos probes nem velocidade Delphi.
 Reproduzir com go test ./internal/instrumentation/x64 -run '^$' -bench
 BenchmarkPlanSelection64. Testes incluem lookup contra varredura independente,
 alteração da entrada/planos, uso concorrente e corrupção fora da seleção.
+
+
+## Exceção em cleanup com chamador instrumentado ativo
+
+O ensaio de encaminhamento seleciona também um chamador externo ao frame que
+possui cleanup. Cruza quatro casos: limpeza normal/sem falha, exceção no corpo,
+exceção na limpeza normal e segunda exceção durante unwind. Em três workers,
+exige 12 identidades método/thread, contagens de unwind por método e ausência
+de frames abandonados/abertos. O tempo inclusivo do chamador precisa equivaler
+à soma dos exclusivos e dos filhos, incluindo chamadas feitas pela limpeza após
+o fechamento do frame abandonado. Isso detecta perda de contabilidade em frames
+externos durante collided unwind e cleanup executado duas vezes.
