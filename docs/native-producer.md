@@ -282,3 +282,13 @@ intervalos QPC, SHA do EXE e identidade das variantes. A velocidade é observada
 sem threshold de runner ou extrapolação para Delphi. A suíte nativa de Clear,
 threads, perdas, exceções e entrega ao vivo permanece obrigatória para o novo
 caminho, junto dos demais gates Windows.
+
+
+Primeiro ensaio pareado (CI 44323815141, commit 986737d): medianas atomic/RMW
+0,943 com uma thread (−90,3 ns/chamada) e 0,965 com três (−88,8 ns/chamada).
+Um dos pares com três threads teve +64,2 ns; a variabilidade fica no relatório.
+São valores deste runner/loop C, incluindo seu custo base, sem extrapolação para
+Delphi ou promessa de ganho fixo. Os relatórios seguintes identificam também o
+SHA256 de cada DLL comparada. O teste de cleanup aceita zero ticks para uma
+chamada normal menor que a resolução QPC, preservando contagens e o equilíbrio
+exato dos tempos; não impõe nem inventa duração mínima.

@@ -18,6 +18,8 @@ import (
 type loadCostTrial struct {
 	Version      int          `json:"version"`
 	ImageID      string       `json:"image_id"`
+	AtomicDLLID  string       `json:"atomic_dll_id"`
+	RMWDLLID     string       `json:"rmw_dll_id"`
 	Trial        int          `json:"trial"`
 	First        string       `json:"first"`
 	RMW          workloadCost `json:"rmw_load_instrumented"`
@@ -35,6 +37,17 @@ func TestNativeCostAtomicLoadsComparedWithRMWLoads(t *testing.T) {
 		t.Fatal(err)
 	}
 	imageID := fmt.Sprintf("sha256:%x", sha256.Sum256(image))
+	identities := make([]string, 0, 2)
+	for _, path := range []string{o.DLL, filepath.Join(filepath.Dir(o.DLL), "AntiPessimizerNativeRMW.dll")} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		identities = append(identities, fmt.Sprintf("sha256:%x", sha256.Sum256(data)))
+	}
+	if identities[0] == identities[1] {
+		t.Fatal("paired comparison requires distinct DLL variants")
+	}
 	var artifact *os.File
 	if path := os.Getenv("AP_NATIVE_LOAD_COST_REPORT"); path != "" {
 		artifact, err = os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
@@ -51,7 +64,7 @@ func TestNativeCostAtomicLoadsComparedWithRMWLoads(t *testing.T) {
 	for _, workers := range []uint32{1, 3} {
 		var ratios, deltas []float64
 		for trial := 0; trial < 3; trial++ {
-			e := loadCostTrial{Version: 1, ImageID: imageID, Trial: trial + 1, First: "rmw", CallsPerMode: uint64(workers*iterations) + 1}
+			e := loadCostTrial{Version: 1, ImageID: imageID, AtomicDLLID: identities[0], RMWDLLID: identities[1], Trial: trial + 1, First: "rmw", CallsPerMode: uint64(workers*iterations) + 1}
 			run := func(atomic bool) {
 				options := o
 				if !atomic {
