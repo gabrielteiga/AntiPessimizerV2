@@ -199,3 +199,17 @@ referência. Não há nomes TDS nem versão de compilador comprovados; não test
 instalador completo, handlers Delphi ou todos os prólogos do compilador. A integração completa
 com chamadas, seleção, métricas e exceções permanece demonstrada em fixtures C.
 O artefato Reference-Delphi-<run_id> grava hash, RVAs, bytes e número de pares.
+
+
+## Preferências do viewer
+
+gui_load_config/gui_save_config (src/gui.cpp da revisão fixada) preservam
+Filepath, ResultFilter, UnitFilter e TimeUnit. O viewer Go adapta esses campos
+para caminho do EXE, filtro de resultados, busca de símbolos e unidade de tempo,
+num JSON v1 em os.UserConfigDir()/AntiPessimizerV2/viewer.json. No Windows isso
+corresponde a %AppData%. A gravação usa arquivo temporário no mesmo diretório,
+sync/close e rename. O leitor limita 128 KiB, valida UTF-8, versão, campos e
+unidade, e só aceita um objeto. Arquivos inválidos/desconhecidos são preservados
+e a janela usa padrões. Restaurar os campos não carrega catálogo nem executa
+um alvo. O teste Win32 confere controles Unicode, salvamento ao fechar e
+reabertura, além do fallback sem sobrescrever um arquivo de versão futura.

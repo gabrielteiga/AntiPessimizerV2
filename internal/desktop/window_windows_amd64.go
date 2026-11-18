@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -97,6 +98,10 @@ type update struct {
 	Note             string
 }
 type window struct {
+	preferences                                                                    Preferences
+	preferencesPath                                                                string
+	preferencesProblem, preferencesWriteErr                                        error
+	preferencesSaved                                                               bool
 	metricUnits                                                                    uintptr
 	clearButton                                                                    uintptr
 	instrumentMode                                                                 bool
@@ -226,6 +231,7 @@ var wndProc = windows.NewCallback(func(hwnd uintptr, msg uint32, w uintptr, nati
 		a.draw()
 		return 0
 	case 0x0010:
+		a.persistPreferences()
 		destroy.Call(hwnd)
 		return 0
 	case 0x0002:
@@ -258,11 +264,27 @@ func runArchive(address, path string, inspect func(*window) error) error {
 	return runViewer(address, path, "", false, inspect)
 }
 func runViewer(address, path, follow string, instrumentMode bool, inspect func(*window) error) error {
+	settingsPath := ""
+	if inspect == nil {
+		settingsPath, _ = preferencesPath()
+	}
+	return runViewerWithPreferences(address, path, follow, instrumentMode, inspect, settingsPath)
+}
+func runViewerWithPreferences(address, path, follow string, instrumentMode bool, inspect func(*window) error, settingsPath string) error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	a := &window{instrumentMode: instrumentMode, followPath: follow, metricUpdates: make(chan metricFollowUpdate, 1), inspect: inspect, initialPath: path, address: address, ctx: ctx, cancel: cancel, updates: make(chan update, 8), width: 1180, height: 760}
+	a.preferences, a.preferencesPath = defaultPreferences(), settingsPath
+	if settingsPath != "" {
+		if p, err := loadPreferences(settingsPath); err != nil {
+			a.preferencesProblem = fmt.Errorf("ler preferências: %w", err)
+			a.preferencesPath = "" // retain unreadable/unknown files unchanged
+		} else {
+			a.preferences = p
+		}
+	}
 	a.offline.Store(path != "" || follow != "")
 	active = a
 	defer func() { active = nil }()
@@ -323,6 +345,7 @@ func (a *window) open() error {
 	for h, label := range map[uintptr]string{a.imagePath: "Caminho completo do EXE Delphi", a.symbolSearch: "Buscar unidade ou procedimento (depois, Ler símbolos)", a.programArgs: "Argumentos do novo programa", a.launchTimeout: "Prazo em segundos"} {
 		send.Call(h, 0x1501, 0, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(label))))
 	}
+	a.applyPreferences()
 	a.configureMode()
 	user.NewProc("ShowWindow").Call(a.metricUnits, 0)
 	a.layout()
@@ -352,6 +375,9 @@ func (a *window) open() error {
 		user.NewProc("SetTimer").Call(a.hwnd, 2, 1500, 0)
 	}
 	defer func() { a.cancel(); a.wg.Wait() }()
+	if a.preferencesProblem != nil {
+		text(a.details, "Usando preferências padrão: "+a.preferencesProblem.Error())
+	}
 	var m message
 	for {
 		r, _, err := user.NewProc("GetMessageW").Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)
@@ -365,13 +391,42 @@ func (a *window) open() error {
 			if a.inspect != nil {
 				a.inspection = a.inspect(a)
 			}
+			a.persistPreferences()
 			destroy.Call(a.hwnd)
 			continue
 		}
 		user.NewProc("TranslateMessage").Call(uintptr(unsafe.Pointer(&m)))
 		user.NewProc("DispatchMessageW").Call(uintptr(unsafe.Pointer(&m)))
 	}
-	return a.inspection
+	return errors.Join(a.inspection, a.preferencesWriteErr)
+}
+
+func (a *window) applyPreferences() {
+	text(a.imagePath, a.preferences.ImagePath)
+	text(a.filter, a.preferences.ResultFilter)
+	text(a.symbolSearch, a.preferences.SymbolFilter)
+	a.model.MetricUnit = a.preferences.TimeUnit.normalized()
+	for index, unit := range []MetricTimeUnit{Nanoseconds, Microseconds, Milliseconds, Seconds, ClockTicks} {
+		if unit == a.model.MetricUnit {
+			send.Call(a.metricUnits, 0x14e, uintptr(index), 0)
+		}
+	}
+}
+
+func (a *window) persistPreferences() {
+	if a.preferencesPath == "" || a.preferencesSaved || a.imagePath == 0 {
+		return
+	}
+	a.preferencesSaved = true
+	p := Preferences{Version: 1, ImagePath: value(a.imagePath), ResultFilter: value(a.filter), SymbolFilter: value(a.symbolSearch), TimeUnit: Milliseconds}
+	index, _, _ := send.Call(a.metricUnits, 0x147, 0, 0)
+	units := []MetricTimeUnit{Nanoseconds, Microseconds, Milliseconds, Seconds, ClockTicks}
+	if index < uintptr(len(units)) {
+		p.TimeUnit = units[index]
+	}
+	if err := savePreferences(a.preferencesPath, p); err != nil {
+		a.preferencesWriteErr = fmt.Errorf("salvar preferências da janela: %w", err)
+	}
 }
 func (a *window) layout() {
 	pos := func(h uintptr, x, y, w, hgt int32) {

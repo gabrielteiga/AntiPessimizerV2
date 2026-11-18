@@ -20,6 +20,7 @@ Revisado em 18 de novembro de 2026.
 | Subconjunto escalar | Aritmética/condições/conversões SSE sem frame e home slots Win64 limitados; prólogo ADD RSP negativo verificado contra unwind |
 | Memória e sincronização | MOVS/STOS com frame/unwind verificado e operações LOCK de memória; testes de cópia/preenchimento, compare/exchange e contador compartilhado |
 | Estado SSE | Probes preservam controle/status MXCSR dos callbacks; setter/getter instrumentados conferem os quatro modos de arredondamento |
+| Preferências da janela | Restaura EXE, filtro de resultados, busca de símbolos e unidade de tempo por usuário ao reabrir |
 | Controle pela interface | Catálogo pesquisável, seleção de até 64 procedimentos, argumentos, prazo, iniciar/parar pelo coletor e métricas ao vivo na janela |
 | Pré-validação | Imagem/tabela PE preparadas uma vez por lote, seleção por intervalo e snapshot independente; catálogo identifica funções fora do subconjunto aceito; serviço e launcher recusam a seleção antes de abrir o programa |
 | Independência do viewer | Fechar a janela/desconectar observador não encerra a captura; Parar cancela explicitamente o novo processo instrumentado |
@@ -85,6 +86,10 @@ marca a captura interrompida como incompleta; fechar o viewer mantém o coletor 
 o alvo independentes. O prazo padrão é 60 segundos. **Limpar métricas** zera os resultados e reinicia o tempo das chamadas abertas
 numa nova época, sem encerrar o programa. A tabela mostra chamadas,
 totais e médias inclusivas/exclusivas, thread, unidade, unwind e frames abertos.
+As preferências da janela são salvas ao fechar em
+`%AppData%\AntiPessimizerV2\viewer.json`: caminho do EXE, filtros e unidade de tempo.
+Reabrir restaura esses campos; a captura continua sendo iniciada pelos controles.
+
 O seletor de tempo oferece ns, us, ms, s e ticks do relógio. Ticks QPC não são
 ciclos de CPU. A troca de unidade preserva contagens, ordenação e arquivo.
 Sinais periódicos atualizam a janela durante chamadas longas, sem inventar
