@@ -314,6 +314,13 @@ func TestLargeAdapterKeepsIndependentStridesForAll256Methods(t *testing.T) {
 	image[last+8191] = 0xc3
 	binary.LittleEndian.PutUint32(offer[56+(count-1)*4:], 8192)
 	offer[len(offer)-1] = 1
+	legacyOffer := append([]byte(nil), offer...)
+	legacyOffer[6] = '8'
+	legacy := &hookStream{in: bytes.NewReader(legacyOffer)}
+	if err := installHooks(legacy, image, procs); err == nil || !strings.Contains(err.Error(), "require APHOOK9") || legacy.out.Len() != 1 {
+		t.Fatal("older adapter accepted expanded catalog", err, legacy.out.Len())
+	}
+
 	stream := &hookStream{in: bytes.NewReader(offer)}
 	if err := installHooks(stream, image, procs); err != nil {
 		t.Fatal(err)

@@ -2,6 +2,7 @@ package native
 
 import (
 	"encoding/binary"
+	"strings"
 	"testing"
 	"unicode/utf16"
 )
@@ -38,6 +39,10 @@ func TestBootstrapRequestContainsBoundedUTF16AndSelectedExtents(t *testing.T) {
 	selected := make([]debugSelection, MaxSelectedProcedures)
 	for i := range selected {
 		selected[i] = debugSelection{uint32(i + 1), 0x1000 + uint32(i)*16, 6}
+	}
+	longPipe := strings.Repeat("a", 511)
+	if b, err := bootstrapRequest(longPipe, selected, 1024); err != nil || len(b) != 32+MaxSelectedProcedures*12+1024 || len(b) > 8192 {
+		t.Fatal("maximum request rejected/truncated", len(b), err)
 	}
 	full, err := bootstrapRequest(pipe, selected, 1024)
 	if err != nil || binary.LittleEndian.Uint32(full[12:]) != MaxSelectedProcedures || binary.LittleEndian.Uint32(full[32+(MaxSelectedProcedures-1)*12:]) != MaxSelectedProcedures {

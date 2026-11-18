@@ -462,3 +462,29 @@ ponteiros nulo e desalinhado. O teste Windows instala os três métodos em conju
 e exige 24/11/2 chamadas por thread, com somente as duas saídas excepcionais do
 CAS e médias QPC consistentes. O corpus Delphi original inclui separadamente
 dois corpos com CMPXCHG16B e valida o estado da lista em 100 pares cada.
+
+
+## Seleções de 256 procedimentos e unidades
+
+APHOOK9 mantém o layout/stride de 32 KiB do APHOOK8 e amplia a seleção para
+256 procedimentos físicos; adapters anteriores recusam mais de 64 antes de
+receber o plano. APNAT v5 amplia o catálogo, mantendo eventos de 24 bytes,
+semântica de Clear, encerramento de threads e perdas. Leitores aceitam v1..v4
+com seu limite anterior de 64. Bootstrap limita o pedido a 8 KiB (256 extents e
+até 512 caracteres UTF-16); a reserva máxima de código/tabela é 8.397.824 bytes.
+Buffers de threads continuam limitados a 64 rings de 1.024 eventos; o núcleo
+continua limitado a 4.096 linhas por época, sem expansão proporcional à duração.
+
+O ensaio Windows instala 256 métodos e exige uma chamada de cada em 16 threads:
+4.096 linhas distintas, sem perdas, unwind ou chamadas abertas. Cada ring produz
+514 eventos, cabendo mesmo se a drenagem não executar antes do retorno. O alvo
+confere cada valor de retorno. Baseline e instrumentado usam o mesmo EXE; o teste
+registra QPC, memória privada e handles ao final dos workers e exige crescimento
+limitado (32 MiB/16 handles). O observador retém somente o último snapshot e
+registra bytes transmitidos. Esses tempos incluem criação/join de threads e
+não são um benchmark de overhead Delphi ou uma garantia de velocidade.
+
+A escolha por unidade resolve nomes exatos contra o catálogo completo, incluindo
+aliases, e passa pela pré-validação habitual. Nenhum procedimento é omitido para
+caber no limite. A janela exige nova leitura quando o texto da unidade muda;
+o serviço confere novamente a identidade do EXE/TDS antes de lançar.

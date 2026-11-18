@@ -13,13 +13,14 @@ func TestNativePreferencesWindowSmoke(t *testing.T) {
 		t.Skip("native preferences smoke enabled in Windows CI")
 	}
 	path := filepath.Join(t.TempDir(), "viewer.json")
-	p := Preferences{Version: 1, ImagePath: `C:\Projetos\Cotação\app.exe`, ResultFilter: "Ação.Calcular", SymbolFilter: "Unidade.Ações", TimeUnit: ClockTicks}
+	p := Preferences{WholeUnit: true, Version: 1, ImagePath: `C:\Projetos\Cotação\app.exe`, ResultFilter: "Ação.Calcular", SymbolFilter: "Unidade.Ações", TimeUnit: ClockTicks}
 	if err := savePreferences(path, p); err != nil {
 		t.Fatal(err)
 	}
 	if err := runViewerWithPreferences(`\\.\pipe\unused-preferences`, "", "", true, func(w *window) error {
 		unit, _, _ := send.Call(w.metricUnits, 0x147, 0, 0)
-		if value(w.imagePath) != p.ImagePath || value(w.filter) != p.ResultFilter || value(w.symbolSearch) != p.SymbolFilter || unit != 4 || w.catalog != nil {
+		whole, _, _ := send.Call(w.wholeUnit, 0xf0, 0, 0)
+		if whole != 1 || value(w.imagePath) != p.ImagePath || value(w.filter) != p.ResultFilter || value(w.symbolSearch) != p.SymbolFilter || unit != 4 || w.catalog != nil {
 			return fmt.Errorf("preferences did not restore native controls or triggered a catalog load")
 		}
 		text(w.filter, "Unidade.Outra")

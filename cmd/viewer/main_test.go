@@ -78,3 +78,10 @@ func TestInstrumentedProcedureIDsRejectAmbiguousSelection(t *testing.T) {
 		t.Fatal("selection beyond native capacity accepted")
 	}
 }
+
+func TestInstrumentStartRejectsMixedIDsAndUnitBeforeConnecting(t *testing.T) {
+	err := run([]string{"--op", "instrument-start", "--unit", "Lab", "--procedure-ids", "1"}, strings.NewReader(""), io.Discard, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "exclusively") {
+		t.Fatal("mixed selection reached transport", err)
+	}
+}

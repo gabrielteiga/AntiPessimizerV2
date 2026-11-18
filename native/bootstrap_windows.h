@@ -70,6 +70,7 @@ static BOOL bootstrap_hook_exit(void) {
     }
     return patched;
 }
+_Static_assert(32+AP_HOOK_LIMIT*12+512*2<=8192,"bootstrap request bound must include full selection and UTF-16 path");
 AP_API DWORD WINAPI APNativeBootstrap(void *request) {
     if(!request || state.rings || bootstrap_mode) return ERROR_ALREADY_INITIALIZED;
     unsigned char *data=request;

@@ -101,7 +101,7 @@ executado por esse teste e a fixture não representa todos os seus formatos.
 O mesmo coletor mantém uma única sessão ativa: `sampling` ou `instrumentation`
 no campo `status.mode`. `instrument-catalog` recebe caminho, busca por texto/unidade
 e página (até 512; padrão 200), e retorna image_id, catalog_id, total e IDs estáveis.
-`instrument-start` exige ambas as identidades, 1..64 IDs distintos, argumentos e
+`instrument-start` exige ambas as identidades, 1..256 IDs distintos ou nomes exatos de unidades, argumentos e
 prazo de 1 ms a 24 h (padrão 1 minuto). O catálogo é relido antes do lançamento;
 se o EXE ou os símbolos selecionáveis mudarem, os IDs antigos são rejeitados.
 A DLL vem da pasta do collector; clientes não escolhem um helper arbitrário.
@@ -132,3 +132,16 @@ Capturas instrumentadas nativas usam o envelope de métricas v3. O campo opciona
 eventos perdidos, junto de incomplete=true; segue preservado em latest, histórico,
 subscribe e replay. O RPC mantém sua versão: não confundir envelope JSON v3 com
 wire nativo v4. Clientes antigos devem ser atualizados com o mesmo pacote.
+
+
+## Seleção por unidade Pascal
+
+instrument-start aceita alternativamente `instrument.units` (array de nomes
+exatos, sem distinção de maiúsculas) ou procedure_ids. Não permite ambos.
+Resolução usa o catálogo completo e seus aliases, preservando IDs/ordem primários;
+todas as unidades pedidas precisam existir. Até 256 procedimentos físicos podem
+ser selecionados. Unidades maiores são recusadas com a contagem, sem truncamento
+por paginação. ImageID/CatalogID e a pré-validação continuam obrigatórios;
+qualquer método não suportado impede o lançamento e preserva o histórico.
+O terminal oferece `--unit Nome` e a janela o modo Unidade inteira. O catálogo
+é lido novamente pelo serviço antes do início, incluindo TDS externo.

@@ -93,7 +93,7 @@ func (c Catalog) Select(ids []uint32) ([]SelectedProcedure, error) {
 // The final selection still requires the ordinary code/ABI preflight.
 func (c Catalog) SelectUnits(units []string) ([]SelectedProcedure, error) {
 	if len(units) == 0 || len(units) > MaxSelectedProcedures {
-		return nil, errors.New("select 1..256 exact Pascal units")
+		return nil, fmt.Errorf("select 1..%d exact Pascal units", MaxSelectedProcedures)
 	}
 	for i, unit := range units {
 		if strings.TrimSpace(unit) == "" || len(unit) > 1024 || !utf8.ValidString(unit) || strings.ContainsFunc(unit, unicode.IsControl) {

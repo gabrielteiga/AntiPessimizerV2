@@ -788,3 +788,24 @@ em 128 bits. O ensaio reinicia os buffers entre original/cópia e exige também
 seu estado final, incluindo lista vazia. Cinco novas rotinas se tornam elegíveis
 estaticamente (8.645/8.777); somente as duas adicionadas ao corpus são executadas.
 Isso não certifica os demais métodos nem uma versão do Delphi.
+
+
+## Seleção por unidade e cardinalidade ampliada
+
+O lançamento aceita até 256 procedimentos físicos. Na janela, Unidade inteira
+interpreta a busca como nome Pascal exato e consulta até 256 membros; a seleção
+independe do highlight manual da lista. O coletor reabre o catálogo completo,
+confere as identidades e inclui aliases uma vez. Unidades ausentes, escolhas
+mistas por IDs/unidades, membros não suportados e grupos acima do limite são
+recusados antes de iniciar o EXE, preservando a captura anterior. O teste Win32
+exercita rejeição de handler, texto alterado e início por unidade de alias; o E2E
+usa --unit LabWorkload até a captura nativa e comparação das 31 chamadas.
+
+O contrato nativo APNAT v5/APHOOK9 permite a seleção maior, com no máximo cerca
+de 8 MiB para código/tabela. Permanecem 64 rings de até 1.024 eventos e 4.096
+linhas por época. Cada combinação procedimento/vida de thread ocupa uma linha:
+256 procedimentos em mais de 16 vidas de thread podem atingir esse limite,
+mesmo com poucas threads simultâneas. O limite é reportado como falha/incompleto,
+sem descartar linhas silenciosamente. Clear inicia outra época de contabilidade.
+O teste Windows de 16 threads cobre exatamente 4.096 chamadas/linhas e registra
+memória, handles, QPC e bytes emitidos contra baseline do mesmo EXE.
