@@ -21,7 +21,7 @@ func TestOriginalCleanupRequiresForwardingCapableAdapter(t *testing.T) {
 	put(image[0x308:], 0x5140)
 	copy(image[0x340:], []byte{17, 0, 0, 0})
 	put(image[0x344:], 0x5180)
-	for _, version := range []string{"APHOOK2\x00", "APHOOK3\x00", "APHOOK4\x00", "APHOOK5\x00", "APHOOK6\x00"} {
+	for _, version := range []string{"APHOOK2\x00", "APHOOK3\x00", "APHOOK4\x00", "APHOOK5\x00", "APHOOK6\x00", "APHOOK7\x00"} {
 		offer := make([]byte, 61)
 		copy(offer, hookOffer()[:48])
 		copy(offer, version)
@@ -260,7 +260,7 @@ func exceptionHookImage() []byte {
 	return b
 }
 func TestExceptionScopesRequireResumptionCapableAdapter(t *testing.T) {
-	for _, version := range []string{"APHOOK2\x00", "APHOOK3\x00", "APHOOK4\x00", "APHOOK5\x00", "APHOOK6\x00"} {
+	for _, version := range []string{"APHOOK2\x00", "APHOOK3\x00", "APHOOK4\x00", "APHOOK5\x00", "APHOOK6\x00", "APHOOK7\x00"} {
 		offer := make([]byte, 61)
 		copy(offer, hookOffer()[:48])
 		copy(offer, version)
@@ -269,7 +269,7 @@ func TestExceptionScopesRequireResumptionCapableAdapter(t *testing.T) {
 		offer[60] = 1
 		stream := &hookStream{in: bytes.NewReader(offer)}
 		err := installHooks(stream, exceptionHookImage(), []Procedure{{1, 0x5020}})
-		if version[6] != '5' && version[6] != '6' {
+		if version[6] != '5' && version[6] != '6' && version[6] != '7' {
 			if err == nil || !strings.Contains(err.Error(), "require APHOOK5") || stream.out.Len() != 1 {
 				t.Fatal("older adapter received translated scopes", err, stream.out.Len())
 			}

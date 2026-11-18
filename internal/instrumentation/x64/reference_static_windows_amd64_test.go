@@ -69,11 +69,11 @@ func TestReferenceDelphiStaticPlanCoverage(t *testing.T) {
 			continue
 		}
 		evidence.Accepted++
-		if plan.HandlerScopeStyle == 2 {
+		if plan.HandlerScopeStyle >= 2 {
 			evidence.Delphi++
 		}
 	}
-	if evidence.Total != 8777 || evidence.Accepted != 8633 || evidence.Delphi != 516 {
+	if evidence.Total != 8777 || evidence.Accepted != 8640 || evidence.Delphi != 523 {
 		t.Fatal("static eligibility changed; review the actual corpus before changing expectations", evidence)
 	}
 	if output := os.Getenv("AP_REFERENCE_DELPHI_REPORT"); output != "" {

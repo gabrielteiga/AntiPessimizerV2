@@ -25,7 +25,8 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 	if _, err := io.ReadFull(conn, offer[:]); err != nil {
 		return fmt.Errorf("hook allocation offer: %w", err)
 	}
-	delphiScopes := string(offer[:8]) == "APHOOK6\x00"
+	typedScopes := string(offer[:8]) == "APHOOK7\x00"
+	delphiScopes := typedScopes || string(offer[:8]) == "APHOOK6\x00"
 	resuming := delphiScopes || string(offer[:8]) == "APHOOK5\x00"
 	forwarding := resuming || string(offer[:8]) == "APHOOK3\x00" || string(offer[:8]) == "APHOOK4\x00"
 	general := string(offer[:8]) == "APHOOK2\x00" || forwarding
@@ -82,6 +83,9 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 			plan, err := prepared.BuildFunction(proc.RVA, size, loaded, allocation+uint64(offset), enter, exit, cleanup, proc.ID)
 			if err != nil {
 				return fmt.Errorf("procedure %d frame plan: %w", proc.ID, err)
+			}
+			if plan.HandlerScopeStyle == 3 && !typedScopes {
+				return errors.New("update the native adapter DLL: typed Delphi scopes require APHOOK7")
 			}
 			if plan.HandlerScopeStyle == 2 && !delphiScopes {
 				return errors.New("update the native adapter DLL: reviewed Delphi scopes require APHOOK6")

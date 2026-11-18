@@ -63,6 +63,8 @@ jobs:
             ${{ runner.temp }}/ap-reference-delphi/reference-delphi-static.json
             ${{ runner.temp }}/ap-reference-delphi/reference-delphi-exceptions.json
             ${{ runner.temp }}/ap-reference-delphi/reference-delphi-metrics.ndjson
+            ${{ runner.temp }}/ap-reference-delphi/reference-delphi-typed.json
+            ${{ runner.temp }}/ap-reference-delphi/reference-delphi-typed-metrics.ndjson
           if-no-files-found: error
 
       - if: runner.os == 'Windows'

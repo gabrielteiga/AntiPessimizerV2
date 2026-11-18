@@ -268,3 +268,23 @@ TestReferenceDelphiStaticPlanCoverage reproduz a contagem com a imagem fixada e
 alocação próxima simulada; grava a distribuição de recusas no artefato. Esse
 número não mede cobertura de execução, compatibilidade Delphi ou progresso do
 produto. O ensaio de exceção executa somente a rotina conferida acima.
+
+
+## Tabelas tipadas da revisão v0.3
+
+O resolvedor em 0xd6b0..0xd797 (231 bytes) é chamado pelo branch tipado do handler
+no offset 0x199. Seu fingerprint normalizado é
+`1c2d9651897321d9ac889f7535f0e89dbfdff2fd9b11cdcd46b8e7fdf0ce442a`.
+Lê Count e pares de RVAs: slot de classe (ponteiro) e destino. Compara a classe
+ou percorre ancestrais; slot zero aceita o else. O handler obtém o destino no
+par encontrado. Os slots 0x26258/0x276b0/0x28b08 da DLL apontam respectivamente
+para Exception/EOutOfMemory/EAccessViolation, confirmados pelos nomes do VMT.
+
+São sete procedimentos e oito tabelas: 0x42be0, 0x107810 (duas tabelas), 0x167ca0,
+0x183770, 0x18db50, 0x18e280 e 0x191700. O novo formato aceita estaticamente
+8.640/8.777 entradas, incluindo 523 com scopes Delphi. É elegibilidade estática,
+sem executar as demais rotinas e sem ser porcentagem de paridade. A worker
+0x191700 é conferida com o comportamento de Worker em AntiPessimizerDLL.dpr:
+CreateFile no pipe fixo, streams, dispatch de comandos e on E: Exception.
+O teste provoca EReadError com ctInstrumetProcedures sem seu inteiro obrigatório,
+confere a classe via VEH e exige que o catch tipado retorne sem escape ao C.
