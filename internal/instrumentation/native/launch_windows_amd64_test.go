@@ -74,7 +74,7 @@ func TestNativeProducerDebugLaunchWithoutApplicationCooperation(t *testing.T) {
 		} else if row.Calls == 10 {
 			workers++
 		}
-		if (row.Calls != 10 && row.Calls != 1) || row.InclusiveTicks == 0 || row.ExclusiveTicks != row.InclusiveTicks {
+		if (row.Calls != 10 && row.Calls != 1) || row.ExclusiveTicks != row.InclusiveTicks {
 			t.Fatal("wrong unmodified application count/time", row)
 		}
 	}

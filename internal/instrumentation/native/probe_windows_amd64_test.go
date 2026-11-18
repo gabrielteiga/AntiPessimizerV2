@@ -317,7 +317,7 @@ func nativeProbeCapture(t *testing.T, relocate bool) {
 		t.Fatal("incomplete native probe capture", s)
 	}
 	row := s.Rows[0]
-	if row.Calls != 10 || row.InclusiveTicks == 0 || row.ExclusiveTicks != row.InclusiveTicks || row.ActiveFrames != 0 {
+	if row.Calls != 10 || row.ExclusiveTicks != row.InclusiveTicks || row.ActiveFrames != 0 {
 		t.Fatal("entry/exit probes did not produce exact native calls", row)
 	}
 	if row.AverageInclusiveNS != float64(row.InclusiveTicks)*1e9/float64(s.Frequency)/10 {

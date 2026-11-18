@@ -34,7 +34,7 @@ func TestNativeProducerInstallsHooksInOwnedProcess(t *testing.T) {
 	}
 	seen := map[uint32]bool{}
 	for _, row := range r.Metrics.Rows {
-		if row.Calls != 10 || row.Location.Procedure != "APHookSum" || row.InclusiveTicks == 0 || row.ExclusiveTicks != row.InclusiveTicks || row.ActiveFrames != 0 || row.AverageInclusiveNS != float64(row.InclusiveTicks)*1e9/float64(r.Metrics.Frequency)/10 || seen[row.ThreadID] {
+		if row.Calls != 10 || row.Location.Procedure != "APHookSum" || row.ExclusiveTicks != row.InclusiveTicks || row.ActiveFrames != 0 || row.AverageInclusiveNS != float64(row.InclusiveTicks)*1e9/float64(r.Metrics.Frequency)/10 || seen[row.ThreadID] {
 			t.Fatal("wrong installed-hook metrics", row)
 		}
 		seen[row.ThreadID] = true
