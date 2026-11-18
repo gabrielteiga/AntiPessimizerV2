@@ -449,3 +449,16 @@ A integração exige 12 chamadas/uma saída por unwind por worker no método gra
 11/uma no callee e tempos inclusivos/exclusivos conservados. O instalador também
 é testado com 64 strides, incluindo o último método de 8192 bytes. Isso amplia
 o limite operacional; não certifica outras versões do compilador ou chains.
+
+
+## CAS de 128 bits
+
+APFrameCompare128 preserva RBX por unwind v1 e usa LOCK CMPXCHG16B. O alvo
+confere resultado, par final e atualização do esperado nas condições de sucesso
+ou falha. APFrameIncrement128 atualiza contador/complemento compartilhados por
+retry atômico; após join de todos os workers, ambos precisam coincidir com o
+número de chamadas. APFrameCompare128Catch usa a tabela CRT original para
+ponteiros nulo e desalinhado. O teste Windows instala os três métodos em conjunto
+e exige 24/11/2 chamadas por thread, com somente as duas saídas excepcionais do
+CAS e médias QPC consistentes. O corpus Delphi original inclui separadamente
+dois corpos com CMPXCHG16B e valida o estado da lista em 100 pares cada.

@@ -116,7 +116,37 @@ AP_BATCH_METHODS(AP_BATCH_ASSEMBLY)
 static uint64_t (*const batch_methods[])(void)={AP_BATCH_METHODS(AP_BATCH_ADDRESS)};
 static uint32_t batch_limit=64;
 static BOOL batch_once;
+/* Aligned 128-bit counter/complement. Every successful CAS updates both halves;
+   the native tests require exact totals after simultaneous workers have joined. */
+static _Alignas(16) uint64_t atomic128_total[2]={0,UINT64_MAX};
+extern uint64_t APFrameCompare128(uint64_t *,uint64_t *,const uint64_t *);
+extern uint64_t APFrameIncrement128(uint64_t *);
+extern uint64_t APFrameCompare128Catch(uint64_t *);
+__asm__(
+ ".text\n .globl APFrameCompare128\n .def APFrameCompare128; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameCompare128\n APFrameCompare128:\n pushq %rbx\n .seh_pushreg %rbx\n .seh_endprologue\n"
+ "movq %rcx,%r9\n movq %rdx,%r10\n movq (%r10),%rax\n movq 8(%r10),%rdx\n"
+ "movq (%r8),%rbx\n movq 8(%r8),%rcx\n lock cmpxchg16b (%r9)\n setz %r11b\n"
+ "movq %rax,(%r10)\n movq %rdx,8(%r10)\n movzbl %r11b,%eax\n popq %rbx\n ret\n .seh_endproc\n"
+ ".text\n .globl APFrameIncrement128\n .def APFrameIncrement128; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameIncrement128\n APFrameIncrement128:\n pushq %rbx\n .seh_pushreg %rbx\n .seh_endprologue\n"
+ "movq %rcx,%r8\n xorq %rax,%rax\n movq $-1,%rdx\n"
+ ".Latomic128_retry:\n leaq 1(%rax),%rbx\n movq %rbx,%rcx\n notq %rcx\n"
+ "lock cmpxchg16b (%r8)\n jnz .Latomic128_retry\n popq %rbx\n ret\n .seh_endproc\n"
+ ".text\n .globl APFrameCompare128Catch\n .def APFrameCompare128Catch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameCompare128Catch\n APFrameCompare128Catch:\n subq $88,%rsp\n .seh_stackalloc 88\n .seh_endprologue\n"
+ "movq $0,32(%rsp)\n movq $0,40(%rsp)\n movq $1,48(%rsp)\n movq $2,56(%rsp)\n"
+ ".Latomic128_try:\n leaq 32(%rsp),%rdx\n leaq 48(%rsp),%r8\n call APFrameCompare128\n nop\n .Latomic128_end:\n"
+ "xorl %eax,%eax\n addq $88,%rsp\n ret\n .Latomic128_catch:\n movl $902,%eax\n addq $88,%rsp\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Latomic128_try,.Latomic128_end,APFrameMemoryFilter,.Latomic128_catch\n .text\n .seh_endproc\n"
+);
 METHOD uint64_t APFrameParent(uint64_t n){
+ _Alignas(16) uint64_t pair[2]={n+1,~(n+1)},expected_pair[2]={n+1,~(n+1)},desired[2]={n+2,~(n+2)};
+ if(APFrameCompare128(pair,expected_pair,desired)!=1||pair[0]!=n+2||pair[1]!=~(n+2)||expected_pair[0]!=n+1||expected_pair[1]!=~(n+1))return 0;
+ if(APFrameCompare128(pair,expected_pair,desired)!=0||pair[0]!=n+2||pair[1]!=~(n+2)||expected_pair[0]!=n+2||expected_pair[1]!=~(n+2))return 0;
+ if(APFrameIncrement128(atomic128_total)>=16016000)return 0;
+
  if(APFrameLarge(n)!=n+50)return 0;
  if(APFrameTiny()!=77)return 0;
  uint32_t original_control=_mm_getcsr();
@@ -228,6 +258,7 @@ static DWORD WINAPI worker(void *unused){
  if(APFrameCatch()!=777)return 3;
  if(APFrameMemoryCatch()!=888)return 4;
  if(APFrameRBPCatch()!=889 || APFrameLargeCatch()!=901)return 7;
+ if(APFrameCompare128Catch(NULL)!=902 || APFrameCompare128Catch((uint64_t *)((unsigned char *)atomic128_total+1))!=902)return 8;
  if(normal_cleanup_throws){if(APUnwindCatch(7)!=779)return 6;}
  else if(APUnwindOuter(7)!=11)return 6;
  if(APUnwindOuter(999)!=1000 || APUnwindCatch(0)!=779 || cleanup_bad)return 6;
@@ -269,5 +300,5 @@ int wmain(int argc,wchar_t **argv){
   int written=fprintf(file,"{\"version\":1,\"threads\":%u,\"batch_count\":%u,\"private_bytes\":%llu,\"handles\":%lu,\"frequency\":%llu,\"ticks\":%llu}\n",(unsigned)threads,(unsigned)batch_limit,(unsigned long long)memory.PrivateUsage,(unsigned long)handles,(unsigned long long)frequency.QuadPart,(unsigned long long)(finish.QuadPart-start.QuadPart));
   if(fclose(file)||written<=0)return 10;
  }
- return result||atomic_total!=(uint64_t)threads*rounds*(iterations+1)||cleanup_count!=(LONG)(threads*rounds*2)||collision_seen<(LONG)(threads*rounds*(!!cleanup_throws+!!normal_cleanup_throws))?5:0;
+ return result||atomic128_total[0]!=(uint64_t)threads*rounds*(iterations+1)||atomic128_total[1]!=~atomic128_total[0]||atomic_total!=(uint64_t)threads*rounds*(iterations+1)||cleanup_count!=(LONG)(threads*rounds*2)||collision_seen<(LONG)(threads*rounds*(!!cleanup_throws+!!normal_cleanup_throws))?5:0;
 }

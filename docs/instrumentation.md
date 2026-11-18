@@ -577,8 +577,10 @@ STD, I/O de strings e endereçamento de 32 bits permanecem fora do subconjunto.
 
 LOCK é preservado apenas nas operações permitidas com destino de memória:
 aritmética/bit, INC/DEC/NEG/NOT, XCHG, XADD e CMPXCHG. O caminho legado continua
-recusando LOCK. HLE, LOCK inválido, CMPXCHG8B/16B e seus estados implícitos não
-validados são rejeitados. As restrições de operandos, stack e referências RIP
+recusando LOCK. CMPXCHG16B é aceito somente com frame/unwind nativo verificado,
+operando de memória de 16 bytes e endereço de 64 bits; preserva a leitura implícita
+de RBX/RCX, a atualização de RAX/RDX e ZF. HLE, LOCK inválido e CMPXCHG8B
+continuam rejeitados. As restrições de operandos, stack e referências RIP
 continuam aplicadas, incluindo a proibição de escrever no endereço de retorno.
 
 O alvo próprio confere todos os bytes de cópia/preenchimento, comprimentos zero
@@ -684,9 +686,9 @@ de saturação exige contador positivo junto de ErrLoss e incomplete=true.
 
 ## Corpus de execução da DLL Delphi original
 
-O CI Windows inclui um ensaio separado de dez rotinas com bytes conferidos na
-DLL v0.3 do Hoshoyo, comparando 1.000 pares original/corpo relocado com resultados
-esperados e um helper nativo que altera GPR voláteis. São rotinas puras sobre
+O CI Windows inclui um ensaio separado de doze rotinas com bytes conferidos na
+DLL v0.3 do Hoshoyo, comparando 1.200 pares original/corpo relocado com resultados
+esperados e um helper nativo que altera GPR voláteis. Inclui push/pop com CMPXCHG16B sobre
 buffers privados, chamadas sem inicializar a DLL ou suas dependências. O original
 não é modificado. Hashes, RVAs, bytes e limites de evidência estão no
 [mapa do original](phase0/antipessimizer-reference.md#execução-limitada-do-código-delphi-distribuído-pelo-original).
@@ -768,3 +770,21 @@ pelo Go. As fixtures anteriores também selecionam agora seus próprios catches.
 O incremento APHOOK6 reconhece o handler Delphi conferido da revisão v0.3
 para catch-all/finally. APHOOK7 acrescenta tabelas tipadas quando o resolvedor de
 classes também confere; outras variantes e chains continuam rejeitados.
+
+
+## Compare/exchange de 128 bits
+
+O alvo sem SDK exige sucesso e falha do CAS com ambos os campos esperados
+atualizados corretamente. Três threads incrementam um par alinhado
+{contador, complemento} por loops CMPXCHG16B; o total final e seu complemento
+precisam corresponder exatamente às chamadas. Ponteiros nulo e desalinhado
+provocam exceções reais, capturadas pela tabela CRT original. Por thread, são
+24 chamadas do CAS (duas por unwind), 11 do incremento e duas do catch, sem
+perdas ou frames abertos. Os testes conferem totais e médias QPC. O alinhamento
+não é inventado pelo profiler: a cópia conserva o acesso e a exceção do alvo.
+
+No corpus Delphi fixado, os corpos 0x3ccc0 e 0x3cd30 operam um head com contador
+em 128 bits. O ensaio reinicia os buffers entre original/cópia e exige também
+seu estado final, incluindo lista vazia. Cinco novas rotinas se tornam elegíveis
+estaticamente (8.645/8.777); somente as duas adicionadas ao corpus são executadas.
+Isso não certifica os demais métodos nem uma versão do Delphi.

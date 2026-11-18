@@ -18,7 +18,7 @@ Revisado em 18 de novembro de 2026.
 | Lançamento instrumentado | Novo processo próprio sem SDK do profiler; DLL instalada antes do ponto de entrada, seleção TD32/TDS e finalizadores preservados |
 | Funções com pilha/chamadas | Prólogos/unwind v1 verificados; calls, recursão, condições, loops, múltiplas saídas e encaminhamento de cleanup UHANDLER original |
 | Subconjunto escalar | Aritmética/condições/conversões SSE sem frame e home slots Win64 limitados; prólogo ADD RSP negativo verificado contra unwind |
-| Memória e sincronização | MOVS/STOS com frame/unwind verificado e operações LOCK de memória; testes de cópia/preenchimento, compare/exchange e contador compartilhado |
+| Memória e sincronização | MOVS/STOS com frame/unwind verificado e operações LOCK de memória; testes de cópia/preenchimento, compare/exchange de 64/128 bits e contador compartilhado |
 | Captura/retomada SEH | Tabelas CRT reconhecidas e scopes Delphi catch-all/finally e capturas tipadas com handler/resolvedor conferidos são traduzidos para a cópia; testes Windows de captura, recursão, continuação e cleanup com exceção |
 | Métodos maiores | Até 8 KiB de código por procedimento, com alocação limitada de 32 KiB para código/metadados; integração Windows exige retornos e unwind reais |
 | Estado SSE | Probes preservam controle/status MXCSR dos callbacks; setter/getter instrumentados conferem os quatro modos de arredondamento |
@@ -30,7 +30,7 @@ Revisado em 18 de novembro de 2026.
 | Arquivos e histórico | Salvar/replay, acompanhamento de arquivo crescente, filtros, ordenação e histórico limitado; comparação entre sessões de sampling e instrumentação |
 | Ciclos de vida de threads | Encerramento pelo evento real do Windows e reutilização do pool nativo; teste de 300 instâncias sem mesclar contagens |
 | Drenagem cooperativa | Worker ocioso desperta por evento coalescido, com rescan contra despertar perdido; entrega ao vivo conferida antes de encerrar a captura |
-| Evidência do original | Dez rotinas simples (1.000 pares) sem inicialização; ensaio separado inicializa o RTL em filho próprio e exige 100 pares normal/falha, 200 chamadas e 100 unwinds de uma rotina com handler Delphi real; worker original com 100 falhas EReadError capturadas por Exception, 200 retornos e métricas Go; sem certificação de Delphi 10.4 |
+| Evidência do original | Doze rotinas conferidas (1.200 pares), incluindo push/pop atômicos de 128 bits, sem inicialização; ensaio separado inicializa o RTL em filho próprio e exige 100 pares normal/falha, 200 chamadas e 100 unwinds de uma rotina com handler Delphi real; worker original com 100 falhas EReadError capturadas por Exception, 200 retornos e métricas Go; sem certificação de Delphi 10.4 |
 | Qualidade | Testes Go/race, integração nativa Windows, ETW, janela Win32, executáveis e empacotamento; merge somente com CI aprovado no commit exato |
 | Carga e recursos | 320 vidas de thread/32.001 chamadas, 32 capturas por bloco, dez repetições com heap/handles/goroutines limitados e zero objetos de depuração restantes e perda explícita sob saturação; dados no CI |
 | Contadores nativos | Leituras atômicas sequencialmente consistentes; CI compara DLLs com/sem RMW no mesmo alvo e runner |
@@ -42,7 +42,7 @@ continuam fora do subconjunto aceito. A limpeza de métricas já usa uma barreir
 preservando as chamadas em andamento e o histórico das épocas anteriores. A compatibilidade com todas as
 variantes do Delphi 10.4 e o overhead nesse ambiente ainda não foram comprovados.
 Fixtures C e TDS sintéticos não são apresentados como binários compilados no Delphi.
-O ensaio adicional da DLL original executa apenas dez rotinas simples conferidas;
+O ensaio adicional da DLL original executa doze rotinas conferidas sobre buffers privados;
 não comprova integração completa ou a versão do compilador. O ensaio de exceções separado
 usa uma rotina e o handler real da mesma DLL, com RTL inicializado num processo filho.
 
