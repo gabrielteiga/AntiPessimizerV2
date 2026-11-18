@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/desktop"
+	"github.com/gabrielteiga/AntiPessimizerV2/internal/instrumentation"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/report"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/service"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/transport"
@@ -62,8 +63,8 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 	if flags.NArg() != 0 || *thread > 1<<32-1 || *pid > 1<<32-1 {
 		return errors.New("invalid arguments/thread ID")
 	}
-	if *instrumented && (*op != "" || *save != "" || *compare != "" || *demo || *pid != 0) {
-		return errors.New("instrumentation replay cannot be combined with sampling control, save or compare")
+	if *instrumented && (*op != "" || *save != "" || *demo || *pid != 0) {
+		return errors.New("instrumentation replay cannot be combined with sampling control or sampling save")
 	}
 	if *follow != "" && (!*gui || !*instrumented || *replay != "") {
 		return errors.New("--follow requires --gui --instrumentation and cannot be combined with --replay")
@@ -97,6 +98,33 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 			return err
 		}
 		defer b.Close()
+		if *instrumented {
+			if *thread != 0 || *timeUnit != "ms" {
+				return errors.New("instrumentation comparison aggregates all threads and returns nanosecond JSON")
+			}
+			left, err := instrumentation.ReadMetrics(a)
+			if err != nil {
+				return err
+			}
+			right, err := instrumentation.ReadMetrics(b)
+			if err != nil {
+				return err
+			}
+			result, err := instrumentation.Compare(left, right)
+			if err != nil {
+				return err
+			}
+			if *unit != "" || *module != "" {
+				filtered := make([]instrumentation.ComparisonChange, 0, len(result.Changes))
+				for _, change := range result.Changes {
+					if (*unit == "" || change.Unit == *unit) && (*module == "" || change.Module == *module) {
+						filtered = append(filtered, change)
+					}
+				}
+				result.Changes = filtered
+			}
+			return json.NewEncoder(out).Encode(result)
+		}
 		left, err := report.Read(a)
 		if err != nil {
 			return err

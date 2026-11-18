@@ -36,6 +36,7 @@ type Event struct {
 	KeepDepth int    `json:"keep_depth,omitempty"`
 }
 type Record struct {
+	Selection []Procedure      `json:"selection,omitempty"`
 	Protocol  string           `json:"protocol"`
 	Version   int              `json:"version"`
 	SessionID string           `json:"session_id"`
@@ -114,7 +115,7 @@ func Replay(ctx context.Context, in io.Reader, out io.Writer, limits Config) err
 		if err != nil {
 			return err
 		}
-		record := Record{Protocol: MetricsProtocol, Version: 1, SessionID: h.SessionID, Target: h.Target, Source: h.Source, Clock: h.Clock, Sequence: sequence + 1, At: latest, Metrics: snapshot}
+		record := Record{Protocol: MetricsProtocol, Version: 2, Selection: append([]Procedure(nil), h.Procedures...), SessionID: h.SessionID, Target: h.Target, Source: h.Source, Clock: h.Clock, Sequence: sequence + 1, At: latest, Metrics: snapshot}
 		if err := WriteRecord(out, record); err != nil {
 			return err
 		}

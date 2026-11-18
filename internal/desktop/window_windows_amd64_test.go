@@ -316,3 +316,65 @@ func TestNativeInstrumentedControlWindowSmoke(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestNativeInstrumentedComparisonWindowSmoke(t *testing.T) {
+	if os.Getenv("AP_GUI_SMOKE") != "1" {
+		t.Skip("enabled in Windows CI")
+	}
+	records := metricRecords(t)
+	before, after := t.TempDir()+"/before.ndjson", t.TempDir()+"/after.ndjson"
+	for path, archive := range map[string][]instrumentation.Record{before: records[:1], after: records} {
+		f, err := os.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range archive {
+			if err := instrumentation.WriteRecord(f, r); err != nil {
+				f.Close()
+				t.Fatal(err)
+			}
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := runArchive(`\\.\pipe\unused-offline-comparison`, after, func(w *window) error {
+		text(w.path, before)
+		w.command(14)
+		deadline := time.Now().Add(2 * time.Second)
+		for w.model.MetricComparison == nil && time.Now().Before(deadline) {
+			w.tick()
+			time.Sleep(10 * time.Millisecond)
+		}
+		if w.model.MetricComparison == nil || w.tableColumns != 17 {
+			return fmt.Errorf("instrumented comparison did not reach native table: %v", w.model.Rows)
+		}
+		parent := func() []string {
+			for _, row := range w.model.Rows {
+				if row[13] == "Lab.Parent" {
+					return row
+				}
+			}
+			return nil
+		}
+		row := parent()
+		if len(row) != 17 || row[0] != "1" || row[1] != "2" || row[2] != "+1" || row[5] != "-5.000000" {
+			return fmt.Errorf("wrong comparison counts/weighted means: %v", w.model.Rows)
+		}
+		send.Call(w.metricUnits, 0x14e, 0, 0)
+		w.tick()
+		row = parent()
+		if row[5] != "-5000000.000000" {
+			return fmt.Errorf("comparison unit selector lost delta: %v", row)
+		}
+		send.Call(w.cursor, 0x405, 1, 0)
+		send.Call(w.hwnd, 0x0114, 0, w.cursor)
+		w.tick()
+		if w.model.MetricComparison != nil || w.tableColumns != 13 {
+			return fmt.Errorf("history cursor did not leave comparison mode")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

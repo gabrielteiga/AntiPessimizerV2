@@ -467,3 +467,31 @@ O CLI aceita `--instrumentation --time-unit ns|us|ms|s|ticks`. Na GUI, use o sel
 quando estiver exibindo instrumentação. O smoke Win32 troca a unidade, confere
 colunas/valores e preserva calls. Testes também cobrem valores inteiros grandes e
 rejeitam a unidade enganosa cycles.
+
+
+## Métricas v2 e comparação instrumentada
+
+Novas capturas/replay emitem envelope de métricas v2 com `selection`, contendo
+IDs e localizações de todos os procedimentos selecionados. O snapshot interno
+continua v1: sua semântica não mudou. Arquivos de métricas v1 sem selection
+continuam legíveis. O validador v2 exige seleção completa, IDs/localizações únicos,
+linhas pertencentes à seleção e continuidade da seleção inclusive através de
+Clear. Clone e retenção não expõem aliases da seleção ao consumidor.
+
+A comparação escolhe o último snapshot cumulativo de cada entrada. Exige seleção
+compatível por binário/RVA/nome/unidade (IDs e TIDs podem mudar entre execuções),
+mesmo método/relógio e chamadas fechadas sem perda. Binários nativos exigem hash
+SHA-256 conhecido. Usa apenas a época de Clear do snapshot escolhido, sem somar
+histórico. Totais são somados entre threads/instâncias com overflow verificado;
+médias derivam da soma dos ticks / soma das chamadas. Frequências distintas são
+normalizadas por ns. Um procedimento selecionado sem chamadas tem média ausente,
+não uma melhora fictícia para zero. Deltas de contagem preservam toda a faixa uint64.
+
+CLI retorna protocolo de comparação versionado e tempos em ns; GUI mostra antes,
+depois, deltas e médias, com filtros e unidades de tempo. A comparação agrega todas
+as threads porque TIDs não identificam o mesmo trabalho entre processos. Filtro
+TID explícito não é aceito. Não normaliza carga/duração nem atribui causalidade.
+O smoke Win32 compara arquivos e volta ao histórico; o fluxo de executáveis
+compara a captura direta e a captura pelo serviço, exigindo as mesmas 31 chamadas
+reais agregadas. Capturas legadas v1 precisam ser refeitas para comparação, pois
+linhas observadas não comprovam a seleção de procedimentos nunca chamados.

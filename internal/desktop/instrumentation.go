@@ -45,6 +45,9 @@ func (m *Model) CurrentMetrics() (instrumentation.Record, bool) {
 }
 
 func (m *Model) Headers() []string {
+	if m.MetricComparison != nil {
+		return m.metricComparisonHeaders()
+	}
 	if len(m.Metrics) > 0 {
 		unit := m.MetricUnit.label()
 		return []string{"Chamadas", "Exclusivo (" + unit + ")", "Média exclusiva (" + unit + ")", "Inclusivo (" + unit + ")", "Média inclusiva (" + unit + ")", "Thread", "Instância (ticks)", "Módulo", "Procedimento", "RVA", "Unidade Pascal", "Unwind", "Frames abertos"}

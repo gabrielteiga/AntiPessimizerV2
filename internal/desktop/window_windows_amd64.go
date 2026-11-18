@@ -85,15 +85,16 @@ type paint struct {
 	Reserved           [32]byte
 }
 type update struct {
-	CatalogPath string
-	Metrics     []instrumentation.Record
-	Live        bool
-	Comparison  *report.Comparison
-	Response    service.Response
-	Error       error
-	History     []profiling.Snapshot
-	Offline     bool
-	Note        string
+	MetricComparison *instrumentation.Comparison
+	CatalogPath      string
+	Metrics          []instrumentation.Record
+	Live             bool
+	Comparison       *report.Comparison
+	Response         service.Response
+	Error            error
+	History          []profiling.Snapshot
+	Offline          bool
+	Note             string
 }
 type window struct {
 	metricUnits                                                                    uintptr
@@ -156,9 +157,11 @@ var wndProc = windows.NewCallback(func(hwnd uintptr, msg uint32, w uintptr, nati
 			pos, _, _ := send.Call(a.cursor, 0x400, 0, 0)
 			if int(pos) < a.model.HistoryLength() {
 				a.model.At = a.model.SequenceAt(int(pos))
+				a.model.MetricComparison = nil
 				if int(pos) == a.model.HistoryLength()-1 {
 					a.model.At = 0
 					a.model.Comparison = nil
+					a.model.MetricComparison = nil
 				}
 				a.lastBuild = ""
 			}
@@ -179,6 +182,9 @@ var wndProc = windows.NewCallback(func(hwnd uintptr, msg uint32, w uintptr, nati
 					a.model.Ascending = clicked.Sub >= 2
 					if len(a.model.Metrics) > 0 {
 						a.model.Ascending = clicked.Sub >= 7 && clicked.Sub <= 10
+					}
+					if a.model.MetricComparison != nil {
+						a.model.Ascending = clicked.Sub >= 13
 					}
 				}
 				a.lastBuild = ""
@@ -527,6 +533,7 @@ func (a *window) command(id int) {
 		a.offline.Store(false)
 		a.model.At = 0
 		a.model.Comparison = nil
+		a.model.MetricComparison = nil
 		if len(a.model.Metrics) > 0 {
 			a.model = Model{}
 			a.lastBuild = ""
@@ -540,6 +547,7 @@ func (a *window) command(id int) {
 		a.offline.Store(false)
 		a.model.At = 0
 		a.model.Comparison = nil
+		a.model.MetricComparison = nil
 		if len(a.model.Metrics) > 0 {
 			a.model = Model{}
 			a.lastBuild = ""
@@ -550,6 +558,7 @@ func (a *window) command(id int) {
 			return
 		}
 		a.model.Comparison = nil
+		a.model.MetricComparison = nil
 		a.model.Threads = !a.model.Threads
 		a.lastBuild = ""
 		if a.model.Threads {
@@ -562,8 +571,9 @@ func (a *window) command(id int) {
 		snapshot := append([]profiling.Snapshot(nil), a.model.History...)
 		metrics := append([]instrumentation.Record(nil), a.model.Metrics...)
 		if id == 14 && len(metrics) > 0 {
-			text(a.status, "Comparação disponível apenas para arquivos de amostragem.")
-			return
+			if current, ok := a.model.CurrentMetrics(); ok {
+				metrics = []instrumentation.Record{current}
+			}
 		}
 		offline := a.offline.Load()
 		a.wg.Add(1)
@@ -573,7 +583,14 @@ func (a *window) command(id int) {
 func (a *window) file(op int, path string, current []profiling.Snapshot, metrics []instrumentation.Record, offline bool) {
 	fail := func(err error) { a.send(update{Error: err}) }
 	if op == 12 {
-		if !offline {
+		if !offline && len(metrics) > 0 {
+			r, err := service.Call(a.ctx, a.address, service.Request{Op: "instrument-history"})
+			if err != nil {
+				fail(err)
+				return
+			}
+			metrics = r.Metrics
+		} else if !offline {
 			now := time.Now()
 			r, err := service.Call(a.ctx, a.address, service.Request{Op: "history", From: now.Add(-120 * time.Second), To: now})
 			if err != nil {
@@ -634,8 +651,14 @@ func (a *window) file(op int, path string, current []profiling.Snapshot, metrics
 		a.send(update{History: archive, Metrics: instrumented, Offline: true, Note: "REPLAY: " + path})
 		return
 	}
-	if len(instrumented) > 0 {
-		fail(fmt.Errorf("comparação exige dois arquivos de amostragem"))
+	if len(instrumented) > 0 || len(metrics) > 0 {
+		comparison, err := instrumentation.Compare(instrumented, metrics)
+		if err != nil {
+			fail(err)
+			return
+		}
+		a.offline.Store(true)
+		a.send(update{MetricComparison: &comparison, Note: "Comparação por procedimento entre snapshots cumulativos; todas as threads. Duração/carga podem diferir; variação observada, não causalidade."})
 		return
 	}
 	comparison, err := report.Compare(archive, current)
@@ -689,6 +712,15 @@ func (a *window) tick() {
 			if u.Error != nil {
 				text(a.status, "Erro / desconectado: "+u.Error.Error())
 				continue
+			}
+			if u.MetricComparison != nil {
+				a.model.MetricComparison = u.MetricComparison
+				text(a.thread, "0")
+				a.model.Comparison = nil
+				a.model.SortColumn = 5
+				a.model.Ascending = false
+				a.lastBuild = ""
+				text(a.status, "COMPARAÇÃO INSTRUMENTADA — arquivo → snapshot atual; todas as threads")
 			}
 			if u.Comparison != nil {
 				a.model.Comparison = u.Comparison
@@ -821,7 +853,7 @@ func (a *window) tick() {
 		if len(a.model.Metrics) > 0 {
 			enabled = 0
 		}
-		for _, h := range []uintptr{a.seconds, a.threads, a.compare} {
+		for _, h := range []uintptr{a.seconds, a.threads} {
 			user.NewProc("EnableWindow").Call(h, enabled)
 		}
 		if a.model.Threads {
@@ -853,6 +885,12 @@ func (a *window) draw() {
 	var p paint
 	dc, _, _ := user.NewProc("BeginPaint").Call(a.hwnd, uintptr(unsafe.Pointer(&p)))
 	defer user.NewProc("EndPaint").Call(a.hwnd, uintptr(unsafe.Pointer(&p)))
+	if comparison := a.model.MetricComparison; comparison != nil {
+		label := fmt.Sprintf("COMPARAÇÃO | %s | antes snapshot %d / Clear %d → depois snapshot %d / Clear %d | threads agregadas | acumulados, sem normalizar carga", comparison.Clock, comparison.Before.Sequence, comparison.Before.Epoch, comparison.After.Sequence, comparison.After.Epoch)
+		chars := windows.StringToUTF16(label)
+		gdi.NewProc("TextOutW").Call(dc, 12, uintptr(a.height-122), uintptr(unsafe.Pointer(&chars[0])), uintptr(len(chars)-1))
+		return
+	}
 	if r, ok := a.model.CurrentMetrics(); ok {
 		mode := "REPLAY"
 		if a.followPath != "" {
@@ -918,7 +956,9 @@ func (a *window) syncColumns() {
 	headers := a.model.Headers()
 	changedMode := a.tableColumns != len(headers)
 	widths := []int32{90, 80, 90, 180, 420, 160, 100, 180}
-	if len(a.model.Metrics) > 0 {
+	if a.model.MetricComparison != nil {
+		widths = []int32{120, 130, 120, 160, 170, 180, 160, 170, 180, 180, 180, 180, 180, 420, 180, 180, 160}
+	} else if len(a.model.Metrics) > 0 {
 		widths = []int32{100, 140, 170, 140, 170, 90, 160, 180, 420, 160, 180, 90, 130}
 	}
 	for a.tableColumns > len(headers) {

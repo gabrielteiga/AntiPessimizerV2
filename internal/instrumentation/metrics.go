@@ -15,13 +15,14 @@ import (
 
 func (r Record) Clone() Record {
 	r.Metrics.Rows = append([]Row{}, r.Metrics.Rows...)
+	r.Selection = append([]Procedure(nil), r.Selection...)
 	return r
 }
 
 // Validate checks the separate instrumentation contract, including redundant
 // unit conversions. A valid frame can still be provisional or incomplete.
 func (r Record) Validate() error {
-	if r.Protocol != MetricsProtocol || r.Version != 1 || r.SessionID == "" || len(r.SessionID) > 128 || strings.IndexFunc(r.SessionID, unicode.IsControl) >= 0 || r.Sequence == 0 {
+	if r.Protocol != MetricsProtocol || (r.Version != 1 && r.Version != 2) || r.SessionID == "" || len(r.SessionID) > 128 || strings.IndexFunc(r.SessionID, unicode.IsControl) >= 0 || r.Sequence == 0 {
 		return errors.New("invalid instrumentation metrics envelope")
 	}
 	if err := r.Target.Validate(); err != nil {
@@ -40,6 +41,23 @@ func (r Record) Validate() error {
 	seen := map[key]bool{}
 	procedures := map[uint32]profiling.Location{}
 	locations := map[string]uint32{}
+	if r.Version == 1 && len(r.Selection) > 0 || r.Version == 2 && (len(r.Selection) == 0 || len(r.Selection) > 65536) {
+		return errors.New("invalid instrumentation selection envelope")
+	}
+	for _, p := range r.Selection {
+		if p.ID == 0 || p.Location.Status != "resolved" {
+			return errors.New("invalid selected procedure")
+		}
+		if _, duplicate := procedures[p.ID]; duplicate {
+			return errors.New("duplicate selected procedure")
+		}
+		if err := p.Location.Validate(); err != nil {
+			return err
+		}
+		if err := checkProcedure(procedures, locations, p.ID, p.Location); err != nil {
+			return err
+		}
+	}
 	var active uint64
 	for _, row := range s.Rows {
 		if err := row.Location.Validate(); err != nil {
@@ -53,6 +71,11 @@ func (r Record) Validate() error {
 			return errors.New("duplicate instrumentation row")
 		}
 		seen[k] = true
+		if r.Version == 2 {
+			if selected, ok := procedures[row.ProcedureID]; !ok || selected != row.Location {
+				return errors.New("metrics row does not match selected procedure")
+			}
+		}
 		if err := checkProcedure(procedures, locations, row.ProcedureID, row.Location); err != nil {
 			return err
 		}
@@ -170,7 +193,7 @@ func (reader *metricOrder) accept(r Record) error {
 		reader.locations = map[string]uint32{}
 	}
 	p := reader.previous
-	if p.Sequence != 0 && (r.SessionID != p.SessionID || r.Target != p.Target || r.Source != p.Source || r.Clock != p.Clock || r.Metrics.Frequency != p.Metrics.Frequency || r.Sequence <= p.Sequence || r.At < p.At || r.Metrics.Epoch < p.Metrics.Epoch) {
+	if p.Sequence != 0 && (r.Version != p.Version || !sameSelection(r.Selection, p.Selection) || r.SessionID != p.SessionID || r.Target != p.Target || r.Source != p.Source || r.Clock != p.Clock || r.Metrics.Frequency != p.Metrics.Frequency || r.Sequence <= p.Sequence || r.At < p.At || r.Metrics.Epoch < p.Metrics.Epoch) {
 		return errors.New("instrumentation session, clock or snapshot order changed")
 	}
 	for _, row := range r.Metrics.Rows {
@@ -197,6 +220,7 @@ func (reader *metricOrder) accept(r Record) error {
 	reader.previous = r
 	// Keep only scalar metadata, never aliases into rows returned to the caller.
 	reader.previous.Metrics.Rows = nil
+	reader.previous.Selection = append([]Procedure(nil), r.Selection...)
 	return nil
 }
 
@@ -262,4 +286,20 @@ func (v *MetricValidator) Accept(r Record) error {
 		return err
 	}
 	return v.order.accept(r)
+}
+
+func sameSelection(a, b []Procedure) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	selected := make(map[uint32]profiling.Location, len(a))
+	for _, p := range a {
+		selected[p.ID] = p.Location
+	}
+	for _, p := range b {
+		if selected[p.ID] != p.Location {
+			return false
+		}
+	}
+	return true
 }
