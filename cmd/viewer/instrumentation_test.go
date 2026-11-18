@@ -60,6 +60,34 @@ func TestViewerInstrumentedMetrics(t *testing.T) {
 	}
 }
 
+func TestViewerDisplaysObservedNativeLossCount(t *testing.T) {
+	events, err := os.ReadFile("../../testdata/instrumentation/nested.ndjson")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire bytes.Buffer
+	if err := instrumentation.Replay(context.Background(), bytes.NewReader(events), &wire, instrumentation.Config{MaxThreads: 16, MaxDepth: 32, MaxRows: 64}); err != nil {
+		t.Fatal(err)
+	}
+	records, err := instrumentation.ReadMetrics(&wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := records[len(records)-1]
+	r.Version, r.Source, r.Clock = 3, "native-hook", "qpc"
+	r.NativeLostEvents, r.Metrics.Incomplete = 37, true
+	if err := instrumentation.WriteRecord(&wire, r); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"--instrumentation"}, &wire, &out, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "native_lost_events_at_least=37 incomplete=true") {
+		t.Fatal("viewer omitted observed native loss", out.String())
+	}
+}
+
 func TestViewerInstrumentedCumulativeAndGaps(t *testing.T) {
 	events, err := os.ReadFile("../../testdata/instrumentation/nested.ndjson")
 	if err != nil {

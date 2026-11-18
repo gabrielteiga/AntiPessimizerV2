@@ -267,7 +267,7 @@ func TestMetricsV2SelectionAndLegacyArchiveCompatibility(t *testing.T) {
 		func(r *Record) { r.Selection = append(r.Selection, r.Selection[0]) },
 		func(r *Record) { r.Selection = r.Selection[:1] },
 		func(r *Record) { r.Selection[0].Location.Procedure = "Other" },
-		func(r *Record) { r.Version = 3 },
+		func(r *Record) { r.Version = 4 },
 	} {
 		bad := base.Clone()
 		mutate(&bad)

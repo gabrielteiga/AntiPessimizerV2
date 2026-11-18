@@ -482,7 +482,8 @@ rejeitam a unidade enganosa cycles.
 
 ## Métricas v2 e comparação instrumentada
 
-Novas capturas/replay emitem envelope de métricas v2 com `selection`, contendo
+O replay sintético emite envelope de métricas v2; capturas nativas emitem v3.
+Ambos incluem `selection`, contendo
 IDs e localizações de todos os procedimentos selecionados. O snapshot interno
 continua v1: sua semântica não mudou. Arquivos de métricas v1 sem selection
 continuam legíveis. O validador v2 exige seleção completa, IDs/localizações únicos,
@@ -624,3 +625,56 @@ exatamente uma vez e captura sem frames abertos tanto com quanto sem colisão.
 Este suporte não inclui busca/retomada EHANDLER, handlers combinados EH/UH ou
 UNW_FLAG_CHAININFO. Também não certifica todos os handlers privados Delphi:
 a evidência reproduzível deste incremento usa C/assembly e __C_specific_handler.
+
+
+## Carga, reutilização e limites de recursos
+
+O CI Windows executa TestNativeStressThreadReuseMemoryAndSaturation com
+AP_NATIVE_STRESS=1. O alvo C sem SDK roda baseline e instrumentado em 20 rodadas
+com 16 workers/100 chamadas: 320 vidas de thread e 32.001 chamadas com finalizador.
+Uma rodada cabe integralmente no ring de 1024 eventos por worker; 5 ms entre
+rodadas permitem a drenagem sem transformar saturação em sucesso silencioso.
+Cada worker valida retorno, LastError e checksum. A captura exige 321 identidades
+por vida/thread, contagens exatas, tempos válidos e ausência de frames abertos.
+
+O alvo registra PrivateUsage, working set/peak e número de handles antes da carga
+e após cada rodada. Após quatro rodadas de aquecimento, a tolerância é +16 MiB
+privados e +8 handles em qualquer rodada. O observador Go retém só o último
+snapshot e mede heap vivo após GC, com tolerância de +16 MiB. Esses limites
+buscam crescimento descontrolado; não são promessa de memória mínima ou de
+estabilidade por horas. O working set é dado observado, sem threshold de runner.
+
+Um segundo caso reduz o ring a um evento e solicita 1.600.001 chamadas em 16
+workers. Deve terminar por ErrLoss, publicar métricas incompletas e preservar
+somente contagens realmente medidas. Não exige que o workload termine nem
+atribui checksums completos a um processo cancelado por perda.
+
+O artefato Native-stress-<run_id> contém NDJSON v1 com SHA256 da imagem, cenário,
+intervalos QPC/checksums e amostras de memória quando o alvo conclui, chamadas
+esperadas/observadas, linhas, snapshots/bytes e heap Go. O tempo global inclui
+orquestração; não equivale ao overhead de uma chamada. A fixture continua sendo
+C/assembly, sem inferência de comportamento de um compilador Delphi inteiro.
+
+
+## Métricas v3: quantidade de eventos nativos perdidos
+
+Capturas nativas emitem envelope v3 com `native_lost_event_count`, inteiro u64
+serializado como string quando não zero. É o contador cumulativo observado no
+último header nativo recebido. A captura termina na primeira perda; eventos
+perdidos depois desse ponto não podem ser contados pelo coletor. Portanto o
+viewer exibe **pelo menos N eventos perdidos**, preservando esse valor no histórico,
+arquivo/replay e serviço. Zero/ausência não certifica que uma captura interrompida
+por outro erro não tenha perdido eventos. Não se estima chamadas a partir disso.
+
+Um valor não zero exige source native-hook e incomplete=true. O contador não
+pode regredir, nem ao mudar de época de Clear. V3 mantém seleção completa, tempos
+e contagens de v2; a comparação aceita v2/v3 completos e continua recusando perdas.
+Arquivos v1/v2 continuam legíveis, sem fabricar um contador antigo. Viewers de
+versões anteriores não leem v3; distribua coletor/viewer juntos no pacote atual.
+O wire binário da DLL continua v4: a versão do envelope JSON é independente.
+
+Testes portáveis injetam perda após uma chamada concluída e outra aberta: a
+concluída permanece, a aberta é abandonada e o valor observado chega ao arquivo.
+Os testes também cobrem precisão acima de 2^53, regressão, origem/versão inválidas,
+comparação entre versões, CLI e retenção pelo modelo da janela. O cenário Windows
+de saturação exige contador positivo junto de ErrLoss e incomplete=true.

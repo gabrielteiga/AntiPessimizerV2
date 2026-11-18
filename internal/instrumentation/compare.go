@@ -113,8 +113,8 @@ func comparisonRecord(records []Record) (Record, error) {
 		return Record{}, err
 	}
 	r := records[len(records)-1]
-	if r.Version != 2 {
-		return Record{}, errors.New("archive lacks complete procedure selection; capture again with metrics v2")
+	if r.Version < 2 {
+		return Record{}, errors.New("archive lacks complete procedure selection; capture again with metrics v2 or newer")
 	}
 	if r.Metrics.Incomplete || r.Metrics.OpenCalls != 0 || r.Metrics.AbandonedCalls != 0 {
 		return Record{}, errors.New("comparison requires closed calls and no capture loss")

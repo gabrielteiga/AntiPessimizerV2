@@ -26,7 +26,7 @@ AP_API BOOL APNativeInit(const wchar_t *pipe_name, const APProcedure *procedures
  * callers may run until this returns, or during Shutdown. Leaf subset only. */
 AP_API BOOL APNativeInitHooks(const wchar_t *pipe_name, const APHookProcedure *procedures,
                              uint32_t count, uint32_t ring_capacity);
-/* Native frames/calls with cleanup-only Windows unwind; rejects original handlers. */
+/* Native frames/calls and original unwind-only cleanup; rejects EHANDLER/chains. */
 AP_API BOOL APNativeInitFunctions(const wchar_t *pipe_name,const APHookProcedure *procedures,uint32_t count,uint32_t ring_capacity);
 AP_API DWORD WINAPI APNativeBootstrap(void *request);
 AP_API void APNativeEnter(uint32_t procedure);

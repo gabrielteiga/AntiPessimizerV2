@@ -161,3 +161,14 @@ para a imagem fonte. Uma passagem collided não fecha a mesma chamada duas vezes
 EHANDLER/retomada e combinações EH/UH não são inferidas desse suporte parcial.
 A integração usa um handler C com dados de escopo opacos; emissão Delphi ainda
 exige evidência própria.
+
+
+Inspeção estática após o suporte UHANDLER-only e MXCSR: a DLL v0.3 publicada pelo
+original (SHA256 `1c1bf9288a3bfd05303f2b9a86d29693c0a449e716f575a25a59059f1c0d02b5`)
+contém 8.777 entradas RUNTIME_FUNCTION. O planejador aceita 8.117 nas condições
+simuladas de base carregada/alocação próxima. Entre as 660 recusadas: 523 têm
+handlers/formatos de unwind não aceitos e 114 excedem os limites de tamanho;
+as demais incluem instruções/prefixos, branches, referência RIP interna e
+handler auto-referencial. A análise não carrega nem executa a DLL, não possui
+seu TDS, não confirma versão do compilador e não é porcentagem de paridade ou
+progresso funcional. Exceções Delphi ainda exigem prova de execução própria.

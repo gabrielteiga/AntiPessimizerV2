@@ -71,6 +71,21 @@ jobs:
         run: go test -v -count=1 -timeout=30s ./internal/desktop -run 'TestNative.*WindowSmoke'
 
       - if: runner.os == 'Windows'
+        name: Native thread reuse, memory and saturation
+        id: native-stress
+        env:
+          AP_NATIVE_STRESS: '1'
+          AP_NATIVE_STRESS_REPORT: ${{ runner.temp }}/native-stress.ndjson
+        run: go test -v -count=1 -timeout=90s ./internal/instrumentation/native -run '^TestNativeStressThreadReuseMemoryAndSaturation$'
+
+      - if: runner.os == 'Windows' && always() && (steps.native-stress.outcome == 'success' || steps.native-stress.outcome == 'failure')
+        uses: actions/upload-artifact@v4
+        with:
+          name: Native-stress-${{ github.run_id }}
+          path: ${{ runner.temp }}/native-stress.ndjson
+          if-no-files-found: error
+
+      - if: runner.os == 'Windows'
         name: Windows executable end-to-end
         run: ./scripts/test-windows-e2e.ps1
 

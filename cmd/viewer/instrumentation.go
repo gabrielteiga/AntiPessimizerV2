@@ -35,7 +35,7 @@ func viewInstrumentation(in io.Reader, out io.Writer, filter report.Filter, unit
 			gap = r.Sequence - previous - 1
 		}
 		previous = r.Sequence
-		if _, err := fmt.Fprintf(out, "snapshot=%d mode=instrumentation source=%s clock=%s frequency_hz=%d epoch=%d ticks=%d open_calls=%d abandoned_calls=%d incomplete=%t omitted_updates=%d\n", r.Sequence, r.Source, r.Clock, r.Metrics.Frequency, r.Metrics.Epoch, r.At, r.Metrics.OpenCalls, r.Metrics.AbandonedCalls, r.Metrics.Incomplete, gap); err != nil {
+		if _, err := fmt.Fprintf(out, "snapshot=%d mode=instrumentation source=%s clock=%s frequency_hz=%d epoch=%d ticks=%d open_calls=%d abandoned_calls=%d native_lost_events_at_least=%d incomplete=%t omitted_updates=%d\n", r.Sequence, r.Source, r.Clock, r.Metrics.Frequency, r.Metrics.Epoch, r.At, r.Metrics.OpenCalls, r.Metrics.AbandonedCalls, r.NativeLostEvents, r.Metrics.Incomplete, gap); err != nil {
 			return err
 		}
 		var model desktop.Model
