@@ -38,16 +38,11 @@ static void lost(void) { InterlockedIncrement64(&state.lost); }
 /* Coalesce publication notifications while the worker is active. The worker
  * clears this flag and rescans every ring before waiting, closing the race
  * between an empty scan and a producer publishing its next head. */
-static void notify_drain(uint64_t queued,uint32_t kind) {
-    /* Owned captures already poll for commands. Preserve cheap small batches
-       and wake early under queue pressure, instead of making every tiny call
-       pay a kernel notification. Cooperative captures have no polling. */
-    if(state.hook_mode==2 && kind!=AP_START && kind!=AP_END) {
-        uint32_t threshold=state.capacity/4;
-        if(!threshold)threshold=1;
-        if(threshold>64)threshold=64;
-        if(queued<threshold)return;
-    }
+static void notify_drain(void) {
+    /* Owned captures retain command/heartbeat polling: even coalesced kernel
+       notifications had material cost in the controlled hot-loop benchmark.
+       Cooperative captures can sleep until publication without that polling. */
+    if(state.hook_mode==2)return;
     if(InterlockedCompareExchange(&state.wake_pending,1,0)==0 && !SetEvent(state.wake)) {
         InterlockedExchange(&state.io_error,(LONG)GetLastError());
         lost();
@@ -225,15 +220,15 @@ static DWORD WINAPI drain(void *unused) {
             last_heartbeat=now;
         }
         if (!any) {
+            if(state.hook_mode==2){Sleep(1);continue;}
             InterlockedExchange(&state.wake_pending,0);
             drained=drain_rings(&sequence);
             if(drained<0)return 1;
             if(drained>0 || load32(&state.stopping))continue;
-            /* Owned captures retain their command/heartbeat polling bound.
-             * Cooperative captures need no polling at all: publication and
-             * shutdown both signal the event. No callback waits for space. */
-            DWORD wait=WaitForSingleObject(state.wake,state.hook_mode==2?1:INFINITE);
-            if(wait!=WAIT_OBJECT_0 && wait!=WAIT_TIMEOUT) {
+            /* Publication/shutdown signal cooperative captures. No callback
+             * waits for queue space and the idle worker needs no polling. */
+            DWORD wait=WaitForSingleObject(state.wake,INFINITE);
+            if(wait!=WAIT_OBJECT_0) {
                 InterlockedExchange(&state.io_error,(LONG)GetLastError());
                 return 1;
             }
@@ -248,7 +243,7 @@ static uint64_t enqueue(Ring *r, uint32_t type, uint32_t procedure, uint32_t dep
     if (head-tail >= state.capacity) { lost(); return 0; }
     r->events[head%state.capacity] = (Event){type, (uint32_t)load32(&r->tid), procedure, depth, tick};
     InterlockedExchange64(&r->head, (LONG64)(head+1));
-    notify_drain(head+1-tail,type);
+    notify_drain();
     return tick;
 }
 /* Wait for a reusable slot outside the writer gate: the worker can drain/end

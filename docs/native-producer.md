@@ -75,17 +75,16 @@ Os timestamps e durações são medidos; não são os ticks da fixture sintétic
 - Publicação/consumo usam atomics Windows. Overflow é contado e invalida a
   exatidão; o Go encerra a captura com erro e exporta os totais já concluídos
   como `incomplete=true`, abandonando frames abertos.
-- No lançamento próprio, uma rajada sinaliza um evento auto-reset a partir de
-  um quarto da capacidade do ring, limitado a 64 eventos e com mínimo de um.
-  Start/End sempre sinalizam; filas menores mantêm o polling já existente.
-  Notificações são coalescidas enquanto o worker está ativo. Antes de aguardar,
-  ele limpa o indicador e confere novamente todos os
-  rings, fechando a corrida entre observar fila vazia e receber novos eventos.
-  O caminho cooperativo sinaliza cada publicação e pode aguardar sem polling;
-  no lançamento próprio, o
-  timeout de 1 ms mantém a consulta de comandos/heartbeat. Shutdown também
-  sinaliza e só fecha o evento após aguardar a thread. Não amplia buffers,
-  não espera espaço na fila e não altera timestamps para compensar overhead.
+- No caminho cooperativo, cada publicação pode sinalizar um evento auto-reset.
+  As notificações são coalescidas enquanto o worker está ativo. Antes de
+  aguardar, ele limpa o indicador e confere novamente todos os rings, fechando
+  a corrida entre observar fila vazia e receber novos eventos. Pode aguardar
+  sem polling. Shutdown também sinaliza e só fecha o evento após aguardar a
+  thread. No lançamento próprio, permanece o polling de 1 ms para comandos e
+  heartbeat; não há SetEvent/CAS de notificação por chamada nesse modo. O ensaio
+  C mostrou custo material nas variantes que também notificavam o lançamento,
+  inclusive com limiar de fila, por isso essa ampliação não foi integrada.
+  Não amplia buffers, não espera espaço e não compensa timestamps por overhead.
 - Eventos preservam `LastError`. Há API para unwind com profundidade explícita,
   mas este laboratório não estabelece essa profundidade a partir de exceções.
 - Init/Shutdown pertencem ao host, fora de DllMain. Shutdown exige que as
@@ -107,7 +106,8 @@ captura ainda aberta, em ambos os modos de fixture, antes de ThreadEnd/Shutdown.
 Assim, a drenagem final não consegue mascarar falta de despertar. Contagens,
 tempos, ABI e retirada continuam sendo conferidos; as repetições do CI exercitam
 inicialização e liberação do evento em várias sessões. O benchmark de custo
-permanece ativo para registrar o efeito do caminho de notificação nesse alvo C.
+permanece ativo para observar o lançamento próprio; não mede o custo específico
+do modo cooperativo nem comprova overhead Delphi.
 
 Inteiros little endian, sem ponteiros ou structs dependentes do compilador:
 
