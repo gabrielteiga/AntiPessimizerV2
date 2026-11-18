@@ -4,7 +4,7 @@
 #define AP_HOOKS_WINDOWS_H
 #include <string.h>
 
-enum { AP_HOOK_LIMIT=AP_SELECTION, AP_HOOK_STRIDE=8192, AP_HOOK_PREFIX=64 };
+enum { AP_HOOK_LIMIT=64, AP_HOOK_STRIDE=8192, AP_HOOK_PREFIX=64 };
 static struct {
     APHookProcedure selected[AP_HOOK_LIMIT];
     uint32_t count, patched, bytes;
