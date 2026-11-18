@@ -282,7 +282,7 @@ func TestNativeInstrumentedControlWindowSmoke(t *testing.T) {
 	if err := runViewer(address, "", "", true, func(w *window) error {
 		// Exercise the same controls/commands as the user; the collector owns launch.
 		text(w.imagePath, `C:\lab\owned.exe`)
-		text(w.symbolSearch, "Parent")
+		text(w.symbolSearch, "Lab")
 		w.command(2)
 		deadline := time.Now().Add(2 * time.Second)
 		for w.catalog == nil && time.Now().Before(deadline) {
