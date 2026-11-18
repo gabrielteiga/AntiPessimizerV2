@@ -248,7 +248,12 @@ mesma RTL/handler original e bridge nativa de produção. O catch externo aceita
 somente o relançamento Delphi 0x0EEDFADE com sete parâmetros e objeto não nulo,
 recusando capturar diretamente a falha de memória original. A validação nativa
 confere o plano real e deve recusar um destino de catch corrompido. As entradas/retornos
-são conferidas por probes C; este ensaio não produz um arquivo de métricas Go.
+são conferidas pelos callbacks e rings de produção. A captura síncrona limitada
+ao filho é lida pelo consumidor nativo e núcleo Go: exige 200 chamadas, 100 saídas
+por unwind, zero frames abertos/abandonados/perdas e totais/médias QPC consistentes.
+O relatório inclui o snapshot e um arquivo de métricas NDJSON. A identidade
+do processo vem de GetProcessTimes; a localização usa o RVA e hash reais, sem
+inventar um nome TDS. A thread encerra explicitamente a medição antes do filho sair.
 O binário original não é alterado, e a DLL permanece carregada até encerrar o
 filho. O relatório Reference-Delphi inclui hashes, RVAs e resultados.
 Isso complementa a contabilidade integrada C e o corpus sem inicialização;

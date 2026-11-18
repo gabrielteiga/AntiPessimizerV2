@@ -12,10 +12,8 @@
 #include <fcntl.h>
 
 uintptr_t reference_target;
-static volatile LONG enter_count,exit_count,caught,bad;
+static volatile LONG caught,bad;
 static DWORD observed_exception;
-static void reference_enter(uint32_t id,uintptr_t sp){if(id!=17 || !sp || (sp&7))InterlockedExchange(&bad,1);InterlockedIncrement(&enter_count);}
-static void reference_exit(uint32_t id,uintptr_t sp){if(id!=17 || !sp || (sp&7))InterlockedExchange(&bad,1);InterlockedIncrement(&exit_count);}
 LONG APReferenceFilter(EXCEPTION_POINTERS *p,void *frame){
  (void)frame;
  if(!p)return EXCEPTION_CONTINUE_SEARCH;
@@ -54,7 +52,7 @@ static void *allocate_near(unsigned char *image){
  return NULL;
 }
 int wmain(int argc,wchar_t **argv){
- if(argc!=3)return 2;
+ if(argc!=4)return 2;
  if(_setmode(_fileno(stdin),_O_BINARY)==-1)return 2;
  SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);
  /* Preclaim the original's namespace. Never connect it to an unrelated server. */
@@ -82,8 +80,17 @@ int wmain(int argc,wchar_t **argv){
  union {FARPROC proc;uintptr_t (*address)(void);} helper;helper.proc=GetProcAddress(adapter,"APReferenceUnwindAddress");if(!helper.proc)return 8;
  union {FARPROC proc;BOOL (*validate)(uintptr_t,uintptr_t,uint32_t,const RUNTIME_FUNCTION *);} verifier;
  verifier.proc=GetProcAddress(adapter,"APReferenceValidatePlan");if(!verifier.proc)return 8;
+ union {FARPROC proc;BOOL (*start)(uintptr_t);} capture_start;
+ capture_start.proc=GetProcAddress(adapter,"APReferenceStartCapture");if(!capture_start.proc)return 8;
+ union {FARPROC proc;BOOL (*finish)(const wchar_t *,uint32_t *,uint32_t *,uint32_t *);} capture_finish;
+ capture_finish.proc=GetProcAddress(adapter,"APReferenceFinishCapture");if(!capture_finish.proc)return 8;
+ union {FARPROC proc;uintptr_t (*address)(void);} enter_helper,exit_helper;
+ enter_helper.proc=GetProcAddress(adapter,"APReferenceEnterAddress");exit_helper.proc=GetProcAddress(adapter,"APReferenceExitAddress");if(!enter_helper.proc || !exit_helper.proc)return 8;
+ FILETIME created,exited,kernel,user;
+ if(!GetProcessTimes(GetCurrentProcess(),&created,&exited,&kernel,&user))return 8;
+ uint64_t created_ticks=((uint64_t)created.dwHighDateTime<<32)|created.dwLowDateTime;
  unsigned char *memory=allocate_near(image);if(!memory)return 9;
- printf("{\"loaded\":%llu,\"allocation\":%llu,\"enter\":%llu,\"exit\":%llu,\"unwind\":%llu}\n",(unsigned long long)(uintptr_t)image,(unsigned long long)(uintptr_t)memory,(unsigned long long)(uintptr_t)reference_enter,(unsigned long long)(uintptr_t)reference_exit,(unsigned long long)helper.address());fflush(stdout);
+ printf("{\"pid\":%lu,\"created\":%llu,\"loaded\":%llu,\"allocation\":%llu,\"enter\":%llu,\"exit\":%llu,\"unwind\":%llu}\n",GetCurrentProcessId(),(unsigned long long)created_ticks,(unsigned long long)(uintptr_t)image,(unsigned long long)(uintptr_t)memory,(unsigned long long)enter_helper.address(),(unsigned long long)exit_helper.address(),(unsigned long long)helper.address());fflush(stdout);
  uint32_t size=0;RUNTIME_FUNCTION functions[3];
  if(fread(&size,4,1,stdin)!=1 || size==0 || size>8192 || fread(functions,sizeof(functions),1,stdin)!=1 || fread(memory,size,1,stdin)!=1)return 10;
  for(unsigned i=0;i<3;i++)if(functions[i].BeginAddress>=functions[i].EndAddress || functions[i].EndAddress>size || functions[i].UnwindData>=size || (i && functions[i].BeginAddress<functions[i-1].EndAddress))return 10;
@@ -99,12 +106,15 @@ int wmain(int argc,wchar_t **argv){
  if(corrupt_accepted){fprintf(stderr,"native validator accepted a changed catch destination\n");return 14;}
  DWORD protection=0;
  if(!VirtualProtect(memory,16384,PAGE_EXECUTE_READ,&protection)||!FlushInstructionCache(GetCurrentProcess(),memory,size)||!RtlAddFunctionTable(functions,3,(DWORD64)(uintptr_t)memory))return 11;
+ if(!capture_start.start((uintptr_t)image))return 16;
  reference_target=(uintptr_t)memory;
  fprintf(stderr,"cloned Delphi: original handler, capture/resume/reraise and cleanup\n");
- if(!pairs(100) || bad || enter_count!=200 || exit_count!=100 || caught!=104){fprintf(stderr,"clone failed enter=%ld exit=%ld caught=%ld code=%lx bad=%ld\n",enter_count,exit_count,caught,observed_exception,bad);return 12;}
+ if(!pairs(100) || bad || caught!=104){fprintf(stderr,"clone failed caught=%ld code=%lx bad=%ld\n",caught,observed_exception,bad);return 12;}
+ uint32_t entries=0,returns=0,unwinds=0;
+ if(!capture_finish.finish(argv[3],&entries,&returns,&unwinds) || entries!=200 || returns!=100 || unwinds!=100){fprintf(stderr,"native capture incomplete enter=%u return=%u unwind=%u\n",entries,returns,unwinds);return 17;}
  if(observed_exception!=0x0eedfadeu || memcmp(original,image+0xa930,sizeof(original)))return 15;
  if(!RtlDeleteFunctionTable(functions)||!VirtualFree(memory,0,MEM_RELEASE))return 13;
- printf("{\"baseline_pairs\":4,\"instrumented_pairs\":100,\"entries\":%ld,\"returns\":%ld,\"caught\":%ld,\"exception_code\":%lu}\n",enter_count,exit_count,caught,observed_exception);fflush(stdout);
+ printf("{\"baseline_pairs\":4,\"instrumented_pairs\":100,\"entries\":%u,\"returns\":%u,\"unwinds\":%u,\"caught\":%ld,\"exception_code\":%lu}\n",entries,returns,unwinds,caught,observed_exception);fflush(stdout);
  /* ExitProcess owns RTL/worker teardown; never unload a DLL underneath its worker. */
  return 0;
 }

@@ -375,5 +375,7 @@ O instalador público continua selecionando somente o EXE próprio e conferindo
 seus metadados; isso não implementa seleção/attach de DLLs ou BPLs. A DLL de teste
 APReferenceAdapter expõe o bridge real sem abrir captura e não entra no pacote.
 O processo filho inicializa a RTL original e compara execução normal e exceção
-real de uma rotina conferida, sem patch ao original. Ele não substitui os gates
+real de uma rotina conferida, sem patch ao original. Um setup síncrono de teste
+usa callbacks, pilha física, rings e batch writer de produção, sem worker/transporte
+ao vivo. O consumidor Go exige 200 chamadas, 100 unwinds e tempos/médias completos. Ele não substitui os gates
 de contagens/tempos/cleanup/collision das fixtures integradas.
