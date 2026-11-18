@@ -104,6 +104,7 @@ func TestNativeStressRepeatedOwnedCapturesReleaseResources(t *testing.T) {
 	}
 	e.Samples = append(e.Samples, collectorResources(t, 0))
 	var warm collectorResourcePoint
+	var warmTypes map[string]int
 	for i := 1; i <= captures; i++ {
 		var output stressObserver
 		if err := Launch(context.Background(), o, &output); err != nil {
@@ -127,8 +128,14 @@ func TestNativeStressRepeatedOwnedCapturesReleaseResources(t *testing.T) {
 		e.Samples = append(e.Samples, point)
 		if i == 4 {
 			warm = point
+			warmTypes, err = collectorHandleTypes()
+			if err != nil {
+				t.Log("warm handle diagnostics", err)
+			}
 		}
 		if i > 4 && (point.Handles > warm.Handles+8 || point.Goroutines > warm.Goroutines+8 || point.Heap > warm.Heap+(16<<20)) {
+			types, typeErr := collectorHandleTypes()
+			t.Logf("handle types warm=%v current=%v error=%v", warmTypes, types, typeErr)
 			t.Logf("resource samples: %+v", e.Samples)
 			t.Fatal("collector resources grew after session warmup", warm, point)
 		}
@@ -138,5 +145,7 @@ func TestNativeStressRepeatedOwnedCapturesReleaseResources(t *testing.T) {
 	}
 	e.Completed = true
 	last := e.Samples[len(e.Samples)-1]
+	lastTypes, typeErr := collectorHandleTypes()
+	t.Logf("handle types warm=%v final=%v error=%v", warmTypes, lastTypes, typeErr)
 	t.Logf("32 owned captures, %d exact worker/finalizer calls; after warmup handles %d -> %d, goroutines %d -> %d, heap %d -> %d bytes", e.MeasuredCalls, warm.Handles, last.Handles, warm.Goroutines, last.Goroutines, warm.Heap, last.Heap)
 }

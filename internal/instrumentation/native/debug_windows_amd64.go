@@ -35,8 +35,8 @@ func launchStopped(ctx context.Context, path string, args []string, dll, pipe st
 	d := &debugLaunch{done: make(chan struct{}), exitedThreads: make(chan threadExit, 256)}
 	go func() {
 		runtime.LockOSThread()
-		defer runtime.UnlockOSThread()
-		defer close(d.done)
+		// Completion includes releasing the debugger OS-thread affinity.
+		defer func() { runtime.UnlockOSThread(); close(d.done) }()
 		if err := ctx.Err(); err != nil {
 			d.err = err
 			close(ready)
