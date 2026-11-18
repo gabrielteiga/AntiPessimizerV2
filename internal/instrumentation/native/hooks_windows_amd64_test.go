@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"io"
@@ -60,16 +61,27 @@ func TestNativeProducerInstalledHookOverflowIsIncomplete(t *testing.T) {
 // changing the file or target. The target must reject before applying a patch.
 type corruptHookSource struct {
 	io.ReadWriter
-	written int
+	written   int
+	prefix    [25]byte
+	corrupted bool
 }
 
 func (w *corruptHookSource) Write(b []byte) (int, error) {
-	const expectedSource = 1 + 24 + hookStride + 8
 	data := append([]byte(nil), b...)
-	if w.written <= expectedSource && w.written+len(data) > expectedSource {
+	if w.written < len(w.prefix) {
+		copy(w.prefix[w.written:], data)
+	}
+	// The payload includes a separately reserved runtime table on current
+	// adapters. Locate source bytes from the actual plan header, not a stride.
+	expectedSource := len(w.prefix) + int(binary.LittleEndian.Uint32(w.prefix[13:17])) + 8
+	flip := w.written+len(data) >= len(w.prefix) && w.written <= expectedSource && w.written+len(data) > expectedSource
+	if flip {
 		data[expectedSource-w.written] ^= 1
 	}
 	n, err := w.ReadWriter.Write(data)
+	if flip && n > expectedSource-w.written {
+		w.corrupted = true
+	}
 	w.written += n
 	return n, err
 }
@@ -119,7 +131,12 @@ func TestNativeProducerRejectsDifferentOriginalCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := installHooks(&corruptHookSource{ReadWriter: conn}, image, r.Header.Procedures); err == nil {
+	proxy := &corruptHookSource{ReadWriter: conn}
+	err = installHooks(proxy, image, r.Header.Procedures)
+	if !proxy.corrupted {
+		t.Fatal("source mismatch fixture did not reach the expected bytes", err)
+	}
+	if err == nil {
 		t.Fatal("native installer accepted different original bytes")
 	}
 	select {
