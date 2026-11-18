@@ -521,3 +521,34 @@ instância e 900 linhas finais, exigindo ausência de perdas/frames abandonados 
 sem misturar TIDs/instâncias. O limite do núcleo continua 4096 linhas por época;
 exceder limites continua erro explícito, sem crescimento irrestrito nem agregação
 silenciosa entre threads.
+
+
+## Instruções escalares e home slots de funções sem frame
+
+A leitura estática do DLL distribuído pelo original identificou rotinas sem
+frame que usam multiplicação/divisão, shifts, condições e conversões SSE sem
+necessidade de unwind adicional. O planejador agora aceita esse subconjunto
+posicionalmente independente, mantendo validação dos operandos e rejeitando
+operações com estado implícito não suportado (CPUID/RBX, strings/RSI/RDI, x87,
+AVX, MXCSR e prefixos LOCK). Chamadas continuam exigindo metadados de frame.
+
+No caminho BuildPEFunction, stores sem frame podem usar apenas os 32 bytes de
+home slots Win64, entre RSP+8 e RSP+39. A largura inteira precisa caber nesse
+intervalo; o slot de retorno, stores que cruzam o limite e índice de stack são
+rejeitados. CMP/TEST/BT reconhecem leitura de argumentos, sem confundi-la com
+escrita. BuildPELeaf legado mantém a política anterior de não escrever stack.
+
+O alvo C/assembly próprio confere seis argumentos, stores/loads de home slots,
+IMUL, rotações, shifts, SETG, conversão float→double→inteiro→double e retorno
+SSE com valores fracionários negativos. Onze chamadas por procedimento/thread
+precisam permanecer corretas em três threads. Os testes existentes de frame,
+recursão, SEH, Clear e 300 instâncias de thread também executam esses caminhos.
+Leitura estática do DLL original identifica cobertura de planejamento, sem
+comprovar execução Delphi ou suporte aos seus handlers.
+
+
+A mesma inspeção encontrou prólogos Delphi com `ADD RSP,-128`, descritos por
+UWOP_ALLOC_SMALL 128 e frame pointer RBP. O validador agora aceita ADD negativo
+como alocação, conferindo o valor assinado exato e todos os offsets/códigos.
+O teste nativo inclui essa forma com PUSH RBP, chamada Win64 e epílogo via RBP.
+Não aceita qualquer atualização de RSP por apenas ter o mesmo efeito aparente.

@@ -21,8 +21,15 @@ METHOD uint64_t APFrameRecursive(uint64_t n){
  return value?1+APFrameRecursive(value-1):1;
 }
 extern uint64_t APFrameTiny(void);
+extern uint64_t APLeafMath(uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
+extern double APLeafConvert(float);
+extern uint64_t APFrameSignedAlloc(uint64_t);
 METHOD uint64_t APFrameParent(uint64_t n){
  if(APFrameTiny()!=77)return 0;
+ if(APLeafMath(n,11,13,17,19,23)!=((((n+11)*3)^13)+60))return 0;
+ if(APFrameSignedAlloc(n)!=n+5)return 0;
+ float input=(float)n-2.75f;
+ if(APLeafConvert(input)!=(double)((int64_t)input+3))return 0;
  volatile uint64_t value=n;
  uint64_t first=APFrameChild(value);
  uint64_t second=APFrameChild(value+1);
@@ -36,6 +43,18 @@ extern uint64_t APFrameCatch(void);
 __asm__(
  ".text\n .globl APFrameTiny\n .def APFrameTiny; .scl 2; .type 32; .endef\n"
  ".seh_proc APFrameTiny\n APFrameTiny:\n .seh_endprologue\n movl $77,%eax\n ret\n .seh_endproc\n"
+ ".text\n .globl APLeafMath\n .def APLeafMath; .scl 2; .type 32; .endef\n"
+ ".seh_proc APLeafMath\n APLeafMath:\n .seh_endprologue\n"
+ "movq %rcx,%rax\n movq %rdx,8(%rsp)\n addq 8(%rsp),%rax\n imulq $3,%rax,%rax\n xorq %r8,%rax\n"
+ "rorq $1,%rax\n rolq $1,%rax\n addq %r9,%rax\n addq 40(%rsp),%rax\n addq 48(%rsp),%rax\n"
+ "shlq $1,%rax\n shrq $1,%rax\n cmpq $0,%rax\n setg %r10b\n movzbl %r10b,%r10d\n addq %r10,%rax\n ret\n .seh_endproc\n"
+ ".text\n .globl APLeafConvert\n .def APLeafConvert; .scl 2; .type 32; .endef\n"
+ ".seh_proc APLeafConvert\n APLeafConvert:\n .seh_endprologue\n"
+ "cvtss2sd %xmm0,%xmm0\n cvttsd2si %xmm0,%eax\n addl $3,%eax\n cvtsi2sd %eax,%xmm0\n ret\n .seh_endproc\n"
+ ".text\n .globl APFrameSignedAlloc\n .def APFrameSignedAlloc; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameSignedAlloc\n APFrameSignedAlloc:\n pushq %rbp\n .seh_pushreg %rbp\n"
+ "addq $-128,%rsp\n .seh_stackalloc 128\n movq %rsp,%rbp\n .seh_setframe %rbp,0\n .seh_endprologue\n"
+ "movq %rcx,48(%rsp)\n call *__imp_GetCurrentThreadId(%rip)\n movq 48(%rsp),%rax\n addq $5,%rax\n leaq 128(%rbp),%rsp\n popq %rbp\n ret\n .seh_endproc\n"
  ".text\n .globl APFrameCatch\n .def APFrameCatch; .scl 2; .type 32; .endef\n"
  ".seh_proc APFrameCatch\n APFrameCatch:\n"
  "subq $40,%rsp\n .seh_stackalloc 40\n .seh_endprologue\n"

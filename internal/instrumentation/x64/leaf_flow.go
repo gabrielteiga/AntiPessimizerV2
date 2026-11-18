@@ -31,9 +31,9 @@ func rewriteLeafBody(code []byte, source, base uint64) (leafBody, error) {
 	return rewriteFunctionBody(code, source, base, false, 0)
 }
 func rewriteFunctionBody(code []byte, source, base uint64, framed bool, prologue int) (leafBody, error) {
-	return rewriteFunctionWithPatch(code, source, base, framed, prologue, JumpSize)
+	return rewriteFunctionWithPatch(code, source, base, framed, prologue, JumpSize, false)
 }
-func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, prologue, patchSize int) (leafBody, error) {
+func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, prologue, patchSize int, homeWrites bool) (leafBody, error) {
 	fail := func(reason string) (leafBody, error) {
 		return leafBody{}, fmt.Errorf("%w: leaf: %s", ErrUnsupported, reason)
 	}
@@ -87,7 +87,7 @@ func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, pro
 			}
 			d.absolute = target
 		default:
-			if !leafOperations[inst.Op.String()] && !(framed && frameOperations[inst.Op.String()]) {
+			if !leafOperations[inst.Op.String()] && !scalarOperations[inst.Op.String()] && !(framed && frameOperations[inst.Op.String()]) {
 				return fail("unsupported operation: " + inst.Op.String())
 			}
 		}
@@ -177,8 +177,21 @@ func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, pro
 				if !framed && (arg.Index == x86asm.RSP || arg.Index == x86asm.ESP) {
 					return fail("stack index")
 				}
-				if !framed && arg.Base == x86asm.RSP && (operand == 0 || arg.Index != 0 || arg.Disp < 8) {
-					return fail("stack write or non-argument stack read")
+				if !framed && arg.Base == x86asm.RSP {
+					if arg.Index != 0 || arg.Disp < 8 {
+						return fail("return slot or indexed stack memory")
+					}
+					readOnly := d.inst.Op == x86asm.CMP || d.inst.Op == x86asm.TEST || d.inst.Op == x86asm.BT || d.inst.Op == x86asm.MUL || d.inst.Op == x86asm.IMUL || d.inst.Op == x86asm.DIV || d.inst.Op == x86asm.IDIV
+					writes := operand == 0 && !readOnly || d.inst.Op == x86asm.XCHG
+					if writes && (d.inst.Op == x86asm.BTS || d.inst.Op == x86asm.BTR || d.inst.Op == x86asm.BTC) {
+						bit, constant := d.inst.Args[1].(x86asm.Imm)
+						if !constant || bit < 0 || int64(bit) >= int64(d.inst.MemBytes)*8 {
+							return fail("indexed bit write can escape home slots")
+						}
+					}
+					if writes && (!homeWrites || d.inst.MemBytes <= 0 || arg.Disp+int64(d.inst.MemBytes) > 40) {
+						return fail("stack write outside Win64 home slots")
+					}
 				}
 				if arg.Base == x86asm.ESP {
 					return fail("address-size stack memory")
@@ -215,7 +228,7 @@ func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, pro
 	return out, nil
 }
 
-var frameOperations = map[string]bool{"PUSH": true, "POP": true, "LEAVE": true, "CALL": true, "INC": true, "DEC": true, "NEG": true, "NOT": true, "IMUL": true, "MUL": true, "IDIV": true, "DIV": true, "SHL": true, "SHR": true, "SAR": true, "SAL": true, "ADC": true, "SBB": true, "CDQE": true, "CQO": true, "CDQ": true, "CMOVE": true, "CMOVNE": true, "CMOVG": true, "CMOVGE": true, "CMOVL": true, "CMOVLE": true, "CMOVA": true, "CMOVAE": true, "CMOVB": true, "CMOVBE": true, "SETE": true, "SETNE": true, "SETG": true, "SETGE": true, "SETL": true, "SETLE": true, "CVTSI2SD": true, "CVTTSD2SI": true, "UCOMISD": true, "COMISD": true}
+var frameOperations = map[string]bool{"PUSH": true, "POP": true, "LEAVE": true, "CALL": true}
 
 func nativeFrameRegister(r x86asm.Reg) bool {
 	return r >= x86asm.AL && r <= x86asm.R15B || r >= x86asm.AX && r <= x86asm.R15W || r >= x86asm.EAX && r <= x86asm.R15L || r >= x86asm.RAX && r <= x86asm.R15 || r >= x86asm.X0 && r <= x86asm.X15
