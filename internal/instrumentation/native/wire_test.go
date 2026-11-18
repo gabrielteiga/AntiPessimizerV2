@@ -62,7 +62,7 @@ func TestNativeWireLifecycleAndCompletion(t *testing.T) {
 func TestNativeWireRejectsIdentityAndLayout(t *testing.T) {
 	for name, change := range map[string]func([]byte){
 		"magic":   func(b []byte) { b[0] = 'X' },
-		"version": func(b []byte) { b[8] = 4 },
+		"version": func(b []byte) { b[8] = 5 },
 		"size":    func(b []byte) { b[12] = 25 },
 		"pid":     func(b []byte) { b[24] = 43 },
 		"clock": func(b []byte) {
@@ -186,7 +186,7 @@ func TestWireV2CleanupAndHeartbeatKeepV1Strict(t *testing.T) {
 }
 
 func TestWireClearRequiresV3AndHasNoThreadFields(t *testing.T) {
-	for _, version := range []uint32{1, 2, 3} {
+	for _, version := range []uint32{1, 2, 3, 4} {
 		data := hello()
 		binary.LittleEndian.PutUint32(data[8:], version)
 		data = append(data, packet(1, 0, 0, [5]uint64{8, 0, 0, 0, 120})...)
@@ -195,7 +195,7 @@ func TestWireClearRequiresV3AndHasNoThreadFields(t *testing.T) {
 			t.Fatal(err)
 		}
 		event, err := r.Next()
-		if version != 3 {
+		if version < 3 {
 			if err == nil {
 				t.Fatal("legacy adapter accepted Clear")
 			}

@@ -20,6 +20,7 @@ Revisado em 18 de novembro de 2026.
 | Controle pela interface | Catálogo pesquisável, seleção de até 16 procedimentos, argumentos, prazo, iniciar/parar pelo coletor e métricas ao vivo na janela |
 | Independência do viewer | Fechar a janela/desconectar observador não encerra a captura; Parar cancela explicitamente o novo processo instrumentado |
 | Arquivos e histórico | Salvar/replay, acompanhamento de arquivo crescente, filtros, ordenação e histórico limitado; comparação entre sessões de sampling e instrumentação |
+| Ciclos de vida de threads | Encerramento pelo evento real do Windows e reutilização do pool nativo; teste de 300 instâncias sem mesclar contagens |
 | Qualidade | Testes Go/race, integração nativa Windows, ETW, janela Win32, executáveis e empacotamento; merge somente com CI aprovado no commit exato |
 
 **Ainda não há paridade completa com o original.** Handlers/exceções específicos
@@ -73,7 +74,9 @@ contagens ou tempos de chamadas concluídas. O histórico pode ser salvo e reabe
 O coletor confere a identidade do executável e do catálogo antes de aceitar os
 IDs selecionados. Uma única sessão pode estar ativa, de sampling ou instrumentação.
 O histórico instrumentado retém até 256 snapshots, 100.000 linhas e 64 MiB;
-os totais cumulativos nunca são somados durante a navegação.
+os totais cumulativos nunca são somados durante a navegação. O pool nativo usa
+até 64 buffers simultâneos, reutilizados após o encerramento confirmado de cada
+thread; o núcleo limita a 4096 linhas por época de Clear.
 
 ## Medir chamadas pelo terminal
 

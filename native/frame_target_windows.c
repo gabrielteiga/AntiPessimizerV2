@@ -56,22 +56,25 @@ static DWORD WINAPI worker(void *unused){
  return 0;
 }
 int wmain(int argc,wchar_t **argv){
- uint32_t threads=3;
+ uint32_t threads=3,rounds=1;
  for(int i=1;i<argc;i+=2){
   if(i+1>=argc)return 2;
   if(!wcscmp(argv[i],L"--threads"))threads=(uint32_t)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--iterations"))iterations=(uint32_t)wcstoul(argv[i+1],NULL,10);
+  else if(!wcscmp(argv[i],L"--rounds"))rounds=(uint32_t)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--delay-ms"))child_delay_ms=(DWORD)wcstoul(argv[i+1],NULL,10);
   else return 2;
  }
- if(!threads||threads>16||!iterations||iterations>1000||child_delay_ms>5000)return 2;
+ if(!threads||threads>16||!rounds||rounds>1000||!iterations||iterations>1000||child_delay_ms>5000)return 2;
  barrier=CreateEventW(NULL,TRUE,FALSE,NULL);if(!barrier)return 3;
  HANDLE handles[16];DWORD result=0;
+ for(uint32_t round=0;round<rounds;round++){
  for(uint32_t i=0;i<threads;i++){handles[i]=CreateThread(NULL,0,worker,NULL,0,NULL);if(!handles[i])return 3;}
  SetEvent(barrier);
  for(uint32_t i=0;i<threads;i++){
   DWORD code=1;if(WaitForSingleObject(handles[i],20000)!=WAIT_OBJECT_0)return 4;
   GetExitCodeThread(handles[i],&code);CloseHandle(handles[i]);result|=code;
+ }
  }
  CloseHandle(barrier);return result?5:0;
 }

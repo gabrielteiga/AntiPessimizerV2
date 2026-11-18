@@ -17,7 +17,7 @@ static VOID WINAPI bootstrap_exit_process(UINT code) {
         if(count>AP_THREADS) count=AP_THREADS;
         for(LONG i=0;i<count;i++) {
             Ring *r=&state.rings[i];
-            if(load32(&r->tid) && load64(&r->head)) enqueue(r,AP_END,0,0);
+            if(load32(&r->tid) && load32(&r->started) && !load32(&r->ended)){enqueue(r,AP_END,0,0);InterlockedExchange(&r->ended,1);}
         }
         InterlockedDecrement(&state.writers);
         InterlockedExchange(&state.stopping,1);

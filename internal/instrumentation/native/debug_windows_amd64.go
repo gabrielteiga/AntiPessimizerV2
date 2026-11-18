@@ -14,11 +14,12 @@ import (
 )
 
 type debugLaunch struct {
-	process windows.ProcessInformation
-	job     windows.Handle
-	done    chan struct{}
-	err     error
-	exit    uint32
+	exitedThreads chan threadExit
+	process       windows.ProcessInformation
+	job           windows.Handle
+	done          chan struct{}
+	err           error
+	exit          uint32
 }
 type debugEvent struct {
 	code, pid, tid, pad uint32
@@ -31,7 +32,7 @@ var debugKernel = windows.NewLazySystemDLL("kernel32.dll")
 // the newly created process is debugged, already assigned to its lifetime job.
 func launchStopped(ctx context.Context, path string, args []string, dll, pipe string, entryRVA uint32, selected []debugSelection, capacity uint32) (*debugLaunch, error) {
 	ready := make(chan struct{})
-	d := &debugLaunch{done: make(chan struct{})}
+	d := &debugLaunch{done: make(chan struct{}), exitedThreads: make(chan threadExit, 256)}
 	go func() {
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
@@ -307,9 +308,22 @@ func debugOwned(ctx context.Context, d *debugLaunch, dll, pipe string, entryRVA 
 				}
 				status = 0x80010001 // DBG_EXCEPTION_NOT_HANDLED: preserve application SEH
 			case 4: // EXIT_THREAD_DEBUG_EVENT
+				if booted {
+					var tick int64
+					if _, err := call("QueryPerformanceCounter", uintptr(unsafe.Pointer(&tick))); err != nil || tick <= 0 {
+						return errors.New("cannot timestamp owned thread exit")
+					}
+					select {
+					case d.exitedThreads <- threadExit{event.tid, uint64(tick)}:
+					default:
+						return errors.New("owned thread lifecycle queue overflow")
+					}
+				}
 				code := uint32(event.data[0])
 				delete(threads, event.tid)
+				delete(suspended, event.tid)
 				if event.tid == loadTID {
+					loadTID = 0
 					if producer == 0 {
 						return fmt.Errorf("native helper did not load (exit %#x)", code)
 					}
@@ -339,6 +353,7 @@ func debugOwned(ctx context.Context, d *debugLaunch, dll, pipe string, entryRVA 
 					return err
 				}
 				if event.tid == bootTID {
+					bootTID = 0
 					if code != 0 {
 						return fmt.Errorf("native startup rejected: Windows error %d", code)
 					}
