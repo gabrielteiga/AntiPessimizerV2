@@ -4,7 +4,7 @@
 #define AP_HOOKS_WINDOWS_H
 #include <string.h>
 
-enum { AP_HOOK_LIMIT=16, AP_HOOK_STRIDE=8192, AP_HOOK_PREFIX=64 };
+enum { AP_HOOK_LIMIT=64, AP_HOOK_STRIDE=8192, AP_HOOK_PREFIX=64 };
 static struct {
     APHookProcedure selected[AP_HOOK_LIMIT];
     uint32_t count, patched, bytes;
@@ -78,7 +78,9 @@ static BOOL hook_allocate(void) {
     uintptr_t cursor=(image+nt->OptionalHeader.SizeOfImage+granularity-1)&~(granularity-1);
     uintptr_t high=image+0x70000000;
     if(high>(uintptr_t)system.lpMaximumApplicationAddress) high=(uintptr_t)system.lpMaximumApplicationAddress;
-    hooks.bytes=AP_HOOK_STRIDE*hooks.count;
+    /* Keep every code stride complete. A large selection must not consume the
+       last procedure's space with the three-entry-per-function runtime table. */
+    hooks.bytes=(AP_HOOK_STRIDE+3*sizeof(RUNTIME_FUNCTION))*hooks.count;
     for(unsigned attempt=0;cursor<high && attempt<4096;attempt++) {
         MEMORY_BASIC_INFORMATION m;
         if(!VirtualQuery((void *)cursor,&m,sizeof(m))) return FALSE;

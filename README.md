@@ -19,7 +19,7 @@ Revisado em 18 de novembro de 2026.
 | Funções com pilha/chamadas | Prólogos e unwind v1 verificados; calls, recursão, condições, loops e múltiplas saídas; testes Windows em alvo C com exceção SEH real |
 | Subconjunto escalar | Aritmética/condições/conversões SSE sem frame e home slots Win64 limitados; prólogo ADD RSP negativo verificado contra unwind |
 | Memória e sincronização | MOVS/STOS com frame/unwind verificado e operações LOCK de memória; testes de cópia/preenchimento, compare/exchange e contador compartilhado |
-| Controle pela interface | Catálogo pesquisável, seleção de até 16 procedimentos, argumentos, prazo, iniciar/parar pelo coletor e métricas ao vivo na janela |
+| Controle pela interface | Catálogo pesquisável, seleção de até 64 procedimentos, argumentos, prazo, iniciar/parar pelo coletor e métricas ao vivo na janela |
 | Pré-validação | Catálogo identifica funções fora do subconjunto aceito; serviço e launcher recusam a seleção antes de abrir o programa |
 | Independência do viewer | Fechar a janela/desconectar observador não encerra a captura; Parar cancela explicitamente o novo processo instrumentado |
 | Arquivos e histórico | Salvar/replay, acompanhamento de arquivo crescente, filtros, ordenação e histórico limitado; comparação entre sessões de sampling e instrumentação |
@@ -56,7 +56,7 @@ Amostras ETW são atividade de CPU observada; não são contagens de chamadas.
 
 Na janela, use **Chamadas**, informe o caminho completo do EXE e clique em
 **Ler símbolos**. A busca reduz o catálogo por unidade ou procedimento; apresenta
-até 200 resultados por consulta. Selecione de 1 a 16 procedimentos com Ctrl/Shift,
+até 200 resultados por consulta. Selecione de 1 a 64 procedimentos com Ctrl/Shift,
 informe argumentos e prazo em segundos, e use **Iniciar EXE**. Também pode abrir
 esse modo diretamente:
 

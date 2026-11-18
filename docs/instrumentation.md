@@ -404,7 +404,7 @@ AVX/vectorcall, tail calls, entrada no interior ou funções acima de 4096 bytes
 ## Controle instrumentado pelo serviço e janela
 
 O modo Chamadas da janela usa exclusivamente RPCs: lê catálogo por busca/página,
-seleciona até 16 procedimentos e envia o novo lançamento ao coletor. Argumentos
+seleciona até 64 procedimentos e envia o novo lançamento ao coletor. Argumentos
 são decompostos pela API Windows e enviados como valores separados; prazo padrão
 60 s. O serviço compara image_id e catalog_id (hash dos procedimentos resolvidos)
 antes de usar os IDs, e o launcher confere novamente o hash da imagem ao abrir.

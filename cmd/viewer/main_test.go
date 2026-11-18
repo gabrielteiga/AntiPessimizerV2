@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -64,5 +65,16 @@ func TestInstrumentedProcedureIDsRejectAmbiguousSelection(t *testing.T) {
 		if _, err := parseProcedureIDs(bad); err == nil {
 			t.Fatal("invalid IDs accepted", bad)
 		}
+	}
+	var names []string
+	for i := 1; i <= 64; i++ {
+		names = append(names, fmt.Sprint(i))
+	}
+	ids, err = parseProcedureIDs(strings.Join(names, ","))
+	if err != nil || len(ids) != 64 || ids[63] != 64 {
+		t.Fatal("full supported selection rejected", ids, err)
+	}
+	if _, err := parseProcedureIDs(strings.Join(names, ",") + ",65"); err == nil {
+		t.Fatal("selection beyond native capacity accepted")
 	}
 }

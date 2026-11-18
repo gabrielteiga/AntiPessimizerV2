@@ -81,8 +81,8 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer) (result
 	if len(units) == 0 && len(names) == 0 {
 		return errors.New("select --procedure or --unit explicitly before launching")
 	}
-	if len(selected) > 16 {
-		return fmt.Errorf("selection has %d procedures; this increment supports at most 16", len(selected))
+	if len(selected) > native.MaxSelectedProcedures {
+		return fmt.Errorf("selection has %d procedures; this increment supports at most %d", len(selected), native.MaxSelectedProcedures)
 	}
 	if *outputPath != "" {
 		f, err := os.OpenFile(*outputPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)

@@ -34,7 +34,7 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 	image := flags.String("image", "", "owned executable for instrument-catalog/start")
 	catalogID := flags.String("catalog-id", "", "exact catalog_id returned by instrument-catalog")
 	imageID := flags.String("image-id", "", "exact image_id returned by instrument-catalog")
-	selection := flags.String("procedure-ids", "", "comma-separated catalog IDs to instrument (1..16)")
+	selection := flags.String("procedure-ids", "", "comma-separated catalog IDs to instrument (1..64)")
 	catalogText := flags.String("symbol-filter", "", "catalog search text")
 	catalogOffset := flags.Int("catalog-offset", 0, "catalog page offset")
 	catalogCheck := flags.Bool("check", false, "with instrument-catalog, check static instrumentation support")
@@ -245,8 +245,8 @@ func parseProcedureIDs(selection string) ([]uint32, error) {
 	seen := map[uint32]bool{}
 	for _, part := range strings.Split(selection, ",") {
 		id, err := strconv.ParseUint(strings.TrimSpace(part), 10, 32)
-		if err != nil || id == 0 || seen[uint32(id)] || len(result) >= 16 {
-			return nil, errors.New("select 1..16 distinct catalog IDs")
+		if err != nil || id == 0 || seen[uint32(id)] || len(result) >= service.MaxInstrumentedProcedures {
+			return nil, fmt.Errorf("select 1..%d distinct catalog IDs", service.MaxInstrumentedProcedures)
 		}
 		result = append(result, uint32(id))
 		seen[uint32(id)] = true

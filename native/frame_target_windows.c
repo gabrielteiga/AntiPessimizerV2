@@ -29,8 +29,20 @@ extern uint64_t APFrameFill(void *,uint64_t,uint64_t);
 extern uint64_t APLeafAtomic(volatile uint64_t *,uint64_t);
 extern uint64_t APLeafCompare(uint64_t *,uint64_t,uint64_t);
 static volatile uint64_t atomic_total;
+/* Sixty-four separate six-byte methods exercise the complete bounded installer. */
+#define AP_BATCH_METHODS(X) X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7) X(8) X(9) X(10) X(11) X(12) X(13) X(14) X(15) X(16) X(17) X(18) X(19) X(20) X(21) X(22) X(23) X(24) X(25) X(26) X(27) X(28) X(29) X(30) X(31) X(32) X(33) X(34) X(35) X(36) X(37) X(38) X(39) X(40) X(41) X(42) X(43) X(44) X(45) X(46) X(47) X(48) X(49) X(50) X(51) X(52) X(53) X(54) X(55) X(56) X(57) X(58) X(59) X(60) X(61) X(62) X(63)
+#define AP_BATCH_DECLARE(n) extern uint64_t APBatch##n(void);
+AP_BATCH_METHODS(AP_BATCH_DECLARE)
+#define AP_BATCH_ASSEMBLY(n) __asm__( \
+ ".text\n .globl APBatch" #n "\n .def APBatch" #n "; .scl 2; .type 32; .endef\n" \
+ ".seh_proc APBatch" #n "\n APBatch" #n ":\n .seh_endprologue\n" \
+ "movl $" #n "+1,%eax\n ret\n .seh_endproc\n");
+AP_BATCH_METHODS(AP_BATCH_ASSEMBLY)
+#define AP_BATCH_ADDRESS(n) APBatch##n,
+static uint64_t (*const batch_methods[])(void)={AP_BATCH_METHODS(AP_BATCH_ADDRESS)};
 METHOD uint64_t APFrameParent(uint64_t n){
  if(APFrameTiny()!=77)return 0;
+ for(uint32_t i=0;i<64;i++)if(batch_methods[i]()!=(uint64_t)i+1)return 0;
  uint64_t source[16],copied[16],filled[16];
  for(uint32_t i=0;i<16;i++){source[i]=n+i+1;copied[i]=0;filled[i]=99;}
  uint64_t bytes=n%16,words=n%8;

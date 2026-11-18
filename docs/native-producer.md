@@ -40,6 +40,23 @@ São medidas de um alvo C/assembly próprio, com verificações no loop; não s�
 latência isolada do hook, benchmark de Delphi, medição de memória nem garantia
 de overhead em aplicações reais. Esses limites continuam explícitos no plano.
 
+### Primeira evidência de custo
+
+No commit `0d164b13214eb548f53c1922523604ea56d35d87`, o [CI Windows](https://github.com/gabrielteiga/AntiPessimizerV2/actions/runs/44241256935)
+mediu as seguintes medianas dos três pares do loop controlado:
+
+| Workers | Chamadas capturadas por par (inclui finalizador) | Razão instrumentado/baseline | Diferença de ns/chamada do loop |
+|---:|---:|---:|---:|
+| 1 | 301 | 1,153 | +214,3 |
+| 3 | 901 | 1,430 | +956,4 |
+
+Resultados desse runner/carga, sem limiar de aceitação de velocidade. O loop
+contém validações e 4096 iterações assembly por chamada; não mede só o hook.
+O artefato conserva os ticks e checksums de cada par. Outras execuções podem
+variar, e esses números não estimam overhead de Delphi nem custo de selecionar
+64 procedimentos. Essa seleção maior tem seu próprio teste funcional e limites.
+
+
 ## Fluxo implementado
 
 `APNativeLab.exe` → callbacks nativos → DLL → filas SPSC por thread → thread de
@@ -51,9 +68,10 @@ Os timestamps e durações são medidos; não são os ticks da fixture sintétic
   callbacks não alocam heap nem fazem I/O ou esperam por espaço na fila.
   Init exige um índice TLS do bloco primário (0..63), evitando alocação de
   expansão de TLS na primeira chamada de uma thread.
-- Até 64 slots de thread e 64 procedimentos por captura; capacidade por thread
-  de 1 a 1024 eventos. Slots não são reciclados durante a captura. TID reutilizado
-  é uma perda explícita, nunca mistura silenciosa de instâncias.
+- Até 64 buffers simultâneos e 64 procedimentos por captura; capacidade por
+  thread de 1 a 1024 eventos. Buffers encerrados/drenados podem ser reutilizados;
+  o lançamento próprio confirma o fim da thread pelo evento real do Windows.
+  TID reutilizado inicia outra instância, sem misturar contagens.
 - Publicação/consumo usam atomics Windows. Overflow é contado e invalida a
   exatidão; o Go encerra a captura com erro e exporta os totais já concluídos
   como `incomplete=true`, abandonando frames abertos.
@@ -165,7 +183,17 @@ próxima, capacidade, número de procedimentos, helpers e tamanhos conhecidos.
 O coletor constrói planos PE/leaf e envia `APPLAN1`, imagem, tabela de unwind,
 bytes originais completos e patches. A DLL verifica limites, seleção, metadados,
 alvos dos saltos e igualdade com o código carregado antes de escrever. Seleção
-limitada a 16 procedimentos, 8192 bytes por plano e fonte de até 4096 bytes.
+limitada a 64 procedimentos, 8192 bytes por plano e fonte de até 4096 bytes.
+
+O teste de seleção completa instala simultaneamente 64 métodos de seis bytes,
+com suas 192 entradas de unwind, usando 512 KiB de strides e até 4 KiB adicionais
+para a tabela (incluindo arredondamento de página). A tabela não ocupa o espaço
+do último método; um teste também inclui uma função final expandida acima de 6 KiB.
+Três threads executam duas chamadas por método: 192 linhas distintas e 384
+chamadas exatas, com todos os valores retornados preservados. O limite dos rings
+e o limite de 4096 linhas por época não aumentam junto da seleção. Seleções acima
+de 64 exigem filtro mais restrito e são recusadas antes de iniciar o processo.
+
 
 A memória nova passa de RW para RX; o código selecionado só é escrito durante
 a barreira de inicialização. Registra a tabela de unwind antes de publicar os

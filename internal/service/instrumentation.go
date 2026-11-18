@@ -17,6 +17,9 @@ import (
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/profiling"
 )
 
+// MaxInstrumentedProcedures is the service/client selection bound.
+const MaxInstrumentedProcedures = native.MaxSelectedProcedures
+
 // InstrumentOptions always launches a NEW owned process. Stop cancels that
 // process, never attaches to or terminates an unrelated running application.
 type InstrumentOptions struct {

@@ -9,7 +9,7 @@ import (
 type debugSelection struct{ ID, RVA, Size uint32 }
 
 func bootstrapRequest(pipe string, selected []debugSelection, capacity uint32) ([]byte, error) {
-	if len(selected) == 0 || len(selected) > 16 || capacity == 0 || capacity > 1024 {
+	if len(selected) == 0 || len(selected) > MaxSelectedProcedures || capacity == 0 || capacity > 1024 {
 		return nil, errors.New("invalid launch selection/capacity")
 	}
 	chars := append(utf16.Encode([]rune(pipe)), 0)
