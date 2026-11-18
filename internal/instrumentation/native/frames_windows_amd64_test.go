@@ -14,6 +14,9 @@ import (
 )
 
 func frameFixture(t *testing.T) LaunchOptions {
+	return frameSelectionFixture(t, map[string]uint32{"APFrameParent": 1, "APFrameChild": 2, "APFrameRecursive": 3})
+}
+func frameSelectionFixture(t *testing.T, names map[string]uint32) LaunchOptions {
 	t.Helper()
 	directory := filepath.Dir(labPath(t))
 	path := filepath.Join(directory, "APFrameTarget.exe")
@@ -35,7 +38,6 @@ func frameFixture(t *testing.T) LaunchOptions {
 			table = data[at : at+directoryEntry.Size]
 		}
 	}
-	names := map[string]uint32{"APFrameParent": 1, "APFrameChild": 2, "APFrameRecursive": 3}
 	o := LaunchOptions{Image: path, DLL: filepath.Join(directory, "AntiPessimizerNative.dll"), Args: []string{"--threads", "3", "--iterations", "10"}, Capacity: 1024, Timeout: 20 * time.Second}
 	for _, symbol := range image.Symbols {
 		id := names[symbol.Name]
@@ -50,7 +52,7 @@ func frameFixture(t *testing.T) LaunchOptions {
 			}
 		}
 	}
-	if len(o.Procedures) != 3 {
+	if len(o.Procedures) != len(names) {
 		t.Fatal("framed test procedures missing", o.Procedures)
 	}
 	return o
@@ -134,4 +136,28 @@ func TestNativeProducerFramedCallsRecursionAndRealExceptionUnwind(t *testing.T) 
 		}
 	}
 	t.Log("ordinary framed methods: native calls/recursion preserved; actual Windows exception unwound two selected frames per thread and continued in the original outer handler")
+}
+
+func TestNativeProducerTinyMethodCountsWithoutPatchingAdjacentCode(t *testing.T) {
+	o := frameSelectionFixture(t, map[string]uint32{"APFrameTiny": 1})
+	if len(o.Procedures) != 1 || o.Procedures[0].Size != 6 {
+		t.Fatal("fixture no longer exercises a six-byte routine", o.Procedures)
+	}
+	var output bytes.Buffer
+	if err := Launch(context.Background(), o, &output); err != nil {
+		t.Fatal(err, output.String())
+	}
+	records, err := instrumentation.ReadMetrics(&output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := records[len(records)-1].Metrics
+	if last.Incomplete || last.OpenCalls != 0 || len(last.Rows) != 3 {
+		t.Fatal(last)
+	}
+	for _, row := range last.Rows {
+		if row.Calls != 11 || row.UnwoundCalls != 0 || row.InclusiveTicks != row.ExclusiveTicks {
+			t.Fatal("tiny procedure changed behavior/counts", row)
+		}
+	}
 }

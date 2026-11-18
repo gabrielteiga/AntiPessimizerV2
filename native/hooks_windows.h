@@ -56,7 +56,7 @@ static BOOL hook_select(const APHookProcedure *procedures,uint32_t count) {
     IMAGE_NT_HEADERS64 *nt=(IMAGE_NT_HEADERS64 *)(image+((IMAGE_DOS_HEADER *)image)->e_lfanew);
     for(uint32_t i=0;i<count;i++) {
         APHookProcedure p=procedures[i];
-        if(!p.id || !p.rva || p.size<15 || p.size>4096 || (uint64_t)p.rva+p.size>nt->OptionalHeader.SizeOfImage) return FALSE;
+        if(!p.id || !p.rva || p.size<5 || p.size>4096 || (uint64_t)p.rva+p.size>nt->OptionalHeader.SizeOfImage) return FALSE;
         MEMORY_BASIC_INFORMATION m;
         if(!VirtualQuery(image+p.rva,&m,sizeof(m)) || m.AllocationBase!=image || m.State!=MEM_COMMIT || (m.Protect&0xff)!=PAGE_EXECUTE_READ || (m.Protect&PAGE_GUARD) || (uintptr_t)(image+p.rva)+p.size>(uintptr_t)m.BaseAddress+m.RegionSize) return FALSE;
         hooks.protections[i]=m.Protect;
@@ -132,10 +132,17 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
         unsigned char item[8],expected[4096];
         if(!hook_io(pipe,item,8,FALSE)) return FALSE;
         uint32_t length=hook_u32(item),prefix=hook_u32(item+4);
-        if(length!=hooks.selected[i].size || prefix<14 || prefix>AP_HOOK_PREFIX || prefix>length) return FALSE;
+        if(length!=hooks.selected[i].size || prefix<5 || prefix>AP_HOOK_PREFIX || prefix>length) return FALSE;
         if(!hook_io(pipe,expected,length,FALSE) || !hook_io(pipe,patches[i],prefix,FALSE)) return FALSE;
-        if(memcmp(expected,image+hooks.selected[i].rva,length) || memcmp(patches[i],"\xff\x25\0\0\0\0",6) || hook_u64(patches[i]+6)!=(uintptr_t)hooks.memory+hooks.table[i*per].BeginAddress) return FALSE;
-        for(uint32_t j=14;j<prefix;j++) if(patches[i][j]!=0x90) return FALSE;
+        if(memcmp(expected,image+hooks.selected[i].rva,length)) return FALSE;
+        uintptr_t target=(uintptr_t)hooks.memory+hooks.table[i*per].BeginAddress;
+        uint32_t jump_size=14;
+        if(patches[i][0]==0xe9){
+            jump_size=5;
+            uintptr_t destination=(uintptr_t)(image+hooks.selected[i].rva+5)+(intptr_t)(int32_t)hook_u32(patches[i]+1);
+            if(destination!=target)return FALSE;
+        }else if(prefix<14 || memcmp(patches[i],"\xff\x25\0\0\0\0",6) || hook_u64(patches[i]+6)!=target)return FALSE;
+        for(uint32_t j=jump_size;j<prefix;j++) if(patches[i][j]!=0x90) return FALSE;
         memcpy(hooks.originals[i],expected,prefix);
         hooks.lengths[i]=prefix;
     }

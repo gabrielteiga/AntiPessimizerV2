@@ -89,8 +89,8 @@ arquivo novo. O viewer também abre a captura encerrada com
 fecha apenas a leitura, preservando o escritor e o alvo.
 
 O subconjunto aceita unwind v1 sem handlers próprios, prólogos verificados,
-chamadas/recursão, branches internos e múltiplos retornos, com até 4096 bytes por
-procedimento. Procedimentos não suportados são rejeitados. Um cleanup nativo
+chamadas/recursão, branches internos e múltiplos retornos, de 5 a 4096 bytes por procedimento quando a alocação
+permite salto próximo. Métodos menores que 5 bytes continuam rejeitados. Procedimentos não suportados são rejeitados. Um cleanup nativo
 registra saídas durante o unwind real do Windows; o handler original que recebe
 a exceção deve ficar fora da seleção. A captura inclui finalizadores anteriores
 a ExitProcess. Veja [instrumentation.md](docs/instrumentation.md) para os limites.

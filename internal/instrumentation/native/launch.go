@@ -31,7 +31,7 @@ func (o LaunchOptions) validate() error {
 	}
 	ids := map[uint32]bool{}
 	for _, p := range o.Procedures {
-		if p.ID == 0 || ids[p.ID] || p.RVA == 0 || p.Size < 15 || p.Size > 4096 {
+		if p.ID == 0 || ids[p.ID] || p.RVA == 0 || p.Size < 5 || p.Size > 4096 {
 			return errors.New("invalid instrumented procedure selection")
 		}
 		if err := (profiling.Location{ModuleID: "checked-build", Module: "image.exe", Procedure: p.Name, Unit: p.Unit, RVA: "0x0000000000000000", Status: "resolved"}).Validate(); err != nil {

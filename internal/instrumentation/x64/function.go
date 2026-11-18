@@ -37,7 +37,8 @@ func BuildPEFunction(image []byte, rva, size uint32, loadedBase, base, enter, ex
 		return FunctionPlan{}, err
 	}
 	framed := originalInfo[2] != 0
-	flow, err := rewriteFunctionBody(code, source, base, framed, int(originalInfo[1]))
+	entry := entryJump(source, base)
+	flow, err := rewriteFunctionWithPatch(code, source, base, framed, int(originalInfo[1]), len(entry))
 	if err != nil {
 		return FunctionPlan{}, err
 	}
@@ -78,8 +79,8 @@ func BuildPEFunction(image []byte, rva, size uint32, loadedBase, base, enter, ex
 	copy(data[infoRVA:], info)
 	binary.LittleEndian.PutUint32(data[int(infoRVA)+len(info):], thunkRVA)
 	binary.LittleEndian.PutUint32(data[int(infoRVA)+len(info)+4:], id)
-	patch := append(jump(base), make([]byte, flow.overwrite-JumpSize)...)
-	for i := JumpSize; i < len(patch); i++ {
+	patch := append(entry, make([]byte, flow.overwrite-len(entry))...)
+	for i := len(entry); i < len(patch); i++ {
 		patch[i] = 0x90
 	}
 	return FunctionPlan{Original: append([]byte(nil), code[:flow.overwrite]...), Source: append([]byte(nil), code...), Patch: patch, Image: data, BodyRVA: 512, ExitRVA: flow.exitRVA, Functions: [3]RuntimeFunction{{0, in.CodeSize, in.UnwindRVA}, {512, 512 + uint32(len(flow.code)), infoRVA}, {flow.exitRVA, flow.exitRVA + out.CodeSize, flow.exitRVA + out.UnwindRVA}}}, nil

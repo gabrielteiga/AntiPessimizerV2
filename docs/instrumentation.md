@@ -427,3 +427,21 @@ A finalização nativa participa da mesma barreira. O teste Windows limpa duas
 vezes enquanto três threads têm Parent/Child abertos, exige seis frames mantidos,
 contagens reiniciadas, recursão/exceções posteriores corretas e saída completa.
 O teste dos executáveis exige que o collector retenha a nova época antes do ACK.
+
+
+## Entradas pequenas sem invadir o procedimento seguinte
+
+O lançamento APHOOK2 usa E9 rel32 (cinco bytes) quando a alocação está a alcance
+assinado de 32 bits. Só sobrescreve instruções completas dentro do procedimento;
+funções de 5..14 bytes deixam de ser rejeitadas apenas pelo tamanho do salto
+absoluto anterior. Fora desse alcance, mantém o salto absoluto de 14 bytes e
+rejeita um procedimento pequeno que não o comporte. O corpo/saída e os thunks
+continuam com seus saltos absolutos e metadados de unwind próprios.
+
+A DLL confere o destino tanto do E9 assinado quanto do salto absoluto, exige NOP
+nos bytes excedentes e compara todo o código original antes de aplicar. O caminho
+APHOOΚ1 permanece com o planejador leaf anterior. Testes exercitam limites signed
+rel32, fallback, seleção menor que cinco bytes e um método Windows de seis bytes
+que retorna 77, chamado onze vezes por cada uma de três threads. Os bytes vizinhos
+não podem ser usados para completar o patch. Isso amplia o subconjunto de métodos
+pequenos; não habilita instruções, handlers ou formatos antes rejeitados.

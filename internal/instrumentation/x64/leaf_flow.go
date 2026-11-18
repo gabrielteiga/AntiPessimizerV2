@@ -31,8 +31,14 @@ func rewriteLeafBody(code []byte, source, base uint64) (leafBody, error) {
 	return rewriteFunctionBody(code, source, base, false, 0)
 }
 func rewriteFunctionBody(code []byte, source, base uint64, framed bool, prologue int) (leafBody, error) {
+	return rewriteFunctionWithPatch(code, source, base, framed, prologue, JumpSize)
+}
+func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, prologue, patchSize int) (leafBody, error) {
 	fail := func(reason string) (leafBody, error) {
 		return leafBody{}, fmt.Errorf("%w: leaf: %s", ErrUnsupported, reason)
+	}
+	if len(code) < patchSize {
+		return fail("procedure is smaller than the entry jump")
 	}
 	var instructions []leafInstruction
 	offsets := map[int]int{}
@@ -101,7 +107,7 @@ func rewriteFunctionBody(code []byte, source, base uint64, framed bool, prologue
 		}
 		offsets[offset] = len(instructions)
 		instructions = append(instructions, d)
-		if offset < JumpSize {
+		if offset < patchSize {
 			overwrite = offset + inst.Len
 		}
 		total += d.length
