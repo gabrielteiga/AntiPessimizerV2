@@ -34,7 +34,7 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 	image := flags.String("image", "", "owned executable for instrument-catalog/start")
 	catalogID := flags.String("catalog-id", "", "exact catalog_id returned by instrument-catalog")
 	imageID := flags.String("image-id", "", "exact image_id returned by instrument-catalog")
-	selection := flags.String("procedure-ids", "", "comma-separated catalog IDs to instrument (1..64)")
+	selection := flags.String("procedure-ids", "", "comma-separated catalog IDs to instrument (1..256)")
 	catalogText := flags.String("symbol-filter", "", "catalog search text")
 	catalogOffset := flags.Int("catalog-offset", 0, "catalog page offset")
 	catalogCheck := flags.Bool("check", false, "with instrument-catalog, check static instrumentation support")
@@ -160,9 +160,19 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 			request.Catalog = service.CatalogQuery{Image: *image, Text: *catalogText, Unit: *unit, Offset: *catalogOffset, Check: *catalogCheck}
 		}
 		if *op == "instrument-start" {
-			ids, err := parseProcedureIDs(*selection)
-			if err != nil {
-				return err
+			var ids []uint32
+			var units []string
+			if *unit != "" {
+				if *selection != "" {
+					return errors.New("choose --procedure-ids or --unit, exclusively")
+				}
+				units = []string{*unit}
+			} else {
+				var err error
+				ids, err = parseProcedureIDs(*selection)
+				if err != nil {
+					return err
+				}
 			}
 			if *timeout < time.Millisecond || *timeout > 24*time.Hour {
 				return errors.New("invalid instrumented timeout")
@@ -171,7 +181,7 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 			if err != nil {
 				return err
 			}
-			request.Instrument = service.InstrumentOptions{Image: path, ImageID: *imageID, CatalogID: *catalogID, Procedures: ids, Args: programArgs, TimeoutMS: timeout.Milliseconds()}
+			request.Instrument = service.InstrumentOptions{Image: path, ImageID: *imageID, CatalogID: *catalogID, Procedures: ids, Units: units, Args: programArgs, TimeoutMS: timeout.Milliseconds()}
 		}
 		return control(*address, request, out)
 	}

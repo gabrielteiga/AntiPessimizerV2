@@ -338,6 +338,57 @@ func TestNativeInstrumentedControlWindowSmoke(t *testing.T) {
 		if c.Status().State != "stopped" || w.model.HistoryLength() == 0 {
 			return fmt.Errorf("Stop did not preserve measured history")
 		}
+
+		// Whole-unit mode expands exact names, rejects unsupported members and
+		// stale text, and can select an alias unit without manual list selection.
+		send.Call(w.wholeUnit, 0xf1, 1, 0)
+		text(w.symbolSearch, "Lab")
+		w.command(2)
+		deadline = time.Now().Add(2 * time.Second)
+		for w.catalogUnit != "Lab" && time.Now().Before(deadline) {
+			w.tick()
+			time.Sleep(10 * time.Millisecond)
+		}
+		if w.catalogUnit != "Lab" {
+			return fmt.Errorf("exact unit catalog not loaded")
+		}
+		w.command(3)
+		if !strings.Contains(value(w.status), "language handler") || len(launch) != 0 {
+			return fmt.Errorf("unsupported member of whole unit launched")
+		}
+		text(w.symbolSearch, "Shared")
+		w.command(3)
+		if !strings.Contains(value(w.status), "Leia os símbolos") || len(launch) != 0 {
+			return fmt.Errorf("changed unit used stale preview")
+		}
+		w.command(2)
+		deadline = time.Now().Add(2 * time.Second)
+		for w.catalogUnit != "Shared" && time.Now().Before(deadline) {
+			w.tick()
+			time.Sleep(10 * time.Millisecond)
+		}
+		if w.catalogUnit != "Shared" || len(w.catalog.Procedures) != 1 {
+			return fmt.Errorf("alias unit catalog not resolved")
+		}
+		send.Call(w.procedureList, 0x185, 0, ^uintptr(0)) // Unit mode ignores manual list selection.
+		w.command(3)
+		select {
+		case selected := <-launch:
+			if len(selected.Procedures) != 1 || selected.Procedures[0].ID != 7 {
+				return fmt.Errorf("unit alias changed physical selection")
+			}
+		case <-time.After(2 * time.Second):
+			return fmt.Errorf("whole-unit Start did not reach owner")
+		}
+		w.command(4)
+		deadline = time.Now().Add(2 * time.Second)
+		for c.Status().State != "stopped" && time.Now().Before(deadline) {
+			w.tick()
+			time.Sleep(10 * time.Millisecond)
+		}
+		if c.Status().State != "stopped" {
+			return fmt.Errorf("whole-unit Stop did not join owner")
+		}
 		return nil
 	}); err != nil {
 		t.Fatal(err)

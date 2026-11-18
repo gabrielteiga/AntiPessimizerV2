@@ -17,7 +17,7 @@ type SelectedProcedure struct {
 }
 
 // MaxSelectedProcedures matches the native wire catalog and bounded installer.
-const MaxSelectedProcedures = 64
+const MaxSelectedProcedures = 256
 const MaxProcedureBytes = x64.MaxFunctionBytes
 
 type LaunchOptions struct {

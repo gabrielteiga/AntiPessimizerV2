@@ -25,7 +25,7 @@ func TestBootstrapRequestContainsBoundedUTF16AndSelectedExtents(t *testing.T) {
 	if string(utf16.Decode(chars)) != pipe || binary.LittleEndian.Uint16(b[len(b)-2:]) != 0 {
 		t.Fatal("UTF16 pipe changed")
 	}
-	for _, count := range []int{0, 65} {
+	for _, count := range []int{0, MaxSelectedProcedures + 1} {
 		if _, err := bootstrapRequest(pipe, make([]debugSelection, count), 1024); err == nil {
 			t.Fatal("invalid count accepted")
 		}
@@ -35,12 +35,12 @@ func TestBootstrapRequestContainsBoundedUTF16AndSelectedExtents(t *testing.T) {
 			t.Fatal("invalid capacity accepted")
 		}
 	}
-	selected := make([]debugSelection, 64)
+	selected := make([]debugSelection, MaxSelectedProcedures)
 	for i := range selected {
 		selected[i] = debugSelection{uint32(i + 1), 0x1000 + uint32(i)*16, 6}
 	}
 	full, err := bootstrapRequest(pipe, selected, 1024)
-	if err != nil || binary.LittleEndian.Uint32(full[12:]) != 64 || binary.LittleEndian.Uint32(full[32+63*12:]) != 64 {
+	if err != nil || binary.LittleEndian.Uint32(full[12:]) != MaxSelectedProcedures || binary.LittleEndian.Uint32(full[32+(MaxSelectedProcedures-1)*12:]) != MaxSelectedProcedures {
 		t.Fatal("full selection lost in bootstrap", err)
 	}
 }

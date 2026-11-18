@@ -62,7 +62,7 @@ func TestNativeWireLifecycleAndCompletion(t *testing.T) {
 func TestNativeWireRejectsIdentityAndLayout(t *testing.T) {
 	for name, change := range map[string]func([]byte){
 		"magic":   func(b []byte) { b[0] = 'X' },
-		"version": func(b []byte) { b[8] = 5 },
+		"version": func(b []byte) { b[8] = 6 },
 		"size":    func(b []byte) { b[12] = 25 },
 		"pid":     func(b []byte) { b[24] = 43 },
 		"clock": func(b []byte) {
@@ -215,6 +215,30 @@ func TestWireClearRequiresV3AndHasNoThreadFields(t *testing.T) {
 		}
 		if _, err = r.Next(); err == nil {
 			t.Fatal("malformed Clear accepted", event)
+		}
+	}
+}
+
+func TestNativeWireExpandedSelectionRequiresVersion5(t *testing.T) {
+	for _, version := range []uint32{4, 5} {
+		for _, count := range []uint32{64, 65, 256, 257} {
+			b := hello()[:48]
+			binary.LittleEndian.PutUint32(b[8:], version)
+			binary.LittleEndian.PutUint32(b[28:], count)
+			for i := uint32(0); i < count; i++ {
+				var p [8]byte
+				binary.LittleEndian.PutUint32(p[:], i+1)
+				binary.LittleEndian.PutUint32(p[4:], 0x1000+i*8)
+				b = append(b, p[:]...)
+			}
+			reader, err := NewReader(bytes.NewReader(b), 42)
+			want := count <= 256 && (version >= 5 || count <= 64)
+			if (err == nil) != want {
+				t.Fatal(version, count, err)
+			}
+			if want && len(reader.Header.Procedures) != int(count) {
+				t.Fatal("truncated selection", version, count)
+			}
 		}
 	}
 }

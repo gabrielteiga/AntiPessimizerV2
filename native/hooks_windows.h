@@ -4,7 +4,7 @@
 #define AP_HOOKS_WINDOWS_H
 #include <string.h>
 
-enum { AP_HOOK_LIMIT=64, AP_HOOK_STRIDE=8192, AP_HOOK_PREFIX=64, AP_HOOK_LARGE_STRIDE=32768, AP_HOOK_SOURCE_LIMIT=8192 };
+enum { AP_HOOK_LIMIT=256, AP_HOOK_STRIDE=8192, AP_HOOK_PREFIX=64, AP_HOOK_LARGE_STRIDE=32768, AP_HOOK_SOURCE_LIMIT=8192 };
 static struct {
     APHookProcedure selected[AP_HOOK_LIMIT];
     uint32_t count, patched, bytes, stride;
@@ -204,7 +204,7 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
     hook_put64(offer+16,(uintptr_t)hooks.memory);
     hook_put32(offer+24,hooks.bytes); hook_put32(offer+28,hooks.count);
     hook_put64(offer+32,(uintptr_t)APNativeEnter); hook_put64(offer+40,(uintptr_t)APNativeExit);
-    if(general){offer[6]='8';hook_put64(offer+32,(uintptr_t)function_enter);hook_put64(offer+40,(uintptr_t)function_exit);hook_put64(offer+48,(uintptr_t)function_unwind);}
+    if(general){offer[6]='9';hook_put64(offer+32,(uintptr_t)function_enter);hook_put64(offer+40,(uintptr_t)function_exit);hook_put64(offer+48,(uintptr_t)function_unwind);}
     if(!hook_io(pipe,offer,general?56:48,TRUE)) return FALSE;
     for(uint32_t i=0;i<hooks.count;i++) {
         unsigned char extent[4]; hook_put32(extent,hooks.selected[i].size);

@@ -184,7 +184,7 @@ func Launch(parent context.Context, o LaunchOptions, out io.Writer) (resultErr e
 		if err := installHooks(conn, data, reader.Header.Procedures); err != nil {
 			return err
 		}
-		if reader.Header.Version != 4 {
+		if reader.Header.Version < 4 {
 			return errors.New("update the native adapter DLL: owned thread lifecycles require wire v4")
 		}
 		commandsDone = make(chan struct{})

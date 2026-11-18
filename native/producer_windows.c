@@ -7,7 +7,7 @@
 #include <wchar.h>
 #include "hooks_windows.h"
 
-enum { AP_THREADS = 64, AP_CAPACITY = 1024, AP_BATCH = 256, AP_SELECTION = 64, AP_FRAMES = 1024 };
+enum { AP_THREADS = 64, AP_CAPACITY = 1024, AP_BATCH = 256, AP_SELECTION = 256, AP_FRAMES = 1024 };
 _Static_assert((int)AP_HOOK_LIMIT==(int)AP_SELECTION,"native installer and event catalogs must have the same bound");
 enum { AP_START = 1, AP_ENTER = 2, AP_EXIT = 3, AP_END = 4, AP_UNWIND = 5, AP_UNWIND_EXIT = 6, AP_HEARTBEAT = 7, AP_CLEAR = 8 };
 typedef struct { uint32_t type, tid, procedure, depth; uint64_t tick; } Event;
@@ -184,7 +184,7 @@ static BOOL end_thread_boundary(uint32_t tid,uint64_t exited_at,uint64_t *sequen
 static DWORD WINAPI drain(void *unused) {
     (void)unused;
     unsigned char hello[48] = { 'A','P','N','A','T','0','1',0 }, catalog[AP_SELECTION*8];
-    put32(hello+8, state.hook_mode==2?4:1); put32(hello+12, 24); put64(hello+16, state.frequency);
+    put32(hello+8, state.hook_mode==2?5:(state.count>64?5:1)); put32(hello+12, 24); put64(hello+16, state.frequency);
     put32(hello+24, GetCurrentProcessId()); put32(hello+28, state.count);
     put32(hello+32, state.image_size); put64(hello+40, state.start);
     for (uint32_t i=0; i<state.count; i++) {

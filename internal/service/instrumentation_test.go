@@ -383,3 +383,56 @@ func TestClearRejectsInactiveAndSamplingSessions(t *testing.T) {
 		t.Fatal("native Clear changed sampling")
 	}
 }
+
+func TestUnitSelectionExpandsBeforePreflightAndStartsExactMethods(t *testing.T) {
+	c, o := instrumentController(t)
+	o.Procedures = nil
+	o.Units = []string{"lab"}
+	var checked []native.SelectedProcedure
+	c.CheckCatalog = func(_ native.Catalog, p []native.SelectedProcedure) ([]native.ProcedureCheck, error) {
+		checked = append([]native.SelectedProcedure(nil), p...)
+		return []native.ProcedureCheck{{ID: 1, PlanSupported: true}, {ID: 2, PlanSupported: true}}, nil
+	}
+	launched := make(chan native.LaunchOptions, 1)
+	c.LaunchInstrumented = func(_ context.Context, o native.LaunchOptions, _ io.Writer) error { launched <- o; return nil }
+	if err := c.StartInstrumented(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	awaitInstrumentedStop(t, c)
+	got := <-launched
+	if len(checked) != 2 || len(got.Procedures) != 2 || got.Procedures[0].ID != 1 || got.Procedures[1].ID != 2 {
+		t.Fatal("unit did not use full preflight/launch selection", checked, got.Procedures)
+	}
+}
+func TestUnitSelectionRejectionsPreserveHistoryAndNeverLaunch(t *testing.T) {
+	for _, kind := range []string{"mixed", "unknown", "changed", "unsupported"} {
+		t.Run(kind, func(t *testing.T) {
+			c, o := instrumentController(t)
+			o.Procedures = nil
+			o.Units = []string{"Lab"}
+			c.LaunchInstrumented = func(context.Context, native.LaunchOptions, io.Writer) error {
+				t.Error("invalid unit launched")
+				return nil
+			}
+			if err := c.publishMetrics(callRecords(t)[0]); err != nil {
+				t.Fatal(err)
+			}
+			before := c.Status()
+			switch kind {
+			case "mixed":
+				o.Procedures = []uint32{1}
+			case "unknown":
+				o.Units = []string{"Lab", "Missing"}
+			case "changed":
+				o.CatalogID = "stale"
+			case "unsupported":
+				c.CheckCatalog = func(_ native.Catalog, _ []native.SelectedProcedure) ([]native.ProcedureCheck, error) {
+					return []native.ProcedureCheck{{ID: 1, PlanSupported: true}, {ID: 2, Reason: "unsupported body"}}, nil
+				}
+			}
+			if err := c.StartInstrumented(context.Background(), o); err == nil || c.Status() != before || len(c.MetricHistory()) != 1 {
+				t.Fatal("invalid unit selection changed state", err)
+			}
+		})
+	}
+}

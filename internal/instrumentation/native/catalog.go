@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/symbols"
 )
@@ -84,6 +86,37 @@ func (c Catalog) Select(ids []uint32) ([]SelectedProcedure, error) {
 		return nil, errors.New("selection is absent from the current symbol catalog")
 	}
 	return result, nil
+}
+
+// SelectUnits expands exact Pascal unit names against the complete catalog,
+// including aliases. It never truncates to a page or silently skips a unit.
+// The final selection still requires the ordinary code/ABI preflight.
+func (c Catalog) SelectUnits(units []string) ([]SelectedProcedure, error) {
+	if len(units) == 0 || len(units) > MaxSelectedProcedures {
+		return nil, errors.New("select 1..256 exact Pascal units")
+	}
+	for i, unit := range units {
+		if strings.TrimSpace(unit) == "" || len(unit) > 1024 || !utf8.ValidString(unit) || strings.ContainsFunc(unit, unicode.IsControl) {
+			return nil, errors.New("invalid Pascal unit selection")
+		}
+		for _, previous := range units[:i] {
+			if strings.EqualFold(previous, unit) {
+				return nil, errors.New("duplicate Pascal unit selection")
+			}
+		}
+		if len(c.Match([]string{unit}, nil)) == 0 {
+			return nil, fmt.Errorf("Pascal unit absent from the current symbol catalog: %s", unit)
+		}
+	}
+	matched := c.Match(units, nil)
+	ids := make([]uint32, 0, len(matched))
+	for _, p := range matched {
+		ids = append(ids, p.ID)
+	}
+	if len(ids) > MaxSelectedProcedures {
+		return nil, fmt.Errorf("units contain %d procedures; selection limit is %d; choose fewer units or explicit IDs", len(ids), MaxSelectedProcedures)
+	}
+	return c.Select(ids)
 }
 
 func (c Catalog) Match(units, names []string) []SelectedProcedure {

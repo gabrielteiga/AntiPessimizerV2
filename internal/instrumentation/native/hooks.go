@@ -26,7 +26,8 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 	if _, err := io.ReadFull(conn, offer[:]); err != nil {
 		return fmt.Errorf("hook allocation offer: %w", err)
 	}
-	largePlans := string(offer[:8]) == "APHOOK8\x00"
+	expandedSelection := string(offer[:8]) == "APHOOK9\x00"
+	largePlans := expandedSelection || string(offer[:8]) == "APHOOK8\x00"
 	typedScopes := largePlans || string(offer[:8]) == "APHOOK7\x00"
 	delphiScopes := typedScopes || string(offer[:8]) == "APHOOK6\x00"
 	resuming := delphiScopes || string(offer[:8]) == "APHOOK5\x00"
@@ -45,6 +46,9 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 	stride := uint32(hookStride)
 	if largePlans {
 		stride = largeHookStride
+	}
+	if !expandedSelection && count > 64 {
+		return errors.New("update the native adapter DLL: selections larger than 64 require APHOOK9")
 	}
 	codeCapacity := count * stride
 	if count != uint32(len(procedures)) || capacity != codeCapacity && capacity != codeCapacity+count*3*12 || allocation == 0 || allocation%4096 != 0 || allocation >= maxAddress || uint64(capacity) >= maxAddress-allocation || enter == exit {

@@ -27,6 +27,7 @@ type InstrumentOptions struct {
 	Image      string   `json:"image"`
 	ImageID    string   `json:"image_id"`
 	Procedures []uint32 `json:"procedure_ids"`
+	Units      []string `json:"units,omitempty"`
 	Args       []string `json:"args,omitempty"`
 	TimeoutMS  int64    `json:"timeout_ms,omitempty"`
 }
@@ -73,7 +74,15 @@ func (c *Controller) StartInstrumented(parent context.Context, o InstrumentOptio
 	if err = catalog.RequireImage(o.ImageID); err != nil {
 		return err
 	}
-	selected, err := catalog.Select(o.Procedures)
+	if len(o.Procedures) != 0 && len(o.Units) != 0 {
+		return errors.New("choose procedure IDs or exact Pascal units, exclusively")
+	}
+	var selected []native.SelectedProcedure
+	if len(o.Units) != 0 {
+		selected, err = catalog.SelectUnits(o.Units)
+	} else {
+		selected, err = catalog.Select(o.Procedures)
+	}
 	if err != nil {
 		return err
 	}

@@ -75,7 +75,7 @@ AP_API DWORD WINAPI APNativeBootstrap(void *request) {
     unsigned char *data=request;
     if(memcmp(data,"APBOOT1",8)) return ERROR_INVALID_DATA;
     uint32_t size=hook_u32(data+8),count=hook_u32(data+12),capacity=hook_u32(data+16),chars=hook_u32(data+20);
-    if(!count || count>AP_HOOK_LIMIT || !chars || chars>512 || size!=32+count*12+chars*2 || size>4096 || hook_u64(data+24)) return ERROR_INVALID_DATA;
+    if(!count || count>AP_HOOK_LIMIT || !chars || chars>512 || size!=32+count*12+chars*2 || size>8192 || hook_u64(data+24)) return ERROR_INVALID_DATA;
     APHookProcedure selected[AP_HOOK_LIMIT];
     for(uint32_t i=0;i<count;i++) selected[i]=(APHookProcedure){hook_u32(data+32+i*12),hook_u32(data+36+i*12),hook_u32(data+40+i*12)};
     wchar_t *pipe=(wchar_t *)(data+32+count*12);

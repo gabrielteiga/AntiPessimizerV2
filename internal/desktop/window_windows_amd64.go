@@ -88,6 +88,7 @@ type paint struct {
 type update struct {
 	MetricComparison *instrumentation.Comparison
 	CatalogPath      string
+	CatalogUnit      string
 	Metrics          []instrumentation.Record
 	Live             bool
 	Comparison       *report.Comparison
@@ -108,6 +109,8 @@ type window struct {
 	imagePath, symbolSearch, programArgs, launchTimeout, procedureList, modeButton uintptr
 	catalog                                                                        *service.CatalogPage
 	catalogPath                                                                    string
+	catalogUnit                                                                    string
+	wholeUnit                                                                      uintptr
 	followPath                                                                     string
 	followCancel                                                                   context.CancelFunc
 	metricUpdates                                                                  chan metricFollowUpdate
@@ -339,6 +342,7 @@ func (a *window) open() error {
 	a.modeButton = child(a.hwnd, "BUTTON", "Chamadas", 0x10000, 18)
 	a.imagePath = child(a.hwnd, "EDIT", "", 0x00810080, 19)
 	a.symbolSearch = child(a.hwnd, "EDIT", "", 0x00810080, 20)
+	a.wholeUnit = child(a.hwnd, "BUTTON", "Unidade inteira", 0x10003, 26)
 	a.programArgs = child(a.hwnd, "EDIT", "", 0x00810080, 21)
 	a.launchTimeout = child(a.hwnd, "EDIT", "60", 0x00810080, 22)
 	a.procedureList = child(a.hwnd, "LISTBOX", "", 0x00a10801, 23)
@@ -405,6 +409,9 @@ func (a *window) applyPreferences() {
 	text(a.imagePath, a.preferences.ImagePath)
 	text(a.filter, a.preferences.ResultFilter)
 	text(a.symbolSearch, a.preferences.SymbolFilter)
+	if a.preferences.WholeUnit {
+		send.Call(a.wholeUnit, 0xf1, 1, 0)
+	}
 	a.model.MetricUnit = a.preferences.TimeUnit.normalized()
 	for index, unit := range []MetricTimeUnit{Nanoseconds, Microseconds, Milliseconds, Seconds, ClockTicks} {
 		if unit == a.model.MetricUnit {
@@ -418,7 +425,8 @@ func (a *window) persistPreferences() {
 		return
 	}
 	a.preferencesSaved = true
-	p := Preferences{Version: 1, ImagePath: value(a.imagePath), ResultFilter: value(a.filter), SymbolFilter: value(a.symbolSearch), TimeUnit: Milliseconds}
+	whole, _, _ := send.Call(a.wholeUnit, 0xf0, 0, 0)
+	p := Preferences{WholeUnit: whole == 1, Version: 1, ImagePath: value(a.imagePath), ResultFilter: value(a.filter), SymbolFilter: value(a.symbolSearch), TimeUnit: Milliseconds}
 	index, _, _ := send.Call(a.metricUnits, 0x147, 0, 0)
 	units := []MetricTimeUnit{Nanoseconds, Microseconds, Milliseconds, Seconds, ClockTicks}
 	if index < uintptr(len(units)) {
@@ -462,7 +470,8 @@ func (a *window) layout() {
 	pos(a.compare, w-155, h-52, 140, 28)
 	if a.instrumentMode {
 		pos(a.imagePath, 12, 12, w-710, 28)
-		pos(a.symbolSearch, 12, 90, w/2-24, 28)
+		pos(a.symbolSearch, 12, 90, w/2-164, 28)
+		pos(a.wholeUnit, w/2-140, 90, 135, 28)
 		pos(a.programArgs, w/2, 90, w/2-150, 28)
 		pos(a.launchTimeout, w-290, 90, 125, 28)
 		pos(a.clearButton, w-155, 90, 140, 28)
@@ -483,7 +492,7 @@ func (a *window) request(q service.Request) {
 	go func() {
 		defer a.wg.Done()
 		r, err := service.Call(a.ctx, a.address, q)
-		a.send(update{Response: r, Error: err, Live: true, CatalogPath: q.Catalog.Image})
+		a.send(update{Response: r, Error: err, Live: true, CatalogPath: q.Catalog.Image, CatalogUnit: q.Catalog.Unit})
 	}()
 }
 func (a *window) poll() {
@@ -831,6 +840,7 @@ func (a *window) tick() {
 			if page := u.Response.Catalog; page != nil && a.instrumentMode && u.CatalogPath == value(a.imagePath) {
 				a.catalog = page
 				a.catalogPath = u.CatalogPath
+				a.catalogUnit = u.CatalogUnit
 				send.Call(a.procedureList, 0x184, 0, 0)
 				for _, procedure := range page.Procedures {
 					label := procedure.Unit + " | " + procedure.Name
@@ -849,6 +859,9 @@ func (a *window) tick() {
 						}
 					}
 					send.Call(a.procedureList, 0x180, 0, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(label))))
+				}
+				if u.CatalogUnit != "" && page.Total <= service.MaxInstrumentedProcedures {
+					send.Call(a.procedureList, 0x185, 1, ^uintptr(0))
 				}
 				text(a.details, fmt.Sprintf("%d de %d procedimentos; %d de %d aliases. Cada intervalo é medido uma vez. Selecione até %d com Ctrl/Shift. Iniciar lança um novo processo; Parar encerra esse processo.", len(page.Procedures), page.Total, len(page.Aliases), page.AliasTotal, service.MaxInstrumentedProcedures))
 			}
@@ -1059,7 +1072,7 @@ func (a *window) configureMode() {
 		visible = 5
 		sampling = 0
 	}
-	for _, h := range []uintptr{a.imagePath, a.symbolSearch, a.programArgs, a.launchTimeout, a.procedureList, a.clearButton} {
+	for _, h := range []uintptr{a.imagePath, a.symbolSearch, a.wholeUnit, a.programArgs, a.launchTimeout, a.procedureList, a.clearButton} {
 		user.NewProc("ShowWindow").Call(h, visible)
 	}
 	for _, h := range []uintptr{a.processes, a.demo} {
@@ -1077,40 +1090,74 @@ func (a *window) configureMode() {
 }
 func (a *window) instrumentCommand(id int) {
 	path := value(a.imagePath)
+	whole, _, _ := send.Call(a.wholeUnit, 0xf0, 0, 0)
+	unitMode := whole == 1
+	unitName := strings.TrimSpace(value(a.symbolSearch))
 	if id == 2 {
-		a.request(service.Request{Op: "instrument-catalog", Catalog: service.CatalogQuery{Image: path, Text: value(a.symbolSearch), Limit: 200, Check: true}})
+		q := service.CatalogQuery{Image: path, Text: value(a.symbolSearch), Limit: 200, Check: true}
+		if unitMode {
+			if unitName == "" {
+				text(a.status, "Informe o nome exato da unidade Pascal e leia os símbolos.")
+				return
+			}
+			q.Text = ""
+			q.Unit = unitName
+			q.Limit = service.MaxInstrumentedProcedures
+		}
+		a.request(service.Request{Op: "instrument-catalog", Catalog: q})
 		return
 	}
 	if a.catalog == nil || a.catalogPath != path {
 		text(a.status, "Leia os símbolos do EXE antes de iniciar.")
 		return
 	}
-	count, _, _ := send.Call(a.procedureList, 0x190, 0, 0)
-	if count < 1 || count > service.MaxInstrumentedProcedures {
-		text(a.status, fmt.Sprintf("Selecione de 1 a %d procedimentos (Ctrl/Shift).", service.MaxInstrumentedProcedures))
-		return
-	}
-	var indexes [service.MaxInstrumentedProcedures]int32
-	n, _, _ := send.Call(a.procedureList, 0x191, count, uintptr(unsafe.Pointer(&indexes[0])))
-	if n != count {
-		text(a.status, "Falha ao ler seleção de procedimentos.")
-		return
-	}
-	ids := make([]uint32, 0, count)
-	for _, index := range indexes[:count] {
-		if index < 0 || int(index) >= len(a.catalog.Procedures) {
-			text(a.status, "Seleção inválida; leia os símbolos novamente.")
+	var ids []uint32
+	var units []string
+	if unitMode {
+		if unitName == "" || !strings.EqualFold(unitName, a.catalogUnit) {
+			text(a.status, "Leia os símbolos da unidade exata antes de iniciar.")
 			return
 		}
-		procedureID := a.catalog.Procedures[index].ID
+		if a.catalog.Total < 1 || a.catalog.Total > service.MaxInstrumentedProcedures || len(a.catalog.Procedures) != a.catalog.Total {
+			text(a.status, fmt.Sprintf("Unidade contém %d procedimentos; escolha uma unidade com 1 a %d ou IDs individuais.", a.catalog.Total, service.MaxInstrumentedProcedures))
+			return
+		}
 		for _, check := range a.catalog.Checks {
-			if check.ID == procedureID && !check.PlanSupported {
-				text(a.status, "Procedimento não suportado: "+check.Reason)
+			if !check.PlanSupported {
+				text(a.status, "Unidade contém procedimento não suportado: "+check.Reason)
 				return
 			}
 		}
-		ids = append(ids, procedureID)
+		units = []string{unitName}
+	} else {
+		count, _, _ := send.Call(a.procedureList, 0x190, 0, 0)
+		if count < 1 || count > service.MaxInstrumentedProcedures {
+			text(a.status, fmt.Sprintf("Selecione de 1 a %d procedimentos (Ctrl/Shift).", service.MaxInstrumentedProcedures))
+			return
+		}
+		var indexes [service.MaxInstrumentedProcedures]int32
+		n, _, _ := send.Call(a.procedureList, 0x191, count, uintptr(unsafe.Pointer(&indexes[0])))
+		if n != count {
+			text(a.status, "Falha ao ler seleção de procedimentos.")
+			return
+		}
+
+		for _, index := range indexes[:count] {
+			if index < 0 || int(index) >= len(a.catalog.Procedures) {
+				text(a.status, "Seleção inválida; leia os símbolos novamente.")
+				return
+			}
+			procedureID := a.catalog.Procedures[index].ID
+			for _, check := range a.catalog.Checks {
+				if check.ID == procedureID && !check.PlanSupported {
+					text(a.status, "Procedimento não suportado: "+check.Reason)
+					return
+				}
+			}
+			ids = append(ids, procedureID)
+		}
 	}
+
 	seconds, err := strconv.ParseInt(value(a.launchTimeout), 10, 64)
 	if err != nil || seconds < 1 || seconds > 86400 {
 		text(a.status, "Prazo de captura deve ser de 1 a 86400 segundos.")
@@ -1124,5 +1171,5 @@ func (a *window) instrumentCommand(id int) {
 	a.offline.Store(false)
 	a.model = Model{}
 	a.lastBuild = ""
-	a.request(service.Request{Op: "instrument-start", Instrument: service.InstrumentOptions{Image: path, ImageID: a.catalog.ImageID, CatalogID: a.catalog.CatalogID, Procedures: ids, Args: args[1:], TimeoutMS: seconds * 1000}})
+	a.request(service.Request{Op: "instrument-start", Instrument: service.InstrumentOptions{Image: path, ImageID: a.catalog.ImageID, CatalogID: a.catalog.CatalogID, Procedures: ids, Units: units, Args: args[1:], TimeoutMS: seconds * 1000}})
 }
