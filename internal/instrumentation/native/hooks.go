@@ -34,7 +34,10 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 	capacity, count := u32(offer[24:]), u32(offer[28:])
 	enter, exit := u64(offer[32:]), u64(offer[40:])
 	const maxAddress = uint64(1) << 47
-	if count != uint32(len(procedures)) || capacity != count*hookStride || allocation == 0 || allocation%4096 != 0 || allocation >= maxAddress || uint64(capacity) >= maxAddress-allocation || enter == exit {
+	// New adapters reserve the runtime table after all complete code strides.
+	// Preserve the bounded layout of older (at most 16-hook) adapters as well.
+	codeCapacity := count * hookStride
+	if count != uint32(len(procedures)) || capacity != codeCapacity && capacity != codeCapacity+count*3*12 || allocation == 0 || allocation%4096 != 0 || allocation >= maxAddress || uint64(capacity) >= maxAddress-allocation || enter == exit {
 		return errors.New("invalid native hook allocation")
 	}
 	var cleanup uint64
@@ -56,8 +59,8 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 	}
 	plans := make([]selectedPlan, 0, count)
 	// A whole stride per procedure keeps its relative RVAs independent. The
-	// final runtime table follows every code image and is relative to allocation.
-	tableOffset := count*hookStride - uint32(int(count)*per*12)
+	// final runtime table follows code and is relative to allocation.
+	tableOffset := capacity - uint32(int(count)*per*12)
 	payload := make([]byte, capacity)
 	for i, proc := range procedures {
 		size := u32(sizes[i*4:])

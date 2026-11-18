@@ -186,7 +186,9 @@ alvos dos saltos e igualdade com o código carregado antes de escrever. Seleçã
 limitada a 64 procedimentos, 8192 bytes por plano e fonte de até 4096 bytes.
 
 O teste de seleção completa instala simultaneamente 64 métodos de seis bytes,
-com suas 192 entradas de unwind, em uma alocação de probes limitada a 512 KiB.
+com suas 192 entradas de unwind, usando 512 KiB de strides e até 4 KiB adicionais
+para a tabela (incluindo arredondamento de página). A tabela não ocupa o espaço
+do último método; um teste também inclui uma função final expandida acima de 6 KiB.
 Três threads executam duas chamadas por método: 192 linhas distintas e 384
 chamadas exatas, com todos os valores retornados preservados. O limite dos rings
 e o limite de 4096 linhas por época não aumentam junto da seleção. Seleções acima

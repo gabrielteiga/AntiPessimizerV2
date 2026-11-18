@@ -42,5 +42,5 @@ func TestNativeProducerInstruments64ProceduresTogether(t *testing.T) {
 			t.Fatal("selection omitted a procedure/thread", id, seen[id])
 		}
 	}
-	t.Log("64 six-byte procedures installed together: all return values preserved, 192 distinct rows and 384 exact calls; bounded 512 KiB probe allocation")
+	t.Log("64 six-byte procedures installed together: all return values preserved, 192 distinct rows and 384 exact calls; 512 KiB code strides plus a separate bounded runtime table")
 }

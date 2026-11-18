@@ -78,12 +78,17 @@ func TestHookExchangeIncludesExactSourceAndCompleteUnwindTable(t *testing.T) {
 func TestHookExchangeSupports64ProcedureRuntimeTables(t *testing.T) {
 	const count = 64
 	image := testfixture.Image(false)
+	image = append(image, make([]byte, 0x2000-0x200)...)
 	binary.LittleEndian.PutUint32(image[128+24+60:], 0x200)
+	const section = 128 + 24 + 240
+	binary.LittleEndian.PutUint32(image[section+8:], 0x2000)
+	binary.LittleEndian.PutUint32(image[section+16:], 0x2000)
 	offer := make([]byte, 56+count*4+1)
 	copy(offer, "APHOOK2\x00")
 	binary.LittleEndian.PutUint64(offer[8:], 0x100000)
 	binary.LittleEndian.PutUint64(offer[16:], 0x110000)
-	binary.LittleEndian.PutUint32(offer[24:], count*8192)
+	const capacity = count*8192 + count*3*12
+	binary.LittleEndian.PutUint32(offer[24:], capacity)
 	binary.LittleEndian.PutUint32(offer[28:], count)
 	binary.LittleEndian.PutUint64(offer[32:], 0x200000)
 	binary.LittleEndian.PutUint64(offer[40:], 0x200100)
@@ -94,15 +99,22 @@ func TestHookExchangeSupports64ProcedureRuntimeTables(t *testing.T) {
 		binary.LittleEndian.PutUint32(offer[56+i*4:], 6)
 		procedures = append(procedures, Procedure{uint32(i + 1), 0x5020 + uint32(i)*6})
 	}
+	// A valid large final function expands to >6 KiB. Its full 8 KiB stride
+	// must remain available even with 192 runtime entries after the code.
+	last := 0x220 + 63*6
+	copy(image[last:], bytes.Repeat([]byte{0x75, 0}, 500)) // JNE next instruction
+	copy(image[last+1000:], bytes.Repeat([]byte{0x90}, 3095))
+	image[last+4095] = 0xc3
+	binary.LittleEndian.PutUint32(offer[56+63*4:], 4096)
 	offer[len(offer)-1] = 1
 	stream := &hookStream{in: bytes.NewReader(offer)}
 	if err := installHooks(stream, image, procedures); err != nil {
 		t.Fatal(err)
 	}
 	data := stream.out.Bytes()
-	header, payload := data[1:25], data[25:25+count*8192]
+	header, payload := data[1:25], data[25:25+capacity]
 	table := binary.LittleEndian.Uint32(header[16:])
-	if binary.LittleEndian.Uint32(header[8:]) != count || binary.LittleEndian.Uint32(header[20:]) != count*3 {
+	if binary.LittleEndian.Uint32(header[8:]) != count || binary.LittleEndian.Uint32(header[20:]) != count*3 || table != count*8192 {
 		t.Fatal("full catalog lost runtime entries")
 	}
 	var end uint32
