@@ -95,6 +95,30 @@ static BOOL hook_allocate(void) {
     return FALSE;
 }
 static EXCEPTION_DISPOSITION WINAPI function_unwind(PEXCEPTION_RECORD,PVOID,PCONTEXT,PDISPATCHER_CONTEXT);
+static BOOL hook_forward_info(const unsigned char *data,uint32_t available,RUNTIME_FUNCTION *body,uint32_t index,const unsigned char *copied_info,uint32_t info_bytes) {
+    if(available<8)return FALSE;
+    uint32_t kind=hook_u32(data+4);
+    if(!kind)return TRUE;
+    if(kind!=1 || available<36)return FALSE;
+    unsigned char *image=(unsigned char *)GetModuleHandleW(NULL);
+    IMAGE_NT_HEADERS64 *nt=(IMAGE_NT_HEADERS64 *)(image+((IMAGE_DOS_HEADER *)image)->e_lfanew);
+    uint32_t image_size=nt->OptionalHeader.SizeOfImage;
+    uint32_t rva=hook_u32(data+8),size=hook_u32(data+12),entry_rva=hook_u32(data+16),info_rva=hook_u32(data+20),handler_rva=hook_u32(data+24),handler_data=hook_u32(data+28),count=hook_u32(data+32);
+    if(rva!=hooks.selected[index].rva || size!=hooks.selected[index].size || (uint64_t)entry_rva+12>image_size || (uint64_t)info_rva+info_bytes+4>image_size || info_rva%4 || !handler_rva || handler_rva>=image_size || handler_data!=(uint64_t)info_rva+info_bytes+4 || !count || count>4097 || (uint64_t)36+count*4>available)return FALSE;
+    RUNTIME_FUNCTION *original=(RUNTIME_FUNCTION *)(image+entry_rva);
+    const unsigned char *info=image+info_rva;
+    if(original->BeginAddress!=rva || original->EndAddress!=(uint64_t)rva+size || original->UnwindData!=info_rva || info[0]!=17 || memcmp(info+1,copied_info+1,info_bytes-1) || hook_u32(info+info_bytes)!=handler_rva)return FALSE;
+    MEMORY_BASIC_INFORMATION memory;
+    if(!VirtualQuery(image+handler_rva,&memory,sizeof(memory)) || memory.AllocationBase!=image || memory.State!=MEM_COMMIT || (memory.Protect&0xff)!=PAGE_EXECUTE_READ || (memory.Protect&PAGE_GUARD))return FALSE;
+    uint32_t previous_source=0,previous_clone=0,delta=0,body_size=body->EndAddress-body->BeginAddress;
+    if(body_size<size)return FALSE;
+    for(uint32_t i=0;i<count;i++) {
+        uint32_t source=data[36+i*4]|((uint32_t)data[37+i*4]<<8),clone=data[38+i*4]|((uint32_t)data[39+i*4]<<8);
+        if((!i && (source || clone)) || (i && (source<=previous_source || clone<=previous_clone)) || source>size || clone>body_size || clone<source || clone-source<delta)return FALSE;
+        previous_source=source;previous_clone=clone;delta=clone-source;
+    }
+    return delta==body_size-size;
+}
 static BOOL hook_exchange(HANDLE pipe,BOOL general) {
     if(!hook_allocate()) return FALSE;
     unsigned char offer[56]={'A','P','H','O','O','K','1',0};
@@ -102,7 +126,7 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
     hook_put64(offer+16,(uintptr_t)hooks.memory);
     hook_put32(offer+24,hooks.bytes); hook_put32(offer+28,hooks.count);
     hook_put64(offer+32,(uintptr_t)APNativeEnter); hook_put64(offer+40,(uintptr_t)APNativeExit);
-    if(general){offer[6]='2';hook_put64(offer+48,(uintptr_t)function_unwind);}
+    if(general){offer[6]='3';hook_put64(offer+48,(uintptr_t)function_unwind);}
     if(!hook_io(pipe,offer,general?56:48,TRUE)) return FALSE;
     for(uint32_t i=0;i<hooks.count;i++) {
         unsigned char extent[4]; hook_put32(extent,hooks.selected[i].size);
@@ -122,9 +146,11 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
         unsigned char *info=hooks.memory+f->UnwindData;
         if(general && i%per==1) {
             uint32_t extra=4+((info[2]+1)&~1)*2;
-            if(info[0]!=17 || (uint64_t)f->UnwindData+extra+8>table) return FALSE;
+            if(info[0]!=17 || (uint64_t)f->UnwindData+extra+12>table) return FALSE;
             uint32_t handler=hook_u32(info+extra);
             if((uint64_t)handler+14>table || memcmp(hooks.memory+handler,"\xff\x25\0\0\0\0",6) || hook_u64(hooks.memory+handler+6)!=(uintptr_t)function_unwind || hook_u32(info+extra+4)!=hooks.selected[i/per].id) return FALSE;
+            uint32_t data_at=f->UnwindData+extra+4;
+            if(!hook_forward_info(hooks.memory+data_at,table-data_at,f,i/per,info,extra))return FALSE;
         } else if(info[0]!=1 || info[1]!=7 || info[2]!=2 || info[3]!=0 || info[4]!=7 || info[5]!=1 || info[6]!=25 || info[7]!=0) return FALSE;
         previous=f->EndAddress;
     }

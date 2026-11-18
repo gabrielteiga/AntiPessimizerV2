@@ -604,3 +604,23 @@ conferindo preservação na entrada e saída com arredondamento não padrão. Se
 caller nativo restaura o estado original antes de retornar ao Go. O alvo C
 instrumentado confere setter/getter nos quatro modos de arredondamento com flags
 de status predefinidos: 44 chamadas por método/thread em três threads.
+
+
+## Cleanup UHANDLER-only original
+
+BuildPEFunction aceita UNWIND_INFO v1 com UNW_FLAG_UHANDLER sem EHANDLER.
+Preserva os códigos/prólogo verificados, referencia os metadados privados originais
+e traduz os endereços de execução ao chamar o handler da imagem. O mapa compacto
+leva em conta branches e RETs expandidos antes de regiões protegidas. A imagem em
+disco e os dados privados de linguagem não são reescritos.
+
+A contabilidade registra o abandono confirmado antes do cleanup, como o caminho
+DHUnwindExceptionBlock de CoreProfiler. Chamadas feitas pela própria limpeza são
+medidas; uma exceção nessa limpeza não duplica o fechamento do frame abandonado.
+O teste Windows seleciona três métodos em três threads e exige retornos normais,
+saída antecipada sem limpeza, dados/PCs originais observados pelo handler, cleanup
+exatamente uma vez e captura sem frames abertos tanto com quanto sem colisão.
+
+Este suporte não inclui busca/retomada EHANDLER, handlers combinados EH/UH ou
+UNW_FLAG_CHAININFO. Também não certifica todos os handlers privados Delphi:
+a evidência reproduzível deste incremento usa C/assembly e __C_specific_handler.

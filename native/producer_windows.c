@@ -270,13 +270,55 @@ static void record(uint32_t type,uint32_t procedure,uint32_t depth){
     }
     SetLastError(error);
 }
-static EXCEPTION_DISPOSITION WINAPI function_unwind(PEXCEPTION_RECORD exception,PVOID frame,PCONTEXT context,PDISPATCHER_CONTEXT dispatcher) {
-    (void)frame; (void)context;
-    if((exception->ExceptionFlags&EXCEPTION_UNWINDING) && !(exception->ExceptionFlags&EXCEPTION_TARGET_UNWIND) && dispatcher && dispatcher->HandlerData) {
-        uint32_t id=*(const uint32_t *)dispatcher->HandlerData;
-        record(AP_UNWIND_EXIT,id,0);
+static DWORD64 forward_pc(DWORD64 pc,DWORD64 clone,DWORD64 source,uint32_t source_size,uint32_t clone_size,const unsigned char *data,BOOL reverse) {
+    DWORD64 start=reverse?source:clone;
+    uint32_t extent=reverse?source_size:clone_size;
+    if(pc<start || pc-start>extent)return pc;
+    uint32_t offset=(uint32_t)(pc-start),delta=0,count=hook_u32(data+32);
+    for(uint32_t i=0;i<count;i++) {
+        uint32_t original=data[36+i*4]|((uint32_t)data[37+i*4]<<8),relocated=data[38+i*4]|((uint32_t)data[39+i*4]<<8);
+        if((reverse?original:relocated)>offset)break;
+        delta=relocated-original;
     }
-    return ExceptionContinueSearch;
+    return reverse?clone+offset+delta:source+offset-delta;
+}
+static EXCEPTION_DISPOSITION WINAPI function_unwind(PEXCEPTION_RECORD exception,PVOID frame,PCONTEXT context,PDISPATCHER_CONTEXT dispatcher) {
+    if(!dispatcher || !dispatcher->HandlerData)return ExceptionContinueSearch;
+    const unsigned char *data=dispatcher->HandlerData;
+    /* Close at the confirmed unwind boundary, before language cleanup, as in
+       CoreProfiler's exception hook. A collided unwind repeats the same frame;
+       its initial pass has already reported the exit. */
+    if((exception->ExceptionFlags&EXCEPTION_UNWINDING) && !(exception->ExceptionFlags&(EXCEPTION_TARGET_UNWIND|EXCEPTION_COLLIDED_UNWIND)))record(AP_UNWIND_EXIT,hook_u32(data),0);
+    if(!hook_u32(data+4))return ExceptionContinueSearch;
+    DWORD64 image=(DWORD64)(uintptr_t)GetModuleHandleW(NULL),source=image+hook_u32(data+8),clone=dispatcher->ImageBase+dispatcher->FunctionEntry->BeginAddress;
+    uint32_t source_size=hook_u32(data+12),clone_size=dispatcher->FunctionEntry->EndAddress-dispatcher->FunctionEntry->BeginAddress;
+    DISPATCHER_CONTEXT saved=*dispatcher;
+    union {uintptr_t address;PEXCEPTION_ROUTINE routine;} handler;
+    handler.address=(uintptr_t)(image+hook_u32(data+24));
+    dispatcher->ControlPc=forward_pc(saved.ControlPc,clone,source,source_size,clone_size,data,FALSE);
+    dispatcher->TargetIp=forward_pc(saved.TargetIp,clone,source,source_size,clone_size,data,FALSE);
+    dispatcher->ImageBase=image;
+    dispatcher->FunctionEntry=(RUNTIME_FUNCTION *)(uintptr_t)(image+hook_u32(data+16));
+    dispatcher->LanguageHandler=handler.routine;
+    dispatcher->HandlerData=(void *)(uintptr_t)(image+hook_u32(data+28));
+    if(context)context->Rip=forward_pc(context->Rip,clone,source,source_size,clone_size,data,FALSE);
+    if(dispatcher->ContextRecord && dispatcher->ContextRecord!=context)dispatcher->ContextRecord->Rip=forward_pc(dispatcher->ContextRecord->Rip,clone,source,source_size,clone_size,data,FALSE);
+    /* Pass the actual dispatcher so ScopeIndex changes remain visible if a
+       cleanup raises and Windows performs a collided unwind through this call.
+       Preserve a collided handler's replacement context rather than restoring
+       fields from the abandoned pass. */
+    EXCEPTION_DISPOSITION result=handler.routine(exception,frame,context,dispatcher);
+    if(result!=ExceptionCollidedUnwind) {
+        if(context)context->Rip=forward_pc(context->Rip,clone,source,source_size,clone_size,data,TRUE);
+        if(dispatcher->ContextRecord && dispatcher->ContextRecord!=context)dispatcher->ContextRecord->Rip=forward_pc(dispatcher->ContextRecord->Rip,clone,source,source_size,clone_size,data,TRUE);
+        dispatcher->ControlPc=saved.ControlPc;
+        dispatcher->TargetIp=saved.TargetIp;
+        dispatcher->ImageBase=saved.ImageBase;
+        dispatcher->FunctionEntry=saved.FunctionEntry;
+        dispatcher->LanguageHandler=saved.LanguageHandler;
+        dispatcher->HandlerData=saved.HandlerData;
+    }
+    return result;
 }
 AP_API void APNativeEnter(uint32_t procedure) { if (procedure) record(AP_ENTER, procedure, 0); else { DWORD e=GetLastError(); if(load32(&state.running)) lost(); SetLastError(e); } }
 AP_API void APNativeExit(uint32_t procedure) { if (procedure) record(AP_EXIT, procedure, 0); else { DWORD e=GetLastError(); if(load32(&state.running)) lost(); SetLastError(e); } }
