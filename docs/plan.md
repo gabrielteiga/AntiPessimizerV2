@@ -20,7 +20,7 @@ este documento organiza as entregas e os critérios que ainda faltam.
 | Pré-validação de seleção | Imagem/tabela PE preparadas uma vez por lote; mesmo planejador da instalação, relatório por ID no catálogo/CLI e rejeição antes de abrir o processo | Testes de instruções/handlers não suportados, imagem alterada, histórico preservado e seleção pela janela |
 | Clear nativo | Barreira entre todos os produtores, drenagem anterior ao marcador, reinício dos frames abertos, ACK após publicação | PR #22: duas limpezas com seis frames abertos em três threads; recursão/SEH posteriores e RPC real |
 | Métodos escalares sem frame | Aritmética inteira/condições/conversões SSE e home slots Win64 limitados | Programa Windows exige seis argumentos, retorno inteiro/double e contagens em três threads |
-| Operações de memória | MOVS/STOS em frames verificados; LOCK em operações de memória permitidas, XADD e CMPXCHG | Testes de bytes/contagens, zero/remainder, sucesso/falha de CAS, contador compartilhado e access violation real em REP |
+| Operações de memória | MOVS/STOS em frames verificados; LOCK em operações de memória permitidas, XADD, CMPXCHG e CMPXCHG16B com frame verificado | Testes de bytes/contagens, zero/remainder, sucesso/falha de CAS, contador compartilhado de 64/128 bits, access violation em REP e operandos CAS nulos/desalinhados |
 | Identidade nativa de frames | ID/RSP de entrada em pilha limitada por thread; fechamento por frame físico durante unwind repetido | ABI nativa preserva argumentos e slot original; AV em RBP com bias e demais testes de recursão/Clear/collision |
 | Cleanup original | Encaminhamento UHANDLER-only com PCs e metadados de origem; protocolo exige DLL compatível | Alvo C/assembly cobre retorno, saída antecipada, limpeza excepcional e exceção na própria limpeza; não comprova o compilador Delphi |
 | Controle/status SSE | MXCSR salvo/restaurado ao redor dos helpers; LDMXCSR/STMXCSR com validação normal de memória | Helper nativo clobbera status; setter/getter em três threads preservam todos os modos de arredondamento e 44 chamadas por método/thread |
@@ -50,7 +50,7 @@ sem converter esse valor em chamadas ou duração por chamada.
    unwind encadeado/versões adicionais, tail calls e instruções não suportadas;
    funções menores que cinco bytes e formatos TD32 adicionais continuam rejeitados.
 3. **Compatibilidade Delphi demonstrada.** As fixtures de integração atuais são
-   C/GCC para o fluxo completo. Um ensaio separado compara dez rotinas conferidas
+   C/GCC para o fluxo completo. Um ensaio separado compara doze rotinas conferidas
    da DLL Delphi original com seus corpos relocados; não inclui TDS. Um ensaio separado exige captura/retomada/reraise com o handler real da mesma DLL, inicializando seu RTL num filho próprio; ele cobre um construtor e a worker real com catch tipado Exception, sem certificar uma versão inteira do compilador.
    Exigir evidência reproduzível
    para prólogos, métodos, exceções e bibliotecas efetivamente suportados. A fixture

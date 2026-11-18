@@ -93,7 +93,7 @@ func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, pro
 			}
 			d.absolute = target
 		default:
-			if !leafOperations[inst.Op.String()] && !scalarOperations[inst.Op.String()] && !(framed && frameOperations[inst.Op.String()]) && !(nativeFunction && (atomicOperations[inst.Op.String()] || mxcsrOperations[inst.Op.String()] || framed && stringOperations[inst.Op.String()])) {
+			if !leafOperations[inst.Op.String()] && !scalarOperations[inst.Op.String()] && !(framed && frameOperations[inst.Op.String()]) && !(nativeFunction && (atomicOperations[inst.Op.String()] || mxcsrOperations[inst.Op.String()] || framed && (stringOperations[inst.Op.String()] || wideAtomicOperation(inst)))) {
 				return fail("unsupported operation: " + inst.Op.String())
 			}
 		}
