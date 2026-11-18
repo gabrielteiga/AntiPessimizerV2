@@ -75,10 +75,14 @@ Os timestamps e durações são medidos; não são os ticks da fixture sintétic
 - Publicação/consumo usam atomics Windows. Overflow é contado e invalida a
   exatidão; o Go encerra a captura com erro e exporta os totais já concluídos
   como `incomplete=true`, abandonando frames abertos.
-- Publicação sinaliza um evento auto-reset, coalescido enquanto o worker está
-  ativo. Antes de aguardar, ele limpa o indicador e confere novamente todos os
+- No lançamento próprio, uma rajada sinaliza um evento auto-reset a partir de
+  um quarto da capacidade do ring, limitado a 64 eventos e com mínimo de um.
+  Start/End sempre sinalizam; filas menores mantêm o polling já existente.
+  Notificações são coalescidas enquanto o worker está ativo. Antes de aguardar,
+  ele limpa o indicador e confere novamente todos os
   rings, fechando a corrida entre observar fila vazia e receber novos eventos.
-  O caminho cooperativo pode aguardar sem polling; no lançamento próprio, o
+  O caminho cooperativo sinaliza cada publicação e pode aguardar sem polling;
+  no lançamento próprio, o
   timeout de 1 ms mantém a consulta de comandos/heartbeat. Shutdown também
   sinaliza e só fecha o evento após aguardar a thread. Não amplia buffers,
   não espera espaço na fila e não altera timestamps para compensar overhead.

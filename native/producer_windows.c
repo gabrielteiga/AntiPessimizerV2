@@ -38,7 +38,16 @@ static void lost(void) { InterlockedIncrement64(&state.lost); }
 /* Coalesce publication notifications while the worker is active. The worker
  * clears this flag and rescans every ring before waiting, closing the race
  * between an empty scan and a producer publishing its next head. */
-static void notify_drain(void) {
+static void notify_drain(uint64_t queued,uint32_t kind) {
+    /* Owned captures already poll for commands. Preserve cheap small batches
+       and wake early under queue pressure, instead of making every tiny call
+       pay a kernel notification. Cooperative captures have no polling. */
+    if(state.hook_mode==2 && kind!=AP_START && kind!=AP_END) {
+        uint32_t threshold=state.capacity/4;
+        if(!threshold)threshold=1;
+        if(threshold>64)threshold=64;
+        if(queued<threshold)return;
+    }
     if(InterlockedCompareExchange(&state.wake_pending,1,0)==0 && !SetEvent(state.wake)) {
         InterlockedExchange(&state.io_error,(LONG)GetLastError());
         lost();
@@ -239,7 +248,7 @@ static uint64_t enqueue(Ring *r, uint32_t type, uint32_t procedure, uint32_t dep
     if (head-tail >= state.capacity) { lost(); return 0; }
     r->events[head%state.capacity] = (Event){type, (uint32_t)load32(&r->tid), procedure, depth, tick};
     InterlockedExchange64(&r->head, (LONG64)(head+1));
-    notify_drain();
+    notify_drain(head+1-tail,type);
     return tick;
 }
 /* Wait for a reusable slot outside the writer gate: the worker can drain/end
