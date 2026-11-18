@@ -29,9 +29,9 @@ Revisado em 18 de novembro de 2026.
 | Arquivos e histórico | Salvar/replay, acompanhamento de arquivo crescente, filtros, ordenação e histórico limitado; comparação entre sessões de sampling e instrumentação |
 | Ciclos de vida de threads | Encerramento pelo evento real do Windows e reutilização do pool nativo; teste de 300 instâncias sem mesclar contagens |
 | Drenagem cooperativa | Worker ocioso desperta por evento coalescido, com rescan contra despertar perdido; entrega ao vivo conferida antes de encerrar a captura |
-| Evidência do original | Dez rotinas simples (1.000 pares) sem inicialização; ensaio separado inicializa o RTL em filho próprio e exige 100 pares normal/falha de uma rotina com handler Delphi real; sem certificação de Delphi 10.4 |
+| Evidência do original | Dez rotinas simples (1.000 pares) sem inicialização; ensaio separado inicializa o RTL em filho próprio e exige 100 pares normal/falha, 200 chamadas e 100 unwinds de uma rotina com handler Delphi real; sem certificação de Delphi 10.4 |
 | Qualidade | Testes Go/race, integração nativa Windows, ETW, janela Win32, executáveis e empacotamento; merge somente com CI aprovado no commit exato |
-| Carga e recursos | 320 vidas de thread/32.001 chamadas, 32 capturas seguidas com heap/handles/goroutines limitados e perda explícita sob saturação; dados no CI |
+| Carga e recursos | 320 vidas de thread/32.001 chamadas, 32 capturas por bloco, dez repetições com heap/handles/goroutines limitados e zero objetos de depuração restantes e perda explícita sob saturação; dados no CI |
 | Contadores nativos | Leituras atômicas sequencialmente consistentes; CI compara DLLs com/sem RMW no mesmo alvo e runner |
 | Medição de custo | Pares baseline/instrumentado no mesmo alvo C, com checksums e contagens exatas; relatório QPC bruto nos artefatos do CI |
 
@@ -180,7 +180,7 @@ Exige o mesmo binário, seleção completa, método e relógio, sem perdas ou ch
 abertas. Frequências distintas de QPC são convertidas para ns; ticks brutos só
 são comparáveis na GUI com frequências iguais. Duração/carga podem diferir: os
 deltas mostram variação observada, não causalidade ou taxa normalizada. Novas
-capturas usam métricas v2 com a seleção completa, inclusive procedimentos nunca
+capturas nativas usam métricas v3 (compatível com v2 para comparação), com a seleção completa, inclusive procedimentos nunca
 chamados. Arquivos v1 continuam abrindo, mas precisam de nova captura para comparar.
 
 ## Símbolos Delphi

@@ -112,6 +112,7 @@ func (w *cancelAfterSnapshot) Write(b []byte) (int, error) {
 }
 func TestNativeProducerDebugLaunchCancellationIsIncomplete(t *testing.T) {
 	o := launchFixture(t)
+	t.Cleanup(func() { assertNoOwnedDebugObjects(t) })
 	o.Args = []string{"--threads", "2", "--iterations", "10000"}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -261,4 +262,24 @@ func TestNativeProducerPreflightRejectsUnsupportedBeforeStartup(t *testing.T) {
 	if err := Launch(context.Background(), o, &output); err == nil || !strings.Contains(err.Error(), "preflight rejected") || output.Len() != 0 {
 		t.Fatal("unsupported code reached DLL startup", err, output.String())
 	}
+}
+
+func assertNoOwnedDebugObjects(t *testing.T) {
+	t.Helper()
+	handles, err := collectorHandleTypes()
+	if err != nil || handles["DebugObject"] != 0 {
+		t.Fatal("owned debugger state survived session completion", handles, err)
+	}
+}
+func TestNativeProducerStartupFailureReleasesDebuggerObject(t *testing.T) {
+	o := launchFixture(t)
+	// A valid owned EXE has no adapter bootstrap export. The new debuggee exists
+	// before this check fails, so this exercises cleanup after process creation.
+	o.DLL = o.Image
+	o.Timeout = 5 * time.Second
+	var output bytes.Buffer
+	if err := Launch(context.Background(), o, &output); err == nil || output.Len() != 0 {
+		t.Fatal("invalid adapter reported a started capture", err, output.String())
+	}
+	assertNoOwnedDebugObjects(t)
 }

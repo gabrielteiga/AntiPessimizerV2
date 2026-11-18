@@ -167,5 +167,6 @@ func TestReferenceDelphiExceptionHandlerPreservesCatchAndReraise(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	t.Logf("real Delphi native Go metrics: calls=%d unwind=%d inclusive=%d exclusive=%d QPC ticks; mean=%.3f ns frequency=%d Hz", row.Calls, row.UnwoundCalls, row.InclusiveTicks, row.ExclusiveTicks, row.AverageInclusiveNS, snapshot.Frequency)
 	t.Logf("original Delphi EH/UH: %d baseline pairs, %d instrumented normal/fault pairs, original handler capture/resume/reraise, %d entry probes and %d returns", report.BaselinePairs, report.InstrumentedPairs, report.Entries, report.Returns)
 }
