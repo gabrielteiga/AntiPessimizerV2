@@ -55,13 +55,16 @@ jobs:
         env:
           AP_NATIVE_COST: '1'
           AP_NATIVE_COST_REPORT: ${{ runner.temp }}/native-cost.ndjson
-        run: go test -v -count=1 -timeout=45s ./internal/instrumentation/native -run '^TestNativeCostBaselineAndInstrumentedWorkload$'
+          AP_NATIVE_LOAD_COST_REPORT: ${{ runner.temp }}/native-load-cost.ndjson
+        run: go test -v -count=1 -timeout=45s ./internal/instrumentation/native -run '^TestNativeCost'
 
       - if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: Native-cost-${{ github.run_id }}
-          path: ${{ runner.temp }}/native-cost.ndjson
+          path: |
+            ${{ runner.temp }}/native-cost.ndjson
+            ${{ runner.temp }}/native-load-cost.ndjson
           if-no-files-found: error
 
       - if: runner.os == 'Windows'
