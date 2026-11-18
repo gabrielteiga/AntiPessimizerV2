@@ -26,4 +26,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Unmodified launch target build failed' }
 if ($LASTEXITCODE -ne 0) { throw 'Framed SEH target build failed' }
 & $gcc -m64 -std=c11 -O1 -Wall -Wextra -Werror -municode -fno-optimize-sibling-calls -static-libgcc -o (Join-Path $Output 'APScopeTarget.exe') ./native/scope_target_windows.c
 if ($LASTEXITCODE -ne 0) { throw 'Catch/resume SEH target build failed' }
+& $gcc -m64 -std=c11 -O2 -Wall -Wextra -Werror -shared -static-libgcc -o (Join-Path $Output 'APReferenceAdapter.dll') ./native/reference_adapter_windows.c
+if ($LASTEXITCODE -ne 0) { throw 'Reference-only native language bridge build failed' }
+& $gcc -m64 -std=c11 -O1 -Wall -Wextra -Werror -municode -static-libgcc -o (Join-Path $Output 'APReferenceException.exe') ./native/reference_exception_windows.c
+if ($LASTEXITCODE -ne 0) { throw 'Isolated original Delphi exception child build failed' }
 Write-Host "Native producer and controlled workload built in $Output"

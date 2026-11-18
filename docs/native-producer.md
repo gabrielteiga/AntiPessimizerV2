@@ -357,3 +357,23 @@ saída precoce, recursão com catch, exceção em cleanup normal/anormal, abando
 para um catch externo e filtro que continua após access violation. A execução
 baseline exige os mesmos resultados e número de limpezas. Isso comprova o fluxo
 CRT e a infraestrutura de retomada, sem declarar handlers Delphi compatíveis.
+
+
+## Handler Delphi conferido (APHOOK6)
+
+APHOOK6 (wire `APHOOK6\0`) conserva a oferta e os descritores anteriores. O
+coletor exige essa versão para style=2, antes de enviar o plano. O reconhecimento
+usa o fingerprint do handler real da revisão v0.3, mantendo instruções/fluxo/ABI
+e mascarando apenas os operandos de relocation. Não se aceita um handler apenas
+porque seus dados parecem uma tabela. Scopes kind=0 (finally externo) e kind=2
+(catch-all interno) são aceitos; scopes tipados e variantes desconhecidas falham
+na pré-validação. [Evidência exata](phase0/antipessimizer-reference.md#handler-delphi-v03-e-ensaio-de-exceção).
+
+O bridge deduz a ImageBase de origem a partir do PC do corpo e da entrada sombra,
+o que mantém a identidade quando a rotina testada está na DLL de referência.
+O instalador público continua selecionando somente o EXE próprio e conferindo
+seus metadados; isso não implementa seleção/attach de DLLs ou BPLs. A DLL de teste
+APReferenceAdapter expõe o bridge real sem abrir captura e não entra no pacote.
+O processo filho inicializa a RTL original e compara execução normal e exceção
+real de uma rotina conferida, sem patch ao original. Ele não substitui os gates
+de contagens/tempos/cleanup/collision das fixtures integradas.

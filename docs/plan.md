@@ -42,7 +42,7 @@ sem converter esse valor em chamadas ou duração por chamada.
 
 1. **Handlers de linguagem Delphi.** O plano aceita unwind v1 sem handler ou
    com cleanup UHANDLER-only, preservando os metadados originais e a tradução de
-   endereços. A infraestrutura de captura/retomada já traduz scopes CRT reconhecidos (EHANDLER e EH/UH), mantendo a identidade física dos frames. Handlers Delphi privados ainda são rejeitados. É necessário
+   endereços. A infraestrutura de captura/retomada já traduz scopes CRT reconhecidos (EHANDLER e EH/UH), mantendo a identidade física dos frames. O handler Delphi da revisão v0.3 tem fingerprint conferido e scopes catch-all/finally traduzidos; tabelas tipadas e outras variantes são rejeitadas. É necessário
    preservar a busca do handler, seu cleanup e a retomada de execução, incluindo
    exceções aninhadas/recursivas, sem falsificar métricas nem quebrar o programa.
 2. **Cobertura de código e metadados.** Ampliar somente com casos conferidos:
@@ -50,7 +50,7 @@ sem converter esse valor em chamadas ou duração por chamada.
    funções menores que cinco bytes e formatos TD32 adicionais continuam rejeitados.
 3. **Compatibilidade Delphi demonstrada.** As fixtures de integração atuais são
    C/GCC para o fluxo completo. Um ensaio separado compara dez rotinas conferidas
-   da DLL Delphi original com seus corpos relocados; não inclui handlers nem TDS.
+   da DLL Delphi original com seus corpos relocados; não inclui TDS. Um ensaio separado exige captura/retomada/reraise com o handler real da mesma DLL, inicializando seu RTL num filho próprio; ele cobre uma rotina conferida, não uma versão inteira do compilador.
    Exigir evidência reproduzível
    para prólogos, métodos, exceções e bibliotecas efetivamente suportados. A fixture
    Delphi própria está em testdata/delphi/ProfilerLab; não declarar uma versão

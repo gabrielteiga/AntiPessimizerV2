@@ -58,7 +58,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Reference-Delphi-${{ github.run_id }}
-          path: ${{ runner.temp }}/ap-reference-delphi/reference-delphi.json
+          path: |
+            ${{ runner.temp }}/ap-reference-delphi/reference-delphi.json
+            ${{ runner.temp }}/ap-reference-delphi/reference-delphi-exceptions.json
           if-no-files-found: error
 
       - if: runner.os == 'Windows'

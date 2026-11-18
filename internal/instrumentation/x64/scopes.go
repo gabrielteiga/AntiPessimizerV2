@@ -100,7 +100,7 @@ func (p *PEImage) peString(rva, limit uint32) (string, bool) {
 	}
 	return "", false
 }
-func (p *PEImage) readScopes(dataRVA, rva, size uint32, prologue, flags byte) ([]byte, error) {
+func (p *PEImage) readScopes(dataRVA, rva, size uint32, prologue, flags byte, style uint32) ([]byte, error) {
 	fail := func() ([]byte, error) {
 		return nil, fmt.Errorf("%w: invalid or unsupported exception scope table", ErrUnsupported)
 	}
@@ -126,7 +126,15 @@ func (p *PEImage) readScopes(dataRVA, rva, size uint32, prologue, flags byte) ([
 		if uint64(begin) < uint64(rva)+uint64(prologue) || begin >= end || uint64(end) > uint64(rva)+uint64(size) {
 			return fail()
 		}
-		if target == 0 {
+		if style == 2 {
+			if filter == 0 {
+				if flags != 25 || !external(target) {
+					return fail()
+				}
+			} else if filter != 2 || target < rva+uint32(prologue) || uint64(target) >= uint64(rva)+uint64(size) {
+				return fail()
+			}
+		} else if target == 0 {
 			if flags&16 == 0 || !external(filter) {
 				return fail()
 			}
@@ -139,7 +147,7 @@ func (p *PEImage) readScopes(dataRVA, rva, size uint32, prologue, flags byte) ([
 
 // Scope PCs must be exact instruction boundaries, including exclusive ends.
 // Forwarding a PC inside an expanded instruction would manufacture a landing.
-func relocateScopes(table, code []byte, flow leafBody, rva uint32, bodyRVA uint64) ([]byte, error) {
+func relocateScopes(table, code []byte, flow leafBody, rva uint32, bodyRVA uint64, style uint32) ([]byte, error) {
 	fail := func() ([]byte, error) {
 		return nil, fmt.Errorf("%w: exception scope is not an instruction boundary", ErrUnsupported)
 	}
@@ -170,7 +178,7 @@ func relocateScopes(table, code []byte, flow leafBody, rva uint32, bodyRVA uint6
 	for at := 4; at < len(out); at += 16 {
 		for _, field := range []int{0, 4, 12} {
 			pc := binary.LittleEndian.Uint32(out[at+field:])
-			if field == 12 && pc == 0 {
+			if field == 12 && (style == 1 && pc == 0 || style == 2 && binary.LittleEndian.Uint32(out[at+8:]) == 0) {
 				continue
 			}
 			mapped, ok := translate(pc)

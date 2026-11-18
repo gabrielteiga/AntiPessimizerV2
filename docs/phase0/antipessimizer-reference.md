@@ -213,3 +213,40 @@ unidade, e só aceita um objeto. Arquivos inválidos/desconhecidos são preserva
 e a janela usa padrões. Restaurar os campos não carrega catálogo nem executa
 um alvo. O teste Win32 confere controles Unicode, salvamento ao fechar e
 reabertura, além do fallback sem sobrescrever um arquivo de versão futura.
+
+
+## Handler Delphi v0.3 e ensaio de exceção
+
+A DLL fixada contém a rotina 0xa930..0xa9cb (SHA256 dos 155 bytes:
+`dd575bf12cf0238c71ef43edf0861179e27fed8bb596e6f88ba68a6bdcef1b02`).
+Com flag de construção DL=0, ela retorna o buffer de objeto recebido, marca seu
+byte 8 e limpa o campo ponteiro no offset 16. O teste fornece um buffer zerado,
+sem criar/liberar objetos pelo allocator Delphi. RCX=nil provoca access violation
+no corpo protegido; seu catch-all passa pela retomada e pelo reraise da RTL.
+O finally associado chama a rotina original 0xa9d0, que encerra o estado do catch.
+
+Seu handler é 0xd7a0..0xe08a, 2.282 bytes, SHA256 bruto
+`4023edb5cbbae4c7d637b289e026cb06af8ab7c325fe31db806af0990ac337f5`.
+O fingerprint normalizado `8ebb487813ebd0e56320833793e013dc48ea3e030dfd64f2157743835e165229`
+mascara somente destinos de CALL direto e deslocamentos de operandos RIP; mantém
+o fluxo de controle, constantes e acessos a campos. Não identifica uma versão
+inteira do Delphi. Handlers diferentes, scopes tipados (incluindo o formato 1)
+e chains continuam recusados.
+
+O formato conferido tem Count u32 e registros Begin/End/Kind/Target u32.
+Kind=0 referencia callback de finally em Target; Kind=2 referencia catch-all
+em Target. Begin/End/catch são traduzidos para a cópia; finally permanece no
+código original. O handler usa ImageBase/ControlPc/TargetIp e atualiza ControlPc
+para evitar executar novamente uma limpeza. A representação sombra mantém o
+wrapper nativo válido quando RtlUnwindEx abandona o callback.
+
+O teste separado inicia APReferenceException.exe, reserva com exclusividade o
+pipe fixo do original antes de LoadLibrary e envia somente ctEnd para sua worker.
+A RTL e seus TLS/imports são inicializados normalmente nesse filho. Exige quatro
+pares normal/falha de baseline e cem pares da cópia planejada pelo Go, com a
+mesma RTL/handler original e bridge nativa de produção. As entradas/retornos
+são conferidas por probes C; este ensaio não produz um arquivo de métricas Go.
+O binário original não é alterado, e a DLL permanece carregada até encerrar o
+filho. O relatório Reference-Delphi inclui hashes, RVAs e resultados.
+Isso complementa a contabilidade integrada C e o corpus sem inicialização;
+ainda não prova seleção/instalação em um EXE Delphi completo nem Delphi 10.4.

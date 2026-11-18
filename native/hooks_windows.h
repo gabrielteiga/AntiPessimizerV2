@@ -123,7 +123,8 @@ static BOOL hook_forward_info(const unsigned char *data,uint32_t available,RUNTI
     if(delta!=body_size-size)return FALSE;
     if(kind==1)return TRUE;
     uint32_t scope_bytes=hook_u32(data+40),shadow_at=hook_u32(data+48),scope_at=hook_u32(data+52);
-    if(hook_u32(data+36)!=1 || hook_u32(data+44)!=info[0] || scope_at!=map_at+count*4 || scope_bytes<20 || scope_bytes>4+64*16 || (scope_bytes-4)%16 || (uint64_t)scope_at+scope_bytes+12+info_bytes+20>available || shadow_at!=scope_at+scope_bytes || (uint64_t)handler_data+scope_bytes>image_size)return FALSE;
+    uint32_t style=hook_u32(data+36);
+    if((style!=1 && style!=2) || (style==2 && info[0]!=25) || hook_u32(data+44)!=info[0] || scope_at!=map_at+count*4 || scope_bytes<20 || scope_bytes>4+64*16 || (scope_bytes-4)%16 || (uint64_t)scope_at+scope_bytes+12+info_bytes+20>available || shadow_at!=scope_at+scope_bytes || (uint64_t)handler_data+scope_bytes>image_size)return FALSE;
     const unsigned char *scope=data+scope_at,*original_scope=image+handler_data;
     uint32_t scopes=hook_u32(scope);
     if(scopes!=(scope_bytes-4)/16 || scopes!=hook_u32(original_scope))return FALSE;
@@ -137,11 +138,14 @@ static BOOL hook_forward_info(const unsigned char *data,uint32_t available,RUNTI
         const unsigned char *a=original_scope+4+i*16,*b=scope+4+i*16;
         uint32_t begin=hook_u32(a),end=hook_u32(a+4),filter=hook_u32(a+8),target=hook_u32(a+12);
         if((uint64_t)begin<(uint64_t)rva+info[1] || begin>=end || (uint64_t)end>(uint64_t)rva+size || hook_u32(b+8)!=filter)return FALSE;
-        if(!target){if(!(info[0]&16) || !filter || (filter>=rva && (uint64_t)filter<(uint64_t)rva+size) || hook_u32(b+12))return FALSE;}
-        else if((uint64_t)target<(uint64_t)rva+info[1] || (uint64_t)target>=(uint64_t)rva+size || (filter!=1 && (!filter || (filter>=rva && (uint64_t)filter<(uint64_t)rva+size))))return FALSE;
-        if(filter!=1 && (!VirtualQuery(image+filter,&memory,sizeof(memory)) || memory.AllocationBase!=image || memory.State!=MEM_COMMIT || (memory.Protect&0xff)!=PAGE_EXECUTE_READ || (memory.Protect&PAGE_GUARD)))return FALSE;
+        BOOL cleanup=style==1?!target:filter==0;
+        uint32_t callback=style==2?(cleanup?target:0):filter;
+        if(style==2 && filter!=0 && filter!=2)return FALSE;
+        if(cleanup){if(!(info[0]&16) || !callback || (callback>=rva && (uint64_t)callback<(uint64_t)rva+size) || hook_u32(b+12)!=(style==1?0:target))return FALSE;}
+        else if((uint64_t)target<(uint64_t)rva+info[1] || (uint64_t)target>=(uint64_t)rva+size || (style==1 && filter!=1 && (!filter || (filter>=rva && (uint64_t)filter<(uint64_t)rva+size))))return FALSE;
+        if(callback && (style==2 || callback!=1) && (callback>=image_size || !VirtualQuery(image+callback,&memory,sizeof(memory)) || memory.AllocationBase!=image || memory.State!=MEM_COMMIT || (memory.Protect&0xff)!=PAGE_EXECUTE_READ || (memory.Protect&PAGE_GUARD)))return FALSE;
         for(uint32_t field=0;field<4;field++) {
-            if(field==2 || (field==3 && !target))continue;
+            if(field==2 || (field==3 && cleanup))continue;
             uint32_t offset=hook_u32(a+field*4)-rva,shift=0;
             for(uint32_t m=0;m<count;m++) {
                 uint32_t source=data[map_at+m*4]|((uint32_t)data[map_at+1+m*4]<<8),clone=data[map_at+2+m*4]|((uint32_t)data[map_at+3+m*4]<<8);
@@ -160,7 +164,7 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
     hook_put64(offer+16,(uintptr_t)hooks.memory);
     hook_put32(offer+24,hooks.bytes); hook_put32(offer+28,hooks.count);
     hook_put64(offer+32,(uintptr_t)APNativeEnter); hook_put64(offer+40,(uintptr_t)APNativeExit);
-    if(general){offer[6]='5';hook_put64(offer+32,(uintptr_t)function_enter);hook_put64(offer+40,(uintptr_t)function_exit);hook_put64(offer+48,(uintptr_t)function_unwind);}
+    if(general){offer[6]='6';hook_put64(offer+32,(uintptr_t)function_enter);hook_put64(offer+40,(uintptr_t)function_exit);hook_put64(offer+48,(uintptr_t)function_unwind);}
     if(!hook_io(pipe,offer,general?56:48,TRUE)) return FALSE;
     for(uint32_t i=0;i<hooks.count;i++) {
         unsigned char extent[4]; hook_put32(extent,hooks.selected[i].size);
