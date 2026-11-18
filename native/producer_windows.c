@@ -8,7 +8,7 @@
 #include "hooks_windows.h"
 
 enum { AP_THREADS = 64, AP_CAPACITY = 1024, AP_BATCH = 256, AP_SELECTION = 64 };
-_Static_assert(AP_HOOK_LIMIT==AP_SELECTION,"native installer and event catalogs must have the same bound");
+_Static_assert((int)AP_HOOK_LIMIT==(int)AP_SELECTION,"native installer and event catalogs must have the same bound");
 enum { AP_START = 1, AP_ENTER = 2, AP_EXIT = 3, AP_END = 4, AP_UNWIND = 5, AP_UNWIND_EXIT = 6, AP_HEARTBEAT = 7, AP_CLEAR = 8 };
 typedef struct { uint32_t type, tid, procedure, depth; uint64_t tick; } Event;
 _Static_assert(sizeof(void *) == 8, "Windows x64 is required");
