@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"strings"
@@ -106,6 +107,37 @@ func TestViewerMetricTimeUnits(t *testing.T) {
 	for _, args := range [][]string{{"--time-unit", "cycles"}, {"--time-unit", "ns"}} {
 		if err := run(args, bytes.NewReader(wire.Bytes()), io.Discard, io.Discard); err == nil {
 			t.Fatal("incompatible unit accepted", args)
+		}
+	}
+}
+
+func TestViewerComparesInstrumentedArchivesAndRejectsSamplingMix(t *testing.T) {
+	events, err := os.ReadFile("../../testdata/instrumentation/nested.ndjson")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire bytes.Buffer
+	if err := instrumentation.Replay(context.Background(), bytes.NewReader(events), &wire, instrumentation.Config{MaxThreads: 16, MaxDepth: 32, MaxRows: 64}); err != nil {
+		t.Fatal(err)
+	}
+	before := t.TempDir() + "/before.ndjson"
+	after := t.TempDir() + "/after.ndjson"
+	for _, path := range []string{before, after} {
+		if err := os.WriteFile(path, wire.Bytes(), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var output bytes.Buffer
+	if err := run([]string{"--instrumentation", "--replay", before, "--compare", after}, nil, &output, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	var comparison instrumentation.Comparison
+	if err := json.Unmarshal(output.Bytes(), &comparison); err != nil || comparison.Mode != "instrumentation" || len(comparison.Changes) != 2 || comparison.Changes[0].CallDelta != "+0" {
+		t.Fatal(output.String(), err)
+	}
+	for _, args := range [][]string{{"--replay", before, "--compare", after}, {"--instrumentation", "--thread", "7", "--replay", before, "--compare", after}} {
+		if err := run(args, nil, io.Discard, io.Discard); err == nil {
+			t.Fatal("incompatible comparison accepted", args)
 		}
 	}
 }

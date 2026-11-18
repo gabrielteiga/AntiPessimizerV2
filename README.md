@@ -19,7 +19,7 @@ Revisado em 18 de novembro de 2026.
 | Funções com pilha/chamadas | Prólogos e unwind v1 verificados; calls, recursão, condições, loops e múltiplas saídas; testes Windows em alvo C com exceção SEH real |
 | Controle pela interface | Catálogo pesquisável, seleção de até 16 procedimentos, argumentos, prazo, iniciar/parar pelo coletor e métricas ao vivo na janela |
 | Independência do viewer | Fechar a janela/desconectar observador não encerra a captura; Parar cancela explicitamente o novo processo instrumentado |
-| Arquivos e histórico | Salvar/replay, acompanhamento de arquivo crescente, filtros, ordenação e histórico limitado; comparação entre sessões de sampling |
+| Arquivos e histórico | Salvar/replay, acompanhamento de arquivo crescente, filtros, ordenação e histórico limitado; comparação entre sessões de sampling e instrumentação |
 | Qualidade | Testes Go/race, integração nativa Windows, ETW, janela Win32, executáveis e empacotamento; merge somente com CI aprovado no commit exato |
 
 **Ainda não há paridade completa com o original.** Handlers/exceções específicos
@@ -125,6 +125,26 @@ viewer.exe --op stop
 seleciona outro Named Pipe local. Assinaturas são observadores: desconectá-las não
 cancela a captura. Um novo lançamento cria outra sessão. `latest` distingue
 `metric` instrumentado de `snapshot` de sampling. [Protocolo](docs/live.md).
+
+## Comparar chamadas, tempos e médias
+
+```bat
+viewer.exe --instrumentation --replay antes.ndjson --compare depois.ndjson
+```
+
+Na GUI, abra a captura posterior, informe o arquivo anterior na caixa de caminho
+e use **Comparar arquivo**. A tabela mostra contagens, totais, médias e deltas por
+procedimento, agregando todas as threads. O seletor de tempo continua disponível;
+a barra de histórico volta à visualização normal. A comparação usa o último
+snapshot de cada arquivo (ou o snapshot atual escolhido na GUI), sem somar
+acumulados nem épocas de Clear. Médias são ponderadas pelas chamadas.
+
+Exige o mesmo binário, seleção completa, método e relógio, sem perdas ou chamadas
+abertas. Frequências distintas de QPC são convertidas para ns; ticks brutos só
+são comparáveis na GUI com frequências iguais. Duração/carga podem diferir: os
+deltas mostram variação observada, não causalidade ou taxa normalizada. Novas
+capturas usam métricas v2 com a seleção completa, inclusive procedimentos nunca
+chamados. Arquivos v1 continuam abrindo, mas precisam de nova captura para comparar.
 
 ## Símbolos Delphi
 

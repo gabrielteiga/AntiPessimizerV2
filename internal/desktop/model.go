@@ -15,6 +15,7 @@ import (
 )
 
 type Model struct {
+	MetricComparison        *instrumentation.Comparison
 	MetricUnit              MetricTimeUnit
 	metricSizes             []int
 	metricBytes, metricRows int
@@ -66,6 +67,9 @@ func (m *Model) Append(s profiling.Snapshot) error {
 	return nil
 }
 func (m *Model) Rebuild(seconds int, f report.Filter) error {
+	if m.MetricComparison != nil {
+		return m.rebuildMetricComparison(f)
+	}
 	if len(m.Metrics) > 0 {
 		return m.rebuildMetrics(f)
 	}

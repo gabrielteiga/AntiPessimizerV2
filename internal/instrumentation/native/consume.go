@@ -29,7 +29,7 @@ func consumeCaptureControlled(ctx context.Context, reader *Reader, target profil
 			return err
 		}
 		sequence++
-		r := instrumentation.Record{Protocol: instrumentation.MetricsProtocol, Version: 1, SessionID: session, Target: target, Source: "native-hook", Clock: "qpc", Sequence: sequence, At: at, Metrics: s}
+		r := instrumentation.Record{Protocol: instrumentation.MetricsProtocol, Version: 2, Selection: append([]instrumentation.Procedure(nil), procedures...), SessionID: session, Target: target, Source: "native-hook", Clock: "qpc", Sequence: sequence, At: at, Metrics: s}
 		if err := instrumentation.WriteRecord(out, r); err != nil {
 			writeFailed = true
 			return err

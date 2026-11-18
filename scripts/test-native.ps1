@@ -89,6 +89,10 @@ try {
     if ($rows.Count -ne 4 -or @($rows | Where-Object { $_.call_count -eq 10 }).Count -ne 3 -or @($rows | Where-Object { $_.call_count -eq 1 }).Count -ne 1) { throw 'Service counts differ from direct native capture' }
     $archive = & (Join-Path $dir 'viewer.exe') --address $servicePipe --op instrument-history | ConvertFrom-Json
     if ($LASTEXITCODE -ne 0 -or @($archive.metrics).Count -eq 0) { throw 'Service retained no instrumented history' }
+    $serviceArchive = Join-Path $dir 'service-comparison.ndjson'
+    @($archive.metrics | ForEach-Object { $_ | ConvertTo-Json -Depth 20 -Compress }) | Set-Content -Encoding utf8 $serviceArchive
+    $comparison = & (Join-Path $dir 'viewer.exe') --instrumentation --replay $launchArchive --compare $serviceArchive | ConvertFrom-Json
+    if ($LASTEXITCODE -ne 0 -or $comparison.mode -ne 'instrumentation' -or @($comparison.changes).Count -ne 1 -or $comparison.changes[0].before.calls -ne 31 -or $comparison.changes[0].after.calls -ne 31 -or $comparison.changes[0].call_delta -ne '+0') { throw 'Direct/service instrumentation comparison changed cumulative call counts' }
     $null = & (Join-Path $dir 'viewer.exe') --address $servicePipe --op instrument-start --image $launchTarget --image-id $catalog.catalog.image_id --catalog-id $catalog.catalog.catalog_id --procedure-ids $procedureID --arg=--threads --arg=2 --arg=--iterations --arg=10000
     if ($LASTEXITCODE -ne 0) { throw 'Service restart failed' }
     $running = $false

@@ -246,3 +246,47 @@ func TestIncrementalMetricValidatorRetainsIdentityAcrossEmptyClear(t *testing.T)
 		t.Fatal("procedure identity reused after Clear")
 	}
 }
+
+func TestMetricsV2SelectionAndLegacyArchiveCompatibility(t *testing.T) {
+	base := metricFixture(t)
+	if base.Version != 2 || len(base.Selection) != 2 {
+		t.Fatal("new capture lacks complete selection", base)
+	}
+	legacy := base.Clone()
+	legacy.Version = 1
+	legacy.Selection = nil
+	var wire bytes.Buffer
+	if err := WriteRecord(&wire, legacy); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadMetrics(&wire); err != nil {
+		t.Fatal("legacy v1 archive no longer readable", err)
+	}
+	for _, mutate := range []func(*Record){
+		func(r *Record) { r.Selection = nil },
+		func(r *Record) { r.Selection = append(r.Selection, r.Selection[0]) },
+		func(r *Record) { r.Selection = r.Selection[:1] },
+		func(r *Record) { r.Selection[0].Location.Procedure = "Other" },
+		func(r *Record) { r.Version = 3 },
+	} {
+		bad := base.Clone()
+		mutate(&bad)
+		if err := bad.Validate(); err == nil {
+			t.Fatal("invalid v2 selection accepted")
+		}
+	}
+	next := base.Clone()
+	next.Sequence++
+	next.At++
+	next.Metrics.Epoch++
+	next.Selection = next.Selection[:1]
+	next.Metrics.Rows = nil
+	if err := ValidateRecords([]Record{base, next}); err == nil {
+		t.Fatal("selection changed silently across Clear")
+	}
+	clone := base.Clone()
+	clone.Selection[0].Location.Procedure = "mutated"
+	if base.Selection[0].Location.Procedure == "mutated" {
+		t.Fatal("selection clone aliases archive")
+	}
+}

@@ -17,6 +17,7 @@ este documento organiza as entregas e os critérios que ainda faltam.
 | Controle instrumentado ao vivo | Catálogo pesquisável/paginado, identidades do EXE/catálogo, até 16 procedimentos, argumentos e prazo; serviço possui captura e histórico | PR #21: testes de lifecycle/concorrência, observador desconectado, GUI e executáveis reais |
 | Clear nativo | Barreira entre todos os produtores, drenagem anterior ao marcador, reinício dos frames abertos, ACK após publicação | PR #22: duas limpezas com seis frames abertos em três threads; recursão/SEH posteriores e RPC real |
 | Métodos pequenos | E9 rel32 de cinco bytes quando próximo; fallback absoluto e rejeição sem invadir o vizinho | PR #23: método Windows de seis bytes com onze chamadas por thread e testes dos limites signed rel32 |
+| Comparação instrumentada | Seleção completa no contrato v2, compatibilidade de binário/método/relógio, totais por procedimento e médias ponderadas entre snapshots | Testes de épocas/threads/overflow, GUI e executáveis diretos versus serviço |
 | Unidades de tempo | ns, us, ms, s e ticks na apresentação, preservando dados e ordenação | Testes de valores exatos/grandes, CLI e seletor Win32; ticks QPC não são ciclos de CPU |
 
 As métricas instrumentadas são cumulativas por época de Clear. Navegar no
@@ -42,8 +43,7 @@ sem converter esse valor em chamadas ou duração por chamada.
    perda, latência, memória e crescimento em seleções/threads representativas.
    Não subtrair overhead presumido. Sampling e instrumentação mantêm metodologias
    próprias. Limites atuais de seleção/buffer só aumentam junto dessas medições.
-5. **Complementos do fluxo principal.** Comparação instrumentada com identidade,
-   método, relógio e seleção compatíveis; demais preferências/diagnósticos do
+5. **Complementos do fluxo principal.** Demais preferências/diagnósticos do
    original, conforme a auditoria de fidelidade. Attach a processo arbitrário e
    DLLs/BPLs não são apresentados como implementados pelo lançamento do EXE.
 
