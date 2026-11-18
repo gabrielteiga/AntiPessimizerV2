@@ -24,6 +24,7 @@ este documento organiza as entregas e os critérios que ainda faltam.
 | Threads nativas de longa duração | Fim real por EXIT_THREAD, proteção contra TID reutilizado e pool de 64 rings reutilizáveis | 300 instâncias Windows com contagens/tempos/SEH preservados, sem crescimento do pool |
 | Comparação instrumentada | Seleção completa no contrato v2, compatibilidade de binário/método/relógio, totais por procedimento e médias ponderadas entre snapshots | Testes de épocas/threads/overflow, GUI e executáveis diretos versus serviço |
 | Unidades de tempo | ns, us, ms, s e ticks na apresentação, preservando dados e ordenação | Testes de valores exatos/grandes, CLI e seletor Win32; ticks QPC não são ciclos de CPU |
+| Custo em carga controlada | Três pares baseline/instrumentado, ordem alternada, uma/três threads; relógio interno ao loop e artefato bruto | Checksums iguais, chamadas/finalizador exatos e captura completa; sem limite artificial de desempenho do runner |
 
 As métricas instrumentadas são cumulativas por época de Clear. Navegar no
 histórico nunca soma snapshots cumulativos. Sampling continua contando amostras,
@@ -46,7 +47,8 @@ sem converter esse valor em chamadas ou duração por chamada.
    inteira compatível por testes sintéticos ou leitura estática.
 4. **Custo e operação prolongada.** Medir baseline e instrumentado, chamadas/s,
    perda, latência, memória e crescimento em seleções/threads representativas.
-   Não subtrair overhead presumido. Sampling e instrumentação mantêm metodologias
+   O CI já mede pares em loop C controlado; isso não mede overhead Delphi, memória
+   ou saturação prolongada. Não subtrair overhead presumido. Sampling e instrumentação mantêm metodologias
    próprias. Limites atuais de seleção/buffer só aumentam junto dessas medições.
 5. **Complementos do fluxo principal.** Demais preferências/diagnósticos do
    original, conforme a auditoria de fidelidade. Attach a processo arbitrário e

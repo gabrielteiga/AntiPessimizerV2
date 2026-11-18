@@ -14,6 +14,32 @@ SDK do profiler; esse caminho foi validado em C. Compatibilidade geral Delphi
 ainda não foi comprovada. Preservação de ABI pelo relay, exceções Delphi, unwind
 e patching coordenado continuam etapas obrigatórias da instalação dos hooks.
 
+## Medição automática de custo
+
+O CI Windows executa o mesmo APLaunchTarget com e sem instrumentação, em três
+pares para uma e três threads. Alterna a ordem dos modos entre pares e desativa
+Sleep. O QPC é lido dentro do programa: cada thread mede seu loop de 300 chamadas,
+incluindo conferência dos resultados/LastError e pausas causadas pelo profiler.
+O intervalo global cobre a liberação da barreira e o join; inicialização do
+processo e instalação dos hooks ficam fora dessas durações.
+
+O checksum de cada worker deve coincidir nos dois modos. A captura instrumentada
+precisa permanecer completa e registrar 300 chamadas por worker mais uma do
+finalizador. As 602 entradas de evento por worker cabem em um ring mesmo se a
+thread de drenagem ficar sem CPU durante todo o loop; essa medição não procura
+o limite de saturação. O baseline também pertence a um Job Object com timeout.
+
+`TestNativeCostBaselineAndInstrumentedWorkload` imprime ns/chamada do loop,
+diferença assinada e razão por par, além da mediana dos três pares. Não exige
+que um runner compartilhado atinja um limiar de velocidade e não subtrai custo
+das métricas de produção. O artefato `Native-cost-<run_id>` conserva NDJSON v1
+com hash do EXE, ordem dos modos, frequência QPC, ticks globais/por worker,
+checksums e contagens medidas. Não inclui binário Delphi ou dados do usuário.
+
+São medidas de um alvo C/assembly próprio, com verificações no loop; não são
+latência isolada do hook, benchmark de Delphi, medição de memória nem garantia
+de overhead em aplicações reais. Esses limites continuam explícitos no plano.
+
 ## Fluxo implementado
 
 `APNativeLab.exe` → callbacks nativos → DLL → filas SPSC por thread → thread de
