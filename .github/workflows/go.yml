@@ -58,7 +58,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Reference-Delphi-${{ github.run_id }}
-          path: ${{ runner.temp }}/ap-reference-delphi/reference-delphi.json
+          path: |
+            ${{ runner.temp }}/ap-reference-delphi/reference-delphi.json
+            ${{ runner.temp }}/ap-reference-delphi/reference-delphi-static.json
+            ${{ runner.temp }}/ap-reference-delphi/reference-delphi-exceptions.json
+            ${{ runner.temp }}/ap-reference-delphi/reference-delphi-metrics.ndjson
           if-no-files-found: error
 
       - if: runner.os == 'Windows'
@@ -92,6 +96,12 @@ jobs:
           AP_NATIVE_STRESS_REPORT: ${{ runner.temp }}/native-stress.ndjson
           AP_NATIVE_RESOURCE_REPORT: ${{ runner.temp }}/native-resources.json
         run: go test -v -count=1 -timeout=90s ./internal/instrumentation/native -run '^TestNativeStress'
+
+      - if: runner.os == 'Windows'
+        name: Repeated collector resource ownership
+        env:
+          AP_NATIVE_STRESS: '1'
+        run: go test -v -count=10 -timeout=90s ./internal/instrumentation/native -run '^TestNativeStressRepeatedOwnedCapturesReleaseResources$'
 
       - if: runner.os == 'Windows' && always() && (steps.native-stress.outcome == 'success' || steps.native-stress.outcome == 'failure')
         uses: actions/upload-artifact@v4

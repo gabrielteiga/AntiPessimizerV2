@@ -38,6 +38,7 @@ type functionUnwind struct {
 	runtimeRVA, infoRVA, handlerRVA uint32
 	handlerDataRVA                  uint32
 	handlerFlags                    byte
+	scopeStyle                      uint32
 	scopes                          []byte
 }
 
@@ -265,10 +266,15 @@ func (p *PEImage) readCode(rva, size uint32, collectedUnwind *functionUnwind) ([
 						return fail("invalid or self-referential original unwind handler")
 					}
 					if info[0]&8 != 0 {
-						if !p.cSpecificHandler(collectedUnwind.handlerRVA) {
-							return fail("unrecognized exception handler; only imported __C_specific_handler scopes are supported")
+						switch {
+						case p.cSpecificHandler(collectedUnwind.handlerRVA):
+							collectedUnwind.scopeStyle = 1
+						case info[0] == 25 && p.delphiScopeHandler(collectedUnwind.handlerRVA):
+							collectedUnwind.scopeStyle = 2
+						default:
+							return fail("unrecognized exception handler; requires a recognized CRT or reviewed Delphi handler")
 						}
-						scopes, err := p.readScopes(collectedUnwind.handlerDataRVA, rva, size, info[1], info[0])
+						scopes, err := p.readScopes(collectedUnwind.handlerDataRVA, rva, size, info[1], info[0], collectedUnwind.scopeStyle)
 						if err != nil {
 							return nil, 0, err
 						}

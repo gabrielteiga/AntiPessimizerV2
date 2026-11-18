@@ -30,7 +30,7 @@ este documento organiza as entregas e os critérios que ainda faltam.
 | Comparação instrumentada | Seleção completa no contrato v2, compatibilidade de binário/método/relógio, totais por procedimento e médias ponderadas entre snapshots | Testes de épocas/threads/overflow, GUI e executáveis diretos versus serviço |
 | Unidades de tempo | ns, us, ms, s e ticks na apresentação, preservando dados e ordenação | Testes de valores exatos/grandes, CLI e seletor Win32; ticks QPC não são ciclos de CPU |
 | Perdas nativas quantificadas | Envelope v3 preserva contador observado e origem; CLI/GUI informam mínimo perdido | Testes de perda após chamadas completas/abertas, precisão u64, monotonicidade, arquivo/modelo e saturação Windows |
-| Carga e limites de recursos | Baseline/instrumentado com 320 vidas de thread/32.001 chamadas; 32 capturas com recursos do coletor medidos e observador limitado | CI Windows grava Native-stress; saturação deliberada deve falhar com perda explícita e métricas incompletas |
+| Carga e limites de recursos | Baseline/instrumentado com 320 vidas de thread/32.001 chamadas; 32 capturas por bloco, dez repetições com recursos do coletor medidos e observador limitado | CI Windows exige zero DebugObjects após retirada; grava Native-stress; saturação deliberada deve falhar com perda explícita e métricas incompletas |
 | Leituras de contadores nativos | Loads lock-free com ordenação seq_cst; atualizações/barreiras Interlocked mantidas | Comparação Windows com variante RMW, ordem alternada e contagens/checksums completos |
 | Custo em carga controlada | Três pares baseline/instrumentado, ordem alternada, uma/três threads; relógio interno ao loop e artefato bruto | Checksums iguais, chamadas/finalizador exatos e captura completa; sem limite artificial de desempenho do runner |
 
@@ -42,7 +42,7 @@ sem converter esse valor em chamadas ou duração por chamada.
 
 1. **Handlers de linguagem Delphi.** O plano aceita unwind v1 sem handler ou
    com cleanup UHANDLER-only, preservando os metadados originais e a tradução de
-   endereços. A infraestrutura de captura/retomada já traduz scopes CRT reconhecidos (EHANDLER e EH/UH), mantendo a identidade física dos frames. Handlers Delphi privados ainda são rejeitados. É necessário
+   endereços. A infraestrutura de captura/retomada já traduz scopes CRT reconhecidos (EHANDLER e EH/UH), mantendo a identidade física dos frames. O handler Delphi da revisão v0.3 tem fingerprint conferido e scopes catch-all/finally traduzidos; tabelas tipadas e outras variantes são rejeitadas. É necessário
    preservar a busca do handler, seu cleanup e a retomada de execução, incluindo
    exceções aninhadas/recursivas, sem falsificar métricas nem quebrar o programa.
 2. **Cobertura de código e metadados.** Ampliar somente com casos conferidos:
@@ -50,7 +50,7 @@ sem converter esse valor em chamadas ou duração por chamada.
    funções menores que cinco bytes e formatos TD32 adicionais continuam rejeitados.
 3. **Compatibilidade Delphi demonstrada.** As fixtures de integração atuais são
    C/GCC para o fluxo completo. Um ensaio separado compara dez rotinas conferidas
-   da DLL Delphi original com seus corpos relocados; não inclui handlers nem TDS.
+   da DLL Delphi original com seus corpos relocados; não inclui TDS. Um ensaio separado exige captura/retomada/reraise com o handler real da mesma DLL, inicializando seu RTL num filho próprio; ele cobre uma rotina conferida, não uma versão inteira do compilador.
    Exigir evidência reproduzível
    para prólogos, métodos, exceções e bibliotecas efetivamente suportados. A fixture
    Delphi própria está em testdata/delphi/ProfilerLab; não declarar uma versão

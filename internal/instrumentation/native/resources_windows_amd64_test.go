@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -15,10 +16,12 @@ import (
 )
 
 type collectorResourcePoint struct {
-	Capture    int    `json:"completed_captures"`
-	Heap       uint64 `json:"go_heap_bytes"`
-	Handles    uint32 `json:"process_handles"`
-	Goroutines int    `json:"goroutines"`
+	Capture        int    `json:"completed_captures"`
+	Heap           uint64 `json:"go_heap_bytes"`
+	Handles        uint32 `json:"process_handles"`
+	Goroutines     int    `json:"goroutines"`
+	OSThreads      int    `json:"os_threads"`
+	CreatedThreads int    `json:"go_created_threads"`
 }
 
 type collectorResourceEvidence struct {
@@ -50,7 +53,24 @@ func collectorResources(t *testing.T, captures int) collectorResourcePoint {
 	if count == 0 {
 		t.Fatal("invalid collector handle count")
 	}
-	return collectorResourcePoint{Capture: captures, Heap: memory.HeapAlloc, Handles: count, Goroutines: runtime.NumGoroutine()}
+	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPTHREAD, 0)
+	if err != nil {
+		t.Fatal("snapshot collector threads", err)
+	}
+	var thread windows.ThreadEntry32
+	thread.Size = uint32(unsafe.Sizeof(thread))
+	osThreads := 0
+	for err = windows.Thread32First(snapshot, &thread); err == nil; err = windows.Thread32Next(snapshot, &thread) {
+		if thread.OwnerProcessID == windows.GetCurrentProcessId() {
+			osThreads++
+		}
+	}
+	closeErr := windows.CloseHandle(snapshot)
+	if !errors.Is(err, windows.ERROR_NO_MORE_FILES) || closeErr != nil {
+		t.Fatal("enumerate collector threads", err, closeErr)
+	}
+	createdThreads, _ := runtime.ThreadCreateProfile(nil)
+	return collectorResourcePoint{Capture: captures, Heap: memory.HeapAlloc, Handles: count, Goroutines: runtime.NumGoroutine(), OSThreads: osThreads, CreatedThreads: createdThreads}
 }
 
 func TestNativeStressRepeatedOwnedCapturesReleaseResources(t *testing.T) {
@@ -84,6 +104,7 @@ func TestNativeStressRepeatedOwnedCapturesReleaseResources(t *testing.T) {
 	}
 	e.Samples = append(e.Samples, collectorResources(t, 0))
 	var warm collectorResourcePoint
+	var warmTypes map[string]int
 	for i := 1; i <= captures; i++ {
 		var output stressObserver
 		if err := Launch(context.Background(), o, &output); err != nil {
@@ -107,8 +128,18 @@ func TestNativeStressRepeatedOwnedCapturesReleaseResources(t *testing.T) {
 		e.Samples = append(e.Samples, point)
 		if i == 4 {
 			warm = point
+			warmTypes, err = collectorHandleTypes()
+			if err != nil {
+				t.Fatal("warm handle diagnostics", err)
+			}
+			if warmTypes["DebugObject"] != 0 {
+				t.Fatal("completed captures retained Windows debugger objects", warmTypes)
+			}
 		}
 		if i > 4 && (point.Handles > warm.Handles+8 || point.Goroutines > warm.Goroutines+8 || point.Heap > warm.Heap+(16<<20)) {
+			types, typeErr := collectorHandleTypes()
+			t.Logf("handle types warm=%v current=%v error=%v", warmTypes, types, typeErr)
+			t.Logf("resource samples: %+v", e.Samples)
 			t.Fatal("collector resources grew after session warmup", warm, point)
 		}
 	}
@@ -117,5 +148,10 @@ func TestNativeStressRepeatedOwnedCapturesReleaseResources(t *testing.T) {
 	}
 	e.Completed = true
 	last := e.Samples[len(e.Samples)-1]
+	lastTypes, typeErr := collectorHandleTypes()
+	if typeErr != nil || lastTypes["DebugObject"] != 0 {
+		t.Fatal("completed captures retained Windows debugger objects", lastTypes, typeErr)
+	}
+	t.Logf("handle types warm=%v final=%v error=%v", warmTypes, lastTypes, typeErr)
 	t.Logf("32 owned captures, %d exact worker/finalizer calls; after warmup handles %d -> %d, goroutines %d -> %d, heap %d -> %d bytes", e.MeasuredCalls, warm.Handles, last.Handles, warm.Goroutines, last.Goroutines, warm.Heap, last.Heap)
 }

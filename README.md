@@ -19,7 +19,7 @@ Revisado em 18 de novembro de 2026.
 | Funções com pilha/chamadas | Prólogos/unwind v1 verificados; calls, recursão, condições, loops, múltiplas saídas e encaminhamento de cleanup UHANDLER original |
 | Subconjunto escalar | Aritmética/condições/conversões SSE sem frame e home slots Win64 limitados; prólogo ADD RSP negativo verificado contra unwind |
 | Memória e sincronização | MOVS/STOS com frame/unwind verificado e operações LOCK de memória; testes de cópia/preenchimento, compare/exchange e contador compartilhado |
-| Captura/retomada SEH | Tabelas CRT reconhecidas são traduzidas para a cópia; testes Windows de captura, recursão, continuação e cleanup com exceção |
+| Captura/retomada SEH | Tabelas CRT reconhecidas e scopes Delphi com handler conferido são traduzidos para a cópia; testes Windows de captura, recursão, continuação e cleanup com exceção |
 | Estado SSE | Probes preservam controle/status MXCSR dos callbacks; setter/getter instrumentados conferem os quatro modos de arredondamento |
 | Preferências da janela | Restaura EXE, filtro de resultados, busca de símbolos e unidade de tempo por usuário ao reabrir |
 | Controle pela interface | Catálogo pesquisável, seleção de até 64 procedimentos, argumentos, prazo, iniciar/parar pelo coletor e métricas ao vivo na janela |
@@ -29,20 +29,21 @@ Revisado em 18 de novembro de 2026.
 | Arquivos e histórico | Salvar/replay, acompanhamento de arquivo crescente, filtros, ordenação e histórico limitado; comparação entre sessões de sampling e instrumentação |
 | Ciclos de vida de threads | Encerramento pelo evento real do Windows e reutilização do pool nativo; teste de 300 instâncias sem mesclar contagens |
 | Drenagem cooperativa | Worker ocioso desperta por evento coalescido, com rescan contra despertar perdido; entrega ao vivo conferida antes de encerrar a captura |
-| Evidência do original | Dez rotinas conferidas da DLL Delphi v0.3: 1.000 pares de retornos originais/relocados, sem inicializar a DLL; sem certificação de Delphi 10.4 |
+| Evidência do original | Dez rotinas simples (1.000 pares) sem inicialização; ensaio separado inicializa o RTL em filho próprio e exige 100 pares normal/falha, 200 chamadas e 100 unwinds de uma rotina com handler Delphi real; sem certificação de Delphi 10.4 |
 | Qualidade | Testes Go/race, integração nativa Windows, ETW, janela Win32, executáveis e empacotamento; merge somente com CI aprovado no commit exato |
-| Carga e recursos | 320 vidas de thread/32.001 chamadas, 32 capturas seguidas com heap/handles/goroutines limitados e perda explícita sob saturação; dados no CI |
+| Carga e recursos | 320 vidas de thread/32.001 chamadas, 32 capturas por bloco, dez repetições com heap/handles/goroutines limitados e zero objetos de depuração restantes e perda explícita sob saturação; dados no CI |
 | Contadores nativos | Leituras atômicas sequencialmente consistentes; CI compara DLLs com/sem RMW no mesmo alvo e runner |
 | Medição de custo | Pares baseline/instrumentado no mesmo alvo C, com checksums e contagens exatas; relatório QPC bruto nos artefatos do CI |
 
-**Ainda não há paridade completa com o original.** Handlers/exceções específicos
-Delphi, tabelas de unwind encadeadas, tail calls e outros formatos/instruções
+**Ainda não há paridade completa com o original.** Variantes de handlers Delphi
+não reconhecidas, tabelas de unwind encadeadas, tail calls e outros formatos/instruções
 continuam fora do subconjunto aceito. A limpeza de métricas já usa uma barreira sincronizada na captura nativa,
 preservando as chamadas em andamento e o histórico das épocas anteriores. A compatibilidade com todas as
 variantes do Delphi 10.4 e o overhead nesse ambiente ainda não foram comprovados.
 Fixtures C e TDS sintéticos não são apresentados como binários compilados no Delphi.
 O ensaio adicional da DLL original executa apenas dez rotinas simples conferidas;
-não comprova handlers, integração completa ou a versão do compilador.
+não comprova integração completa ou a versão do compilador. O ensaio de exceções separado
+usa uma rotina e o handler real da mesma DLL, com RTL inicializado num processo filho.
 
 ## Pacote Windows
 
@@ -130,7 +131,7 @@ chamadas/recursão, branches internos e múltiplos retornos, de 5 a 4096 bytes p
 permite salto próximo. Métodos menores que 5 bytes continuam rejeitados. Procedimentos não suportados são rejeitados. Um cleanup nativo
 registra saídas durante o unwind real do Windows e encaminha a limpeza original
 com seus metadados e endereços de origem. Handlers que capturam/retomam a exceção
-(EHANDLER, inclusive combinado com UHANDLER) são aceitos somente para o formato CRT reconhecido; handlers Delphi privados continuam fora da seleção. A captura inclui finalizadores anteriores
+(EHANDLER, inclusive combinado com UHANDLER) são aceitos somente para o formato CRT reconhecido; o handler Delphi conferido da revisão v0.3 aceita scopes de catch-all/finally; tabelas tipadas e outras variantes continuam fora da seleção. A captura inclui finalizadores anteriores
 a ExitProcess. Veja [instrumentation.md](docs/instrumentation.md) para os limites.
 
 ## Automação pelo coletor
@@ -179,7 +180,7 @@ Exige o mesmo binário, seleção completa, método e relógio, sem perdas ou ch
 abertas. Frequências distintas de QPC são convertidas para ns; ticks brutos só
 são comparáveis na GUI com frequências iguais. Duração/carga podem diferir: os
 deltas mostram variação observada, não causalidade ou taxa normalizada. Novas
-capturas usam métricas v2 com a seleção completa, inclusive procedimentos nunca
+capturas nativas usam métricas v3 (compatível com v2 para comparação), com a seleção completa, inclusive procedimentos nunca
 chamados. Arquivos v1 continuam abrindo, mas precisam de nova captura para comparar.
 
 ## Símbolos Delphi

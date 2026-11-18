@@ -1,7 +1,8 @@
 > Estado em 18/11/2026: chamadas/recursão, unwind nativo com handler externo,
 > serviço/GUI ao vivo, Clear sincronizado e entradas pequenas estão implementados
-> e têm CI Windows. Handlers específicos Delphi e a compatibilidade completa
-> continuam pendentes. As primeiras seções registram a evolução técnica dos
+> e têm CI Windows. O handler Delphi conferido da revisão v0.3 tem suporte
+> delimitado a catch-all/finally, com exceção real e métricas Go testadas. Tabelas
+> tipadas, outras variantes e a compatibilidade completa continuam pendentes. As primeiras seções registram a evolução técnica dos
 > incrementos; a sequência atual está em [plan.md](plan.md).
 
 # Instrumentação — contagens, tempos e médias
@@ -763,4 +764,5 @@ a exceção continuada não inventa uma saída. O programa APScopeTarget confere
 resultados, limpeza única e continuação, além das contagens/tempos conferidos
 pelo Go. As fixtures anteriores também selecionam agora seus próprios catches.
 [Contrato e limites](native-producer.md#tabelas-de-exceção-e-retomada-aphook5).
-Handlers Delphi privados, chains e outros formatos continuam rejeitados.
+O incremento APHOOK6 reconhece o handler Delphi conferido da revisão v0.3
+para catch-all/finally. Outras variantes, tabelas tipadas e chains continuam rejeitados.
