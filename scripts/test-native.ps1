@@ -121,3 +121,6 @@ if ($LASTEXITCODE -ne 0) { throw 'Repeated all-thread Clear boundaries failed' }
 
 go test -v -count=3 -timeout=45s ./internal/instrumentation/native -run '^TestNativeProducerTinyMethodCountsWithoutPatchingAdjacentCode$'
 if ($LASTEXITCODE -ne 0) { throw 'Repeated six-byte method capture failed' }
+
+go test -v -count=3 -timeout=60s ./internal/instrumentation/native -run '^TestNativeProducerReusesBoundedRingsAcrossThreadLifetimes$'
+if ($LASTEXITCODE -ne 0) { throw 'Repeated bounded ring reuse across 300 thread lifetimes failed' }

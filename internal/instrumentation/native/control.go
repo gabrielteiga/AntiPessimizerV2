@@ -2,13 +2,20 @@ package native
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"net"
+	"os"
 	"sync/atomic"
 	"time"
 )
 
 var ErrControlClosed = errors.New("instrumented capture is not active")
+
+type threadExit struct {
+	tid  uint32
+	tick uint64
+}
 
 type clearRequest struct {
 	ctx    context.Context
@@ -61,13 +68,42 @@ func (c *Control) Clear(ctx context.Context) error {
 		return ctx.Err()
 	}
 }
-func runCommands(ctx context.Context, conn net.Conn, control *Control, ack <-chan error, cancel context.CancelFunc) {
+func runCommands(ctx context.Context, conn net.Conn, control *Control, ack <-chan error, cancel context.CancelFunc, exited ...<-chan threadExit) {
+	var exits <-chan threadExit
+	if len(exited) > 0 {
+		exits = exited[0]
+	}
+	var requests <-chan clearRequest
+	if control != nil {
+		requests = control.requests
+	}
 	for {
 		var request clearRequest
 		select {
 		case <-ctx.Done():
 			return
-		case request = <-control.requests:
+		case event, open := <-exits:
+			if !open {
+				exits = nil
+				continue
+			}
+			var command [13]byte
+			command[0] = 4
+			binary.LittleEndian.PutUint32(command[1:], event.tid)
+			binary.LittleEndian.PutUint64(command[5:], event.tick)
+			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			err := writeHookBytes(conn, command[:])
+			conn.SetWriteDeadline(time.Time{})
+			if err != nil {
+				// Natural ExitProcess can close the duplex pipe after its final batch.
+				// The reader verifies completion; a write deadline is a real control loss.
+				if errors.Is(err, os.ErrDeadlineExceeded) {
+					cancel()
+				}
+				return
+			}
+			continue
+		case request = <-requests:
 		}
 		if err := request.ctx.Err(); err != nil {
 			request.result <- err

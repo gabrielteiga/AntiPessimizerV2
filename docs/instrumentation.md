@@ -495,3 +495,29 @@ O smoke Win32 compara arquivos e volta ao histórico; o fluxo de executáveis
 compara a captura direta e a captura pelo serviço, exigindo as mesmas 31 chamadas
 reais agregadas. Capturas legadas v1 precisam ser refeitas para comparação, pois
 linhas observadas não comprovam a seleção de procedimentos nunca chamados.
+
+
+## Fim real de thread e reutilização de buffers
+
+No lançamento próprio, o debugger informa EXIT_THREAD depois dos finalizadores
+da aplicação/TLS/DLL. O comando nativo de fim leva TID e timestamp QPC observado
+nesse evento. O worker drena as filas, publica ThreadEnd e só então libera o slot.
+A marca temporal impede que um fim antigo encerre uma instância nova com TID
+reutilizado. IDs dos threads remotos de startup também são retirados da máquina
+de estados depois de usados, sem reconhecer um TID reutilizado como bootstrap.
+
+O protocolo nativo v4 negocia esse controle; não muda o layout dos eventos de
+métricas. O canal de lifecycle é limitado a 256 notificações e sua perda encerra
+a captura. O pool permanece em 64 rings, agora de instâncias simultâneas em vez
+de um limite total de threads da sessão. A espera por slot fica fora da barreira
+de writers, permitindo drenar/finalizar instâncias antigas e executar Clear.
+Head/tail continuam monotônicos ao reutilizar o slot. O sentinel de fim explícito
+continua rejeitando callbacks posteriores no laboratório cooperativo.
+
+A saída natural do processo finaliza apenas rings ainda vivos, sem duplicar
+ThreadEnd; a leitura exige o frame final para comprovar captura completa. O teste
+Windows cria 300 instâncias reais em 100 rodadas, com chamadas/recursão/SEH por
+instância e 900 linhas finais, exigindo ausência de perdas/frames abandonados e
+sem misturar TIDs/instâncias. O limite do núcleo continua 4096 linhas por época;
+exceder limites continua erro explícito, sem crescimento irrestrito nem agregação
+silenciosa entre threads.

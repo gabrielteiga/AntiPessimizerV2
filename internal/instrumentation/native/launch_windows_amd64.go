@@ -177,13 +177,14 @@ func Launch(parent context.Context, o LaunchOptions, out io.Writer) (resultErr e
 		if err := installHooks(conn, data, reader.Header.Procedures); err != nil {
 			return err
 		}
-		if o.Control != nil {
-			if reader.Header.Version != 3 {
-				return errors.New("native adapter does not support synchronized Clear")
-			}
-			commandsDone = make(chan struct{})
-			go func() { defer close(commandsDone); runCommands(ctx, conn, o.Control, clearAck, cancel) }()
+		if reader.Header.Version != 4 {
+			return errors.New("update the native adapter DLL: owned thread lifecycles require wire v4")
 		}
+		commandsDone = make(chan struct{})
+		go func() {
+			defer close(commandsDone)
+			runCommands(ctx, conn, o.Control, clearAck, cancel, d.exitedThreads)
+		}()
 		return nil
 	}
 	awaitExit := func(ctx context.Context) error {

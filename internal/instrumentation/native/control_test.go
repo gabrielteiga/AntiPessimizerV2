@@ -2,6 +2,7 @@ package native
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"io"
 	"net"
@@ -78,4 +79,31 @@ func TestClearOnUnstartedCaptureAndCanceledCaller(t *testing.T) {
 		t.Fatal(err)
 	}
 	close(c.done)
+}
+
+func TestNativeLifecycleCommandsAreSerializedWithoutClearControl(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	left, right := net.Pipe()
+	defer left.Close()
+	defer right.Close()
+	exits := make(chan threadExit, 3)
+	done := make(chan struct{})
+	go func() { defer close(done); runCommands(ctx, left, nil, nil, cancel, exits) }()
+	events := []threadExit{{7, 100}, {8, 120}, {7, 300}}
+	for _, event := range events {
+		exits <- event
+	}
+	close(exits)
+	for _, event := range events {
+		var command [13]byte
+		if _, err := io.ReadFull(right, command[:]); err != nil {
+			t.Fatal(err)
+		}
+		if command[0] != 4 || binary.LittleEndian.Uint32(command[1:]) != event.tid || binary.LittleEndian.Uint64(command[5:]) != event.tick {
+			t.Fatal("thread-end commands interleaved", command)
+		}
+	}
+	cancel()
+	<-done
 }

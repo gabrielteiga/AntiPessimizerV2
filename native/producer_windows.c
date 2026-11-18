@@ -15,7 +15,8 @@ _Static_assert(sizeof(Event) == 24, "event layout changed");
 typedef struct {
     _Alignas(64) volatile LONG64 head;
     _Alignas(64) volatile LONG64 tail;
-    volatile LONG tid;
+    volatile LONG tid, ended, started;
+    _Alignas(8) volatile LONG64 birth;
     Event events[AP_CAPACITY];
 } Ring;
 static struct {
@@ -125,10 +126,35 @@ static BOOL clear_boundary(uint64_t *sequence){
     InterlockedExchange(&state.frozen,0);
     return ok;
 }
+/* The debugger reports actual OS thread exit, after application/TLS/DLL
+ * finalizers. Publish its end before making the slot reusable by another life. */
+static BOOL end_thread_boundary(uint32_t tid,uint64_t exited_at,uint64_t *sequence){
+    Ring *r=NULL;
+    LONG count=load32(&state.next_ring);if(count>AP_THREADS)count=AP_THREADS;
+    for(LONG i=0;i<count;i++)if((uint32_t)load32(&state.rings[i].tid)==tid && load32(&state.rings[i].started) && load64(&state.rings[i].birth)<=exited_at && !load32(&state.rings[i].ended)){r=&state.rings[i];break;}
+    if(!r)return TRUE;
+    InterlockedExchange(&state.frozen,1);
+    ULONGLONG deadline=GetTickCount64()+2000;
+    while(load32(&state.writers)){
+        if(GetTickCount64()>=deadline){lost();InterlockedExchange(&state.frozen,0);return FALSE;}
+        SwitchToThread();
+    }
+    if((uint32_t)load32(&r->tid)!=tid || !load32(&r->started) || load64(&r->birth)>exited_at || load32(&r->ended)){InterlockedExchange(&state.frozen,0);return TRUE;}
+    int drained;
+    do{drained=drain_rings(sequence);}while(drained>0);
+    BOOL ok=drained==0;
+    if(ok && load32(&r->started) && !load32(&r->ended)){
+        Event end={AP_END,tid,0,0,ticks()};
+        ok=end.tick && batch(&end,1,++*sequence,0);
+    }
+    if(ok)InterlockedExchange(&r->ended,1);
+    InterlockedExchange(&state.frozen,0);
+    return ok;
+}
 static DWORD WINAPI drain(void *unused) {
     (void)unused;
     unsigned char hello[48] = { 'A','P','N','A','T','0','1',0 }, catalog[AP_SELECTION*8];
-    put32(hello+8, state.hook_mode==2?3:1); put32(hello+12, 24); put64(hello+16, state.frequency);
+    put32(hello+8, state.hook_mode==2?4:1); put32(hello+12, 24); put64(hello+16, state.frequency);
     put32(hello+24, GetCurrentProcessId()); put32(hello+28, state.count);
     put32(hello+32, state.image_size); put64(hello+40, state.start);
     for (uint32_t i=0; i<state.count; i++) {
@@ -154,17 +180,22 @@ static DWORD WINAPI drain(void *unused) {
         /* If shutdown was observed before this scan, all selected callers are
            already quiescent and every published head must be drained. */
         BOOL stopping = load32(&state.stopping);
+        BOOL commanded=FALSE;
         if(state.hook_mode==2 && !stopping){
             DWORD available=0;
             if(!PeekNamedPipe(state.pipe,NULL,0,NULL,&available,NULL))return 1;
             if(available){
                 unsigned char command=0;DWORD read=0;
-                if(!ReadFile(state.pipe,&command,1,&read,NULL)||read!=1||command!=3||!clear_boundary(&sequence))return 1;
+                if(!ReadFile(state.pipe,&command,1,&read,NULL)||read!=1)return 1;
+                if(command==3){if(!clear_boundary(&sequence))return 1;}
+                else if(command==4){unsigned char life[12];if(!hook_io(state.pipe,life,12,FALSE)||!end_thread_boundary(hook_u32(life),hook_u64(life+4),&sequence))return 1;}
+                else return 1;
+                commanded=TRUE;
             }
         }
         int drained=drain_rings(&sequence);
         if(drained<0)return 1;
-        BOOL any=drained!=0;
+        BOOL any=drained!=0 || commanded;
         if (stopping && !any) break;
         /* Worker-owned liveness only: never advance a measured frame or invent
            elapsed time for an open call. V1 cooperative hosts stay unchanged. */
@@ -178,44 +209,64 @@ static DWORD WINAPI drain(void *unused) {
     }
     return batch(NULL, 0, ++sequence, ticks()) ? 0 : 1;
 }
-static void enqueue(Ring *r, uint32_t type, uint32_t procedure, uint32_t depth) {
+static uint64_t enqueue(Ring *r, uint32_t type, uint32_t procedure, uint32_t depth) {
     uint64_t tick = ticks();
-    if (!tick) return;
+    if (!tick) return 0;
     uint64_t head = load64(&r->head), tail = load64(&r->tail);
-    if (head-tail >= state.capacity) { lost(); return; }
+    if (head-tail >= state.capacity) { lost(); return 0; }
     r->events[head%state.capacity] = (Event){type, (uint32_t)load32(&r->tid), procedure, depth, tick};
     InterlockedExchange64(&r->head, (LONG64)(head+1));
+    return tick;
 }
+/* Wait for a reusable slot outside the writer gate: the worker can drain/end
+ * old lifetimes and process Clear while a new thread is waiting for capacity. */
 static Ring *thread_ring(void) {
-    Ring *r = TlsGetValue(state.tls);
-    if (r == (Ring *)(uintptr_t)1) { lost(); return NULL; }
-    if (r) return r;
-    LONG index = InterlockedIncrement(&state.next_ring)-1;
-    if (index >= AP_THREADS) { TlsSetValue(state.tls, (void *)(uintptr_t)1); lost(); return NULL; }
-    LONG tid = (LONG)GetCurrentThreadId();
-    /* Conservatively fail on TID reuse during one capture; do not merge two
-       lifetimes if rings from the old lifetime have not yet been drained. */
-    for (LONG i=0; i<index; i++) {
-        if (load32(&state.rings[i].tid) == tid) {
-            TlsSetValue(state.tls, (void *)(uintptr_t)1); lost(); return NULL;
+    Ring *r=TlsGetValue(state.tls);
+    if(r==(Ring *)(uintptr_t)1){lost();return NULL;}
+    if(r)return r;
+    LONG tid=(LONG)GetCurrentThreadId();
+    ULONGLONG deadline=GetTickCount64()+2000;
+    while(load32(&state.running)){
+        LONG count=load32(&state.next_ring);if(count>AP_THREADS)count=AP_THREADS;
+        BOOL pending=FALSE;
+        for(LONG i=0;i<count;i++){
+            Ring *old=&state.rings[i];
+            if(load32(&old->tid)==tid && (!load32(&old->ended)||load64(&old->tail)!=load64(&old->head))){pending=TRUE;break;}
+        }
+        if(!pending){
+            for(LONG i=0;i<count;i++){
+                Ring *old=&state.rings[i];
+                if(load32(&old->ended) && load64(&old->tail)==load64(&old->head) && InterlockedCompareExchange(&old->ended,0,1)==1){r=old;break;}
+            }
+            if(!r && count<AP_THREADS && InterlockedCompareExchange(&state.next_ring,count+1,count)==count)r=&state.rings[count];
+            if(r){
+                InterlockedExchange(&r->started,0);InterlockedExchange64(&r->birth,0);InterlockedExchange(&r->tid,tid);
+                if(!TlsSetValue(state.tls,r)){InterlockedExchange(&r->ended,1);lost();return NULL;}
+                return r;
+            }
+        }
+        if(GetTickCount64()>=deadline){TlsSetValue(state.tls,(void *)(uintptr_t)1);lost();return NULL;}
+        SwitchToThread();
+    }
+    return NULL;
+}
+static void record(uint32_t type,uint32_t procedure,uint32_t depth){
+    DWORD error=GetLastError();
+    if(load32(&state.running)){
+        BOOL selected=!procedure;
+        for(uint32_t i=0;i<state.count && !selected;i++)selected=state.procedures[i].id==procedure;
+        if(!selected)lost();
+        else{
+            Ring *r=thread_ring();
+            if(r && writer_gate(TRUE)){
+                if(load32(&state.running)){
+                    if(!load32(&r->started)){uint64_t birth=enqueue(r,AP_START,0,0);InterlockedExchange64(&r->birth,(LONG64)birth);InterlockedExchange(&r->started,1);}
+                    enqueue(r,type,procedure,depth);
+                }
+                InterlockedDecrement(&state.writers);
+            }
         }
     }
-    r = &state.rings[index];
-    InterlockedExchange(&r->tid, tid);
-    if (!TlsSetValue(state.tls, r)) { lost(); return NULL; }
-    enqueue(r, AP_START, 0, 0);
-    return r;
-}
-static void record(uint32_t type, uint32_t procedure, uint32_t depth) {
-    DWORD error = GetLastError();
-    if(!writer_gate(TRUE)){SetLastError(error);return;}
-    if (load32(&state.running)) {
-        BOOL selected = !procedure;
-        for (uint32_t i=0; i<state.count && !selected; i++) selected = state.procedures[i].id == procedure;
-        if (!selected) lost();
-        else { Ring *r = thread_ring(); if (r) enqueue(r, type, procedure, depth); }
-    }
-    InterlockedDecrement(&state.writers);
     SetLastError(error);
 }
 static EXCEPTION_DISPOSITION WINAPI function_unwind(PEXCEPTION_RECORD exception,PVOID frame,PCONTEXT context,PDISPATCHER_CONTEXT dispatcher) {
@@ -234,9 +285,9 @@ AP_API void APNativeThreadEnd(void) {
     if (!writer_gate(TRUE)){SetLastError(error);return;}
     if (load32(&state.running)) {
         Ring *r = TlsGetValue(state.tls);
-        if (r && r != (Ring *)(uintptr_t)1) enqueue(r, AP_END, 0, 0);
-        /* Retain the slot so another selected call cannot create an ambiguous
-           second lifetime. The host must call ThreadEnd at actual thread end. */
+        if(r && r!=(Ring *)(uintptr_t)1 && load32(&r->started) && !load32(&r->ended)){enqueue(r,AP_END,0,0);InterlockedExchange(&r->ended,1);}
+        /* A cooperating host must call this only at actual thread end. The TLS
+           sentinel rejects callbacks after explicit retirement of that life. */
         TlsSetValue(state.tls, (void *)(uintptr_t)1);
     }
     InterlockedDecrement(&state.writers);
