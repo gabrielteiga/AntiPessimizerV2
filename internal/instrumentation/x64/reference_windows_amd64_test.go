@@ -18,8 +18,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const referenceDLLSHA = "1c1bf9288a3bfd05303f2b9a86d29693c0a449e716f575a25a59059f1c0d02b5"
-
 type referenceCase struct {
 	RVA  uint32 `json:"rva"`
 	Hex  string `json:"source_hex"`
@@ -27,7 +25,7 @@ type referenceCase struct {
 }
 
 // Only reviewed, exact bytes from the original v0.3 DLL are executable here.
-// These small routines use no imports, globals, initialized RTL or private ABI.
+// These routines use only caller-owned memory and no imports, globals, initialized RTL or private ABI.
 // There is no claim about names (the release has no TDS) or compiler version.
 var referenceCases = []referenceCase{
 	{0x19210, "488d042560020000c3", "constant"},
@@ -40,6 +38,8 @@ var referenceCases = []referenceCase{
 	{0x18050, "554883ec10488bec488b0148894508488b0248894500488b4508483b45000f95c0488d65105dc3", "not-equal-framed"},
 	{0x18570, "554883ec10488bec488b024a8b040048894508488b4508488d65105dc3", "indexed-framed"},
 	{0x18700, "554883ec10488bec48895508488b4508488d65105dc3", "argument-framed"},
+	{0x3ccc0, "555756534883ec28488bec4989c84989d1488d7d10498bf048a548a5488b45104989014c894d00488b4518488d4001488945084c8d5510498b5208498b02488b4d08488b5d00f0490fc7080f94c14989520849890284c974b8488d65285b5e5f5dc3", "atomic-push-framed"},
+	{0x3cd30, "555756534883ec28488bec4989c8488d7d10498bf048a548a5488b45104885c0750433c0eb3d488b0048894500488b4518488d4001488945084c8d4d10498b5108498b01488b4d08488b5d00f0490fc7080f94c14989510849890184c974af488b4510488d65285b5e5f5dc3", "atomic-pop-framed"},
 }
 
 func referenceAllocation(t *testing.T, loaded uint64, imageSize uint32) uintptr {
@@ -66,7 +66,7 @@ func referenceAllocation(t *testing.T, loaded uint64, imageSize uint32) uintptr 
 	return 0
 }
 
-func TestReferenceDelphiReadOnlyRoutinesPreserveNativeResults(t *testing.T) {
+func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 	path := os.Getenv("AP_REFERENCE_DELPHI_DLL")
 	if path == "" {
 		t.Skip("pinned original Delphi release is downloaded in a separate Windows CI step")
@@ -191,6 +191,7 @@ func TestReferenceDelphiReadOnlyRoutinesPreserveNativeResults(t *testing.T) {
 				}
 				binary.LittleEndian.PutUint16(secondary[10:], uint16(trial+1000))
 				var mask, want uint64 = ^uint64(0), 0
+				var expectedInput, expectedPeer []byte
 				var peer [8]byte
 				put(peer[:], 0x123456789abcd000+trial+trial%2)
 				arguments := []uintptr{rw + 128, rw + 384, uintptr(trial % 4 * 8)}
@@ -221,6 +222,31 @@ func TestReferenceDelphiReadOnlyRoutinesPreserveNativeResults(t *testing.T) {
 						put(secondary[i*8:], 0x123456789000+i+trial)
 					}
 					want = 0x123456789000 + trial%4 + trial
+				case "atomic-push-framed":
+					// Tagged head: {node,counter}. Push links the new node to the old
+					// head and exchanges both halves atomically, returning the old node.
+					put(input, uint64(rw+512))
+					put(input[8:], 1000+trial)
+					want = uint64(rw + 512)
+					expectedInput = append([]byte(nil), input...)
+					put(expectedInput, uint64(rw+384))
+					put(expectedInput[8:], 1001+trial)
+					expectedPeer = append([]byte(nil), peer[:]...)
+					put(expectedPeer, uint64(rw+512))
+				case "atomic-pop-framed":
+					put(input, 0)
+					put(input[8:], 1000+trial)
+					put(peer[:], uint64(rw+512))
+					if trial%2 != 0 {
+						put(input, uint64(rw+384))
+						want = uint64(rw + 384)
+					}
+					expectedInput = append([]byte(nil), input...)
+					if trial%2 != 0 {
+						put(expectedInput, uint64(rw+512))
+						put(expectedInput[8:], 1001+trial)
+					}
+					expectedPeer = append([]byte(nil), peer[:]...)
 				case "argument-framed":
 					want = 0xfedcba9876543000 + trial
 					arguments[1] = uintptr(want)
@@ -232,7 +258,17 @@ func TestReferenceDelphiReadOnlyRoutinesPreserveNativeResults(t *testing.T) {
 				put(preceding[:], want)
 				write(rw+504, preceding[:])
 				original, _, _ := syscall.SyscallN(uintptr(dll)+uintptr(c.RVA), arguments...)
+				if expectedInput != nil {
+					if !bytes.Equal(read(rw+128, len(input)), expectedInput) || !bytes.Equal(read(rw+384, len(peer)), expectedPeer) {
+						t.Fatal("original atomic state differs", trial)
+					}
+					write(rw+128, input)
+					write(rw+384, peer[:])
+				}
 				cloned, _, _ := syscall.SyscallN(memory, arguments...)
+				if expectedInput != nil && (!bytes.Equal(read(rw+128, len(input)), expectedInput) || !bytes.Equal(read(rw+384, len(peer)), expectedPeer)) {
+					t.Fatal("clone atomic state differs", trial)
+				}
 				if uint64(original)&mask != want || uint64(cloned)&mask != want {
 					t.Fatalf("original/relocated result changed: trial=%d original=%#x clone=%#x want=%#x mask=%#x", trial, original, cloned, want, mask)
 				}
@@ -244,7 +280,7 @@ func TestReferenceDelphiReadOnlyRoutinesPreserveNativeResults(t *testing.T) {
 		})
 	}
 	runtime.KeepAlive(image)
-	t.Logf("pinned original Delphi DLL: %d reviewed routines, %d original/clone pairs, native volatile-GPR clobber, no DLL initialization or source patch", len(referenceCases), calls)
+	t.Logf("pinned original Delphi DLL: %d reviewed routines, %d original/clone pairs, native volatile-GPR clobber, caller-owned memory, no DLL initialization or source patch", len(referenceCases), calls)
 	if path := os.Getenv("AP_REFERENCE_DELPHI_REPORT"); path != "" {
 		data, err := json.MarshalIndent(struct {
 			Version int             `json:"version"`

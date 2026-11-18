@@ -181,13 +181,16 @@ scripts/test-reference-delphi.ps1 fixa o ZIP v0.3 (SHA256
 e a DLL pelo hash acima. O CI baixa o asset público e confere ambos antes de
 extrair/executar. Os binários externos não entram no repositório nem no pacote.
 A DLL é mapeada com DONT_RESOLVE_DLL_REFERENCES: não se executam DllMain,
-inicializadores ou dependências. Somente dez corpos com bytes completos
+inicializadores ou dependências. Somente doze corpos com bytes completos
 conferidos podem ser chamados, com buffers privados preparados pelo teste.
 
 O corpus usa os RVAs 0x19210, 0x7a9e0, 0x8c460, 0x3ffe0, 0x8e900, 0x98700,
 0x18020, 0x18050, 0x18570 e 0x18700: retorno constante, acesso a campos,
 indireção opcional, leitura de word/bool, igualdade/desigualdade de inteiros,
-indexação e retorno de argumento. Quatro rotinas têm frame RBP e locals,
+indexação e retorno de argumento. Os corpos 0x3ccc0 (98 bytes) e 0x3cd30
+(108 bytes) acrescentam push/pop de um head com contador, por CMPXCHG16B.
+O teste confere o retorno e todo o estado dos buffers, reiniciados entre original
+e cópia, inclusive head vazio e incremento do contador. Seis rotinas têm frame RBP e locals,
 com os códigos de unwind e prólogos reais do binário original.
 Há 100 pares original/cópia por rotina, exigindo o valor calculado a partir dos
 operandos em ambos os lados. Os helpers nativos clobberam os GPR voláteis para
@@ -288,3 +291,16 @@ sem executar as demais rotinas e sem ser porcentagem de paridade. A worker
 CreateFile no pipe fixo, streams, dispatch de comandos e on E: Exception.
 O teste provoca EReadError com ctInstrumetProcedures sem seu inteiro obrigatório,
 confere a classe via VEH e exige que o catch tipado retorne sem escape ao C.
+
+
+## Operações atômicas de 128 bits
+
+A inspeção das recusas do corpus encontrou CMPXCHG16B em 0x16f10, 0x16fd0,
+0x3ccc0, 0x3cd30 e 0x8c240. A adaptação permite esse opcode com memória de
+16 bytes/endereço de 64 bits e frame nativo verificado. O prefixo LOCK e os
+operandos são preservados, incluindo endereços RIP relocados. A instrução
+lê RBX/RCX, atualiza RAX/RDX no caso de falha e produz ZF; não altera RBX/RCX.
+HLE, CMPXCHG8B, endereços de 32 bits e o caminho legado continuam recusados.
+O planejador estático agora aceita 8.645 das 8.777 entradas (523 scopes Delphi).
+Essa análise também pode rodar em Linux com AP_REFERENCE_DELPHI_DLL; somente
+os testes de execução dos corpos requerem Windows. Não mede paridade funcional.

@@ -12,6 +12,8 @@ import (
 	"testing"
 )
 
+const referenceDLLSHA = "1c1bf9288a3bfd05303f2b9a86d29693c0a449e716f575a25a59059f1c0d02b5"
+
 // This scans static eligibility only. It never calls the accepted procedures
 // and must not be reported as execution coverage, compiler certification or a
 // percentage of functional parity.
@@ -73,7 +75,7 @@ func TestReferenceDelphiStaticPlanCoverage(t *testing.T) {
 			evidence.Delphi++
 		}
 	}
-	if evidence.Total != 8777 || evidence.Accepted != 8640 || evidence.Delphi != 523 {
+	if evidence.Total != 8777 || evidence.Accepted != 8645 || evidence.Delphi != 523 {
 		t.Fatal("static eligibility changed; review the actual corpus before changing expectations", evidence)
 	}
 	if output := os.Getenv("AP_REFERENCE_DELPHI_REPORT"); output != "" {

@@ -11,8 +11,14 @@ var stringOperations = map[string]bool{
 }
 
 // CMPXCHG implicitly changes RAX; XADD changes its explicit operands. Neither
-// introduces hidden nonvolatile state. CMPXCHG8B/16B remain unsupported.
+// introduces hidden nonvolatile state. CMPXCHG16B additionally reads RBX/RCX
+// without changing them, and is gated on a verified native frame below.
 var atomicOperations = map[string]bool{"CMPXCHG": true, "XADD": true}
+
+func wideAtomicOperation(inst x86asm.Inst) bool {
+	_, memory := inst.Args[0].(x86asm.Mem)
+	return inst.Op == x86asm.CMPXCHG16B && memory && inst.MemBytes == 16 && inst.AddrSize == 64
+}
 
 // Full-function probes save/restore MXCSR around helpers, allowing the body to
 // inspect or change SSE control/status without inserted callbacks changing it.
@@ -31,7 +37,7 @@ func lockedMemoryOperation(inst x86asm.Inst) bool {
 	}
 	switch inst.Op {
 	case x86asm.ADD, x86asm.ADC, x86asm.AND, x86asm.BTC, x86asm.BTR, x86asm.BTS,
-		x86asm.CMPXCHG, x86asm.DEC, x86asm.INC, x86asm.NEG, x86asm.NOT,
+		x86asm.CMPXCHG, x86asm.CMPXCHG16B, x86asm.DEC, x86asm.INC, x86asm.NEG, x86asm.NOT,
 		x86asm.OR, x86asm.SBB, x86asm.SUB, x86asm.XOR, x86asm.XADD, x86asm.XCHG:
 		return true
 	}

@@ -17,7 +17,7 @@ $env:AP_REFERENCE_DELPHI_DLL = $dll
 $env:AP_REFERENCE_DELPHI_REPORT = Join-Path $Output 'reference-delphi.json'
 $env:AP_REFERENCE_DELPHI_EXCEPTION_REPORT = Join-Path $Output 'reference-delphi-exceptions.json'
 try {
-    go test -v -count=1 -timeout=45s ./internal/instrumentation/x64 -run '^TestReferenceDelphi(ReadOnlyRoutinesPreserveNativeResults|StaticPlanCoverage)$'
+    go test -v -count=1 -timeout=45s ./internal/instrumentation/x64 -run '^TestReferenceDelphi(ReviewedRoutinesPreserveNativeResults|StaticPlanCoverage)$'
     if ($LASTEXITCODE -ne 0) { throw 'Reviewed original Delphi routines changed results after relocation' }
     go test -v -count=1 -timeout=45s ./internal/instrumentation/native -run '^TestReferenceDelphi(ExceptionHandlerPreservesCatchAndReraise|TypedHandlerCatchesWorkerReadFailure)$'
     if ($LASTEXITCODE -ne 0) { throw 'Original Delphi handler, native events or Go accounting changed behavior' }

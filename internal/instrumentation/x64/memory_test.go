@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"testing"
+
+	"golang.org/x/arch/x86/x86asm"
 )
 
 func framedStringImage(op []byte) ([]byte, []byte) {
@@ -74,6 +76,54 @@ func TestAtomicMemoryOperationsPreserveLockAndRejectInvalidPrefixes(t *testing.T
 		code := append(append(bytes.Repeat([]byte{0x90}, 16), op...), 0xc3)
 		if _, err := BuildPEFunction(scalarImage(code), peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 1); !errors.Is(err, ErrUnsupported) {
 			t.Fatal("unsupported atomic operation accepted", op, err)
+		}
+	}
+}
+
+// The instruction reads RBX/RCX and writes RAX/RDX/ZF. It must stay in the
+// verified native-frame path; legacy/frameless installers retain their gate.
+func TestCompareExchange128PreservesOperandsLockAndRIPTarget(t *testing.T) {
+	for _, op := range [][]byte{
+		{0xf0, 0x49, 0x0f, 0xc7, 0x08},             // LOCK CMPXCHG16B [R8]
+		{0xf0, 0x48, 0x0f, 0xc7, 0x4c, 0x31, 0x10}, // [RCX+RSI+16]
+		{0xf0, 0x48, 0x0f, 0xc7, 0x0d, 0, 0, 0, 0}, // [RIP+disp32]
+	} {
+		image, code := framedStringImage(op)
+		if len(op) == 9 {
+			binary.LittleEndian.PutUint32(code[16+5:], uint32(0x1080-(peLeafRVA+16+len(op))))
+			copy(image[0x220:], code)
+		}
+		before := append([]byte(nil), image...)
+		p, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 1)
+		if err != nil {
+			t.Fatalf("%x: %v", op, err)
+		}
+		inst, err := x86asm.Decode(p.Image[p.BodyRVA+16:], 64)
+		if err != nil || inst.Op != x86asm.CMPXCHG16B || inst.MemBytes != 16 {
+			t.Fatal(inst, err)
+		}
+		dst := p.Image[p.BodyRVA+16 : p.BodyRVA+16+uint32(len(op))]
+		if len(op) == 9 {
+			if !bytes.Equal(dst[:5], op[:5]) || int64(0x180000+p.BodyRVA+16+uint32(len(op)))+int64(int32(binary.LittleEndian.Uint32(dst[5:]))) != 0x101080 {
+				t.Fatal("RIP operand changed", dst)
+			}
+		} else if !bytes.Equal(dst, op) {
+			t.Fatal("atomic operands/prefix changed", dst)
+		}
+		if !bytes.Equal(image, before) {
+			t.Fatal("mutated source")
+		}
+	}
+	for _, op := range [][]byte{
+		{0xf2, 0xf0, 0x49, 0x0f, 0xc7, 0x08}, // HLE
+		{0xf3, 0xf0, 0x49, 0x0f, 0xc7, 0x08},
+		{0xf0, 0x49, 0x0f, 0xc7, 0xc8},       // register destination
+		{0xf0, 0x41, 0x0f, 0xc7, 0x08},       // CMPXCHG8B: separate subset
+		{0x67, 0xf0, 0x49, 0x0f, 0xc7, 0x08}, // 32-bit address
+	} {
+		image, code := framedStringImage(op)
+		if _, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 1); !errors.Is(err, ErrUnsupported) {
+			t.Fatal("unsupported wide atomic accepted", op, err)
 		}
 	}
 }
