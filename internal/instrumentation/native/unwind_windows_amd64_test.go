@@ -40,7 +40,10 @@ func TestNativeProducerForwardsOriginalCleanupAndCollidedUnwind(t *testing.T) {
 						}
 					}
 				}
-				if row.Calls != calls || row.UnwoundCalls != unwound || row.InclusiveTicks == 0 || row.ExclusiveTicks > row.InclusiveTicks {
+				// A successful tiny cleanup can complete within one QPC tick.
+				// Exception paths still include the actual Windows dispatch/unwind.
+				zeroAllowed := row.ProcedureID == 3 && unwound == 0
+				if row.Calls != calls || row.UnwoundCalls != unwound || row.InclusiveTicks == 0 && !zeroAllowed || row.ExclusiveTicks > row.InclusiveTicks {
 					t.Fatal("cleanup changed native counts/times", row)
 				}
 				if threads[row.ThreadID] == nil {
