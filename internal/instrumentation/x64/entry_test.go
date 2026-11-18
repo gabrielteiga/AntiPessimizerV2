@@ -19,13 +19,18 @@ func TestEntryProbeEncodingAndUnwind(t *testing.T) {
 	if target := binary.LittleEndian.Uint64(p.Image[p.CodeSize-8:]); target != 0x30000000 {
 		t.Fatal(target)
 	}
-	var call, sub, add int
+	var call, sub, add, stackArg int
 	for at := 0; at < int(p.CodeSize)-8; {
 		inst, err := x86asm.Decode(p.Image[at:p.CodeSize], 64)
 		if err != nil {
 			t.Fatal(at, err)
 		}
 		switch inst.Op {
+		case x86asm.LEA:
+			stackArg++
+			if inst.Args[0] != x86asm.RDX || inst.Args[1] != (x86asm.Mem{Base: x86asm.RSP, Scale: 1, Disp: 200}) || uint32(at) >= p.HelperReturn {
+				t.Fatal("helper did not receive original entry RSP", inst)
+			}
 		case x86asm.CALL:
 			call++
 			if uint32(at+inst.Len) != p.HelperReturn {
@@ -44,7 +49,7 @@ func TestEntryProbeEncodingAndUnwind(t *testing.T) {
 		}
 		at += inst.Len
 	}
-	if call != 1 || sub != 1 || add != 1 {
+	if call != 1 || sub != 1 || add != 1 || stackArg != 1 {
 		t.Fatal(call, sub, add)
 	}
 	u := p.Image[p.UnwindRVA:]
@@ -68,13 +73,18 @@ func TestExitProbeEncodingAndUnwind(t *testing.T) {
 	if p.StackSize != 200 || p.UnwindRVA%4 != 0 || p.Image[p.CodeSize-1] != 0xc3 || int(p.UnwindRVA)+8 != len(p.Image) {
 		t.Fatal(p)
 	}
-	var calls, returns int
+	var calls, returns, stackArg int
 	for at := 0; at < int(p.CodeSize); {
 		inst, err := x86asm.Decode(p.Image[at:p.CodeSize], 64)
 		if err != nil {
 			t.Fatal(at, err)
 		}
 		switch inst.Op {
+		case x86asm.LEA:
+			stackArg++
+			if inst.Args[0] != x86asm.RDX || inst.Args[1] != (x86asm.Mem{Base: x86asm.RSP, Scale: 1, Disp: 200}) || uint32(at) >= p.HelperReturn {
+				t.Fatal("exit helper did not receive restored entry RSP", inst)
+			}
 		case x86asm.CALL:
 			calls++
 		case x86asm.RET:
@@ -88,7 +98,7 @@ func TestExitProbeEncodingAndUnwind(t *testing.T) {
 		}
 		at += inst.Len
 	}
-	if calls != 1 || returns != 1 {
+	if calls != 1 || returns != 1 || stackArg != 1 {
 		t.Fatal(calls, returns)
 	}
 	u := p.Image[p.UnwindRVA:]

@@ -25,7 +25,7 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 	if _, err := io.ReadFull(conn, offer[:]); err != nil {
 		return fmt.Errorf("hook allocation offer: %w", err)
 	}
-	forwarding := string(offer[:8]) == "APHOOK3\x00"
+	forwarding := string(offer[:8]) == "APHOOK3\x00" || string(offer[:8]) == "APHOOK4\x00"
 	general := string(offer[:8]) == "APHOOK2\x00" || forwarding
 	if string(offer[:8]) != "APHOOK1\x00" && !general {
 		return errors.New("invalid hook allocation protocol")

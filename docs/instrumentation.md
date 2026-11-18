@@ -724,3 +724,14 @@ de frames abandonados/abertos. O tempo inclusivo do chamador precisa equivaler
 à soma dos exclusivos e dos filhos, incluindo chamadas feitas pela limpeza após
 o fechamento do frame abandonado. Isso detecta perda de contabilidade em frames
 externos durante collided unwind e cleanup executado duas vezes.
+
+
+## Identidade do frame nativo
+
+O adaptador APHOOK4 associa cada entrada/saída ao ID e RSP original antes do
+prólogo. Uma pilha limitada por thread diferencia recursão e repetição de unwind
+sem mudar endereços de retorno. O callback usa os códigos de alocação/push para
+recuperar o mesmo slot no unwind, incluindo RBP com FrameOffset. O teste Win64
+exige igualdade dos tokens de entrada/saída com o RSP real e preservação de RCX/RDX;
+uma access violation atravessa um frame RBP de bias não zero. A contabilidade Go,
+Clear e os formatos de arquivo não mudam. O suporte a EHANDLER continua pendente.

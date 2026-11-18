@@ -66,3 +66,24 @@ func TestNativeProducerForwardsOriginalCleanupAndCollidedUnwind(t *testing.T) {
 		})
 	}
 }
+
+func TestNativeProducerFrameRegisterUnwindMatchesOriginalStack(t *testing.T) {
+	o := frameSelectionFixture(t, map[string]uint32{"APFrameFaultRBP": 1})
+	var output bytes.Buffer
+	if err := Launch(context.Background(), o, &output); err != nil {
+		t.Fatal(err, output.String())
+	}
+	records, err := instrumentation.ReadMetrics(&output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := records[len(records)-1].Metrics
+	if s.Incomplete || s.OpenCalls != 0 || s.AbandonedCalls != 0 || len(s.Rows) != 3 {
+		t.Fatal("frame-register unwind lost the physical return slot", s)
+	}
+	for _, row := range s.Rows {
+		if row.Calls != 1 || row.UnwoundCalls != 1 || row.InclusiveTicks == 0 || row.InclusiveTicks != row.ExclusiveTicks {
+			t.Fatal("biased RBP frame did not close exactly once", row)
+		}
+	}
+}
