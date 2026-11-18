@@ -678,3 +678,14 @@ concluída permanece, a aberta é abandonada e o valor observado chega ao arquiv
 Os testes também cobrem precisão acima de 2^53, regressão, origem/versão inválidas,
 comparação entre versões, CLI e retenção pelo modelo da janela. O cenário Windows
 de saturação exige contador positivo junto de ErrLoss e incomplete=true.
+
+
+## Corpus de execução da DLL Delphi original
+
+O CI Windows inclui um ensaio separado de seis rotinas com bytes conferidos na
+DLL v0.3 do Hoshoyo, comparando 600 pares original/corpo relocado com resultados
+esperados e um helper nativo que altera GPR voláteis. São rotinas puras sobre
+buffers privados, chamadas sem inicializar a DLL ou suas dependências. O original
+não é modificado. Hashes, RVAs, bytes e limites de evidência estão no
+[mapa do original](phase0/antipessimizer-reference.md#execução-limitada-do-código-delphi-distribuído-pelo-original).
+Isso não certifica Delphi 10.4, handlers privados ou o fluxo completo num EXE Delphi.

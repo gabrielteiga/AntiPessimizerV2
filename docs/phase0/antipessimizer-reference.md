@@ -172,3 +172,27 @@ as demais incluem instruções/prefixos, branches, referência RIP interna e
 handler auto-referencial. A análise não carrega nem executa a DLL, não possui
 seu TDS, não confirma versão do compilador e não é porcentagem de paridade ou
 progresso funcional. Exceções Delphi ainda exigem prova de execução própria.
+
+
+## Execução limitada do código Delphi distribuído pelo original
+
+scripts/test-reference-delphi.ps1 fixa o ZIP v0.3 (SHA256
+`b86572ca883bd3e4ddf6fdce3df70947a553154a4eeaefdc4a4e7d42357a39a8`)
+e a DLL pelo hash acima. O CI baixa o asset público e confere ambos antes de
+extrair/executar. Os binários externos não entram no repositório nem no pacote.
+A DLL é mapeada com DONT_RESOLVE_DLL_REFERENCES: não se executam DllMain,
+inicializadores ou dependências. Somente seis corpos com bytes completos
+conferidos podem ser chamados, com buffers privados preparados pelo teste.
+
+O corpus usa os RVAs 0x19210, 0x7a9e0, 0x8c460, 0x3ffe0, 0x8e900 e 0x98700:
+retorno constante, acesso a campos, indireção opcional, leitura de word e bool.
+Há 100 pares original/cópia por rotina, exigindo o valor calculado a partir dos
+operandos em ambos os lados. Os helpers nativos clobberam os GPR voláteis para
+conferir preservação pelo probe. A tabela dinâmica de unwind é registrada/retirada
+e os bytes do original são conferidos novamente; não se aplica patch à DLL.
+
+Essa é evidência de execução de um subconjunto do binário Delphi do projeto de
+referência. Não há nomes TDS nem versão de compilador comprovados; não testa o
+instalador completo, handlers Delphi ou prologues complexos. A integração completa
+com chamadas, seleção, métricas e exceções permanece demonstrada em fixtures C.
+O artefato Reference-Delphi-<run_id> grava hash, RVAs, bytes e número de pares.
