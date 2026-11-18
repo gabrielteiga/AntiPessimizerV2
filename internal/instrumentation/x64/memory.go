@@ -14,6 +14,10 @@ var stringOperations = map[string]bool{
 // introduces hidden nonvolatile state. CMPXCHG8B/16B remain unsupported.
 var atomicOperations = map[string]bool{"CMPXCHG": true, "XADD": true}
 
+// Full-function probes save/restore MXCSR around helpers, allowing the body to
+// inspect or change SSE control/status without inserted callbacks changing it.
+var mxcsrOperations = map[string]bool{"LDMXCSR": true, "STMXCSR": true}
+
 func lockedMemoryOperation(inst x86asm.Inst) bool {
 	if _, memory := inst.Args[0].(x86asm.Mem); !memory {
 		return false

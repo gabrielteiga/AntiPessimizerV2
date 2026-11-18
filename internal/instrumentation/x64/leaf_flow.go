@@ -90,7 +90,7 @@ func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, pro
 			}
 			d.absolute = target
 		default:
-			if !leafOperations[inst.Op.String()] && !scalarOperations[inst.Op.String()] && !(framed && frameOperations[inst.Op.String()]) && !(nativeFunction && (atomicOperations[inst.Op.String()] || framed && stringOperations[inst.Op.String()])) {
+			if !leafOperations[inst.Op.String()] && !scalarOperations[inst.Op.String()] && !(framed && frameOperations[inst.Op.String()]) && !(nativeFunction && (atomicOperations[inst.Op.String()] || mxcsrOperations[inst.Op.String()] || framed && stringOperations[inst.Op.String()])) {
 				return fail("unsupported operation: " + inst.Op.String())
 			}
 		}
@@ -185,7 +185,7 @@ func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, pro
 					if arg.Index != 0 || arg.Disp < 8 {
 						return fail("return slot or indexed stack memory")
 					}
-					readOnly := d.inst.Op == x86asm.CMP || d.inst.Op == x86asm.TEST || d.inst.Op == x86asm.BT || d.inst.Op == x86asm.MUL || d.inst.Op == x86asm.IMUL || d.inst.Op == x86asm.DIV || d.inst.Op == x86asm.IDIV
+					readOnly := d.inst.Op == x86asm.CMP || d.inst.Op == x86asm.TEST || d.inst.Op == x86asm.BT || d.inst.Op == x86asm.MUL || d.inst.Op == x86asm.IMUL || d.inst.Op == x86asm.DIV || d.inst.Op == x86asm.IDIV || d.inst.Op == x86asm.LDMXCSR
 					writes := operand == 0 && !readOnly || d.inst.Op == x86asm.XCHG
 					if writes && (d.inst.Op == x86asm.BTS || d.inst.Op == x86asm.BTR || d.inst.Op == x86asm.BTC) {
 						bit, constant := d.inst.Args[1].(x86asm.Imm)

@@ -66,16 +66,15 @@ func TestNativeCallProbesABIAndVirtualUnwind(t *testing.T) {
 	write(code, p.Image)
 	write(code+2560, f.Image)
 	write(code+3072, x.Image)
-	var table [36]byte
+	var table [48]byte
 	binary.LittleEndian.PutUint32(table[4:], p.CodeSize)
 	binary.LittleEndian.PutUint32(table[8:], p.UnwindRVA)
-	binary.LittleEndian.PutUint32(table[12:], 2560)
-	binary.LittleEndian.PutUint32(table[16:], 2560+f.CodeSize)
-	binary.LittleEndian.PutUint32(table[20:], 2560+f.UnwindRVA)
-	binary.LittleEndian.PutUint32(table[24:], 3072)
-	binary.LittleEndian.PutUint32(table[28:], 3072+x.CodeSize)
-	binary.LittleEndian.PutUint32(table[32:], 3072+x.UnwindRVA)
-	write(code+512, table[:])
+	binary.LittleEndian.PutUint32(table[24:], 2560)
+	binary.LittleEndian.PutUint32(table[28:], 2560+f.CodeSize)
+	binary.LittleEndian.PutUint32(table[32:], 2560+f.UnwindRVA)
+	binary.LittleEndian.PutUint32(table[36:], 3072)
+	binary.LittleEndian.PutUint32(table[40:], 3072+x.CodeSize)
+	binary.LittleEndian.PutUint32(table[44:], 3072+x.UnwindRVA)
 	// Helper records ECX/RSP, uses all four home slots, and clobbers every
 	// volatile integer register and XMM0..5, as a conforming native helper may.
 	helper := []byte{0x48, 0xb8}
@@ -98,6 +97,9 @@ func TestNativeCallProbesABIAndVirtualUnwind(t *testing.T) {
 	for i := byte(0); i < 6; i++ {
 		helper = append(helper, 0x66, 0x0f, 0xef, 0xc0|(i<<3)|i)
 	}
+	// A conforming helper can change volatile MXCSR exception-status bits.
+	// Set the invalid-operation flag without changing control/rounding bits.
+	helper = append(helper, 0x0f, 0xae, 0x5c, 0x24, 8, 0x83, 0x4c, 0x24, 8, 1, 0x0f, 0xae, 0x54, 0x24, 8)
 	helper = append(helper, 0xc3)
 	write(code+1024, helper)
 	// Sum six Win64 arguments (including the two stack arguments).
@@ -130,6 +132,36 @@ func TestNativeCallProbesABIAndVirtualUnwind(t *testing.T) {
 	}
 	vector = append(vector, 0x66, 0x48, 0x0f, 0x7e, 0xc0, 0xc3)
 	write(code+1792, vector)
+	// Seed nondefault rounding/status, execute the chosen entry/exit path, and
+	// restore the original environment before returning to Go. The saved original
+	// and observed values sit above the six arguments' home/stack slots.
+	controlCaller := []byte{
+		0x48, 0x83, 0xec, 56, // sub rsp,56
+		0x0f, 0xae, 0x5c, 0x24, 48, // stmxcsr [rsp+48]
+		0xc7, 0x44, 0x24, 52, 0x84, 0x5f, 0, 0, // new MXCSR=0x5f84
+		0x0f, 0xae, 0x54, 0x24, 52, // ldmxcsr [rsp+52]
+		0x48, 0x89, 0xc8, // mov rax,rcx (chosen native target)
+		0xb9, 1, 0, 0, 0, 0xba, 2, 0, 0, 0,
+		0x41, 0xb8, 3, 0, 0, 0, 0x41, 0xb9, 4, 0, 0, 0,
+		0x48, 0xc7, 0x44, 0x24, 32, 5, 0, 0, 0,
+		0x48, 0xc7, 0x44, 0x24, 40, 6, 0, 0, 0,
+		0xff, 0xd0, // call rax
+		0x0f, 0xae, 0x5c, 0x24, 52, // observed MXCSR
+		0x0f, 0xae, 0x54, 0x24, 48, // restore original before returning to Go
+		0x8b, 0x44, 0x24, 52,
+		0x48, 0x83, 0xc4, 56, 0xc3,
+	}
+	callerSize := uint32(len(controlCaller))
+	for len(controlCaller)%4 != 0 {
+		controlCaller = append(controlCaller, 0x90)
+	}
+	callerUnwind := uint32(len(controlCaller))
+	controlCaller = append(controlCaller, 1, 4, 1, 0, 4, 0x62, 0, 0) // ALLOC_SMALL 56
+	write(code+2304, controlCaller)
+	binary.LittleEndian.PutUint32(table[12:], 2304)
+	binary.LittleEndian.PutUint32(table[16:], 2304+callerSize)
+	binary.LittleEndian.PutUint32(table[20:], 2304+callerUnwind)
+	write(code+512, table[:])
 	var old uint32
 	if err := windows.VirtualProtect(code, 4096, windows.PAGE_EXECUTE_READ, &old); err != nil {
 		t.Fatal(err)
@@ -137,7 +169,7 @@ func TestNativeCallProbesABIAndVirtualUnwind(t *testing.T) {
 	if ok, _, err := windows.NewLazySystemDLL("kernel32.dll").NewProc("FlushInstructionCache").Call(uintptr(windows.CurrentProcess()), code, 4096); ok == 0 {
 		t.Fatal(err)
 	}
-	if ok, _, err := nt.NewProc("RtlAddFunctionTable").Call(code+512, 3, code); ok == 0 {
+	if ok, _, err := nt.NewProc("RtlAddFunctionTable").Call(code+512, 4, code); ok == 0 {
 		t.Fatal("register unwind table", err)
 	}
 	registered = true
@@ -166,6 +198,11 @@ func TestNativeCallProbesABIAndVirtualUnwind(t *testing.T) {
 	}
 	if integer, floating, _ := syscall.SyscallN(code+3712, uintptr(bits)); integer != 0x44332211 || uint64(floating) != bits {
 		t.Fatalf("native exit return values changed: RAX=%#x XMM0=%#x", integer, floating)
+	}
+	for _, target := range []uintptr{code, code + 3600} {
+		if got, _, _ := syscall.SyscallN(code+2304, target); got != 0x5f84 {
+			t.Fatalf("inserted helper changed MXCSR control/status: %#x", got)
+		}
 	}
 	// Synthetic CONTEXT AMD64 (1232 bytes) on aligned native memory. Exercise
 	// entry, body and both epilogue states without unwinding any Go stack.
@@ -201,7 +238,7 @@ func TestNativeCallProbesABIAndVirtualUnwind(t *testing.T) {
 		binary.LittleEndian.PutUint64(context[152:], uint64(phase.sp))
 		binary.LittleEndian.PutUint64(context[248:], uint64(code+3072)+uint64(phase.offset))
 		write(rw, context)
-		nt.NewProc("RtlVirtualUnwind").Call(0, code, code+3072+uintptr(phase.offset), code+536, rw, rw+1280, rw+1288, 0)
+		nt.NewProc("RtlVirtualUnwind").Call(0, code, code+3072+uintptr(phase.offset), code+548, rw, rw+1280, rw+1288, 0)
 		context = read(rw, 1232)
 		if rsp, rip := binary.LittleEndian.Uint64(context[152:]), binary.LittleEndian.Uint64(context[248:]); rsp != uint64(exitSP+8) || rip != 0x12345678 {
 			t.Fatalf("native exit unwind at %d: RSP=%#x RIP=%#x", phase.offset, rsp, rip)

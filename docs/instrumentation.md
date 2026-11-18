@@ -541,7 +541,7 @@ frame que usam multiplicação/divisão, shifts, condições e conversões SSE s
 necessidade de unwind adicional. O planejador agora aceita esse subconjunto
 posicionalmente independente, mantendo validação dos operandos e rejeitando
 operações com estado implícito não suportado (CPUID/RBX, strings/RSI/RDI sem
-frame, x87, AVX e MXCSR). Chamadas continuam exigindo metadados de frame.
+frame, x87 e AVX). Chamadas continuam exigindo metadados de frame.
 
 No caminho BuildPEFunction, stores sem frame podem usar apenas os 32 bytes de
 home slots Win64, entre RSP+8 e RSP+39. A largura inteira precisa caber nesse
@@ -583,3 +583,24 @@ e resto, contador global compartilhado entre threads e compare/exchange com
 sucesso/falha. Uma access violation real em REP MOVSQ atravessa o frame copiado
 e precisa chegar ao handler externo, com uma saída por unwind por thread.
 Esses testes C/assembly não comprovam handlers de linguagem Delphi.
+
+## Controle e status SSE (MXCSR)
+
+Os probes de entrada e saída salvam/restauram os 32 bits de MXCSR ao redor do
+helper nativo. Isso inclui os flags de exceção voláteis da ABI, além do controle
+de arredondamento/máscaras. O slot RSP+88 usa quatro bytes livres entre os saves
+de GPR e SIMD, sem ampliar o frame de 200 bytes ou alterar seus códigos de unwind.
+O corpo mantém seus próprios efeitos: a saída salva o estado deixado pelo método,
+sem substituir pela configuração que existia antes da chamada.
+
+BuildPEFunction aceita LDMXCSR/STMXCSR sob as verificações existentes de operandos,
+RIP e stack. LDMXCSR lê memória e pode ler argumentos fora dos home slots;
+STMXCSR sem frame só escreve nos home slots. A política do corpo BuildPELeaf
+legado continua recusando ambas. x87, AVX e convenções privadas continuam fora
+do escopo; preservar MXCSR não equivale a preservar todo o contexto de FP/SIMD.
+
+O teste Win64 do bridge usa um helper que altera o flag de operação inválida,
+conferindo preservação na entrada e saída com arredondamento não padrão. Seu
+caller nativo restaura o estado original antes de retornar ao Go. O alvo C
+instrumentado confere setter/getter nos quatro modos de arredondamento com flags
+de status predefinidos: 44 chamadas por método/thread em três threads.

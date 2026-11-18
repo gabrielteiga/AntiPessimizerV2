@@ -38,7 +38,7 @@ func TestEntryProbeEncodingAndUnwind(t *testing.T) {
 			if uint32(at) != p.Epilogue {
 				t.Fatal("wrong epilogue PC")
 			}
-		case x86asm.MOV, x86asm.MOVDQU, x86asm.JMP:
+		case x86asm.MOV, x86asm.MOVDQU, x86asm.JMP, x86asm.STMXCSR, x86asm.LDMXCSR:
 		default:
 			t.Fatal("unexpected native probe operation", inst)
 		}
@@ -82,7 +82,7 @@ func TestExitProbeEncodingAndUnwind(t *testing.T) {
 			if at+inst.Len != int(p.CodeSize) {
 				t.Fatal("exit RET is not the final instruction")
 			}
-		case x86asm.SUB, x86asm.ADD, x86asm.MOV, x86asm.MOVDQU:
+		case x86asm.SUB, x86asm.ADD, x86asm.MOV, x86asm.MOVDQU, x86asm.STMXCSR, x86asm.LDMXCSR:
 		default:
 			t.Fatal("unexpected native exit operation", inst)
 		}
