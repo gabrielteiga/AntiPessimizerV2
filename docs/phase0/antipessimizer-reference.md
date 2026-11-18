@@ -258,3 +258,13 @@ O binário original não é alterado, e a DLL permanece carregada até encerrar 
 filho. O relatório Reference-Delphi inclui hashes, RVAs e resultados.
 Isso complementa a contabilidade integrada C e o corpus sem inicialização;
 ainda não prova seleção/instalação em um EXE Delphi completo nem Delphi 10.4.
+
+
+Com o handler conferido, a reavaliação estática da mesma DLL aceita 8.633 das
+8.777 entradas: inclui os 516 métodos com scopes catch-all/finally reconhecidos.
+Restam 144 recusas: 114 pelo limite de tamanho, sete por scopes tipados, uma por
+handler auto-referencial e 22 pelos demais limites de instruções/relocation.
+TestReferenceDelphiStaticPlanCoverage reproduz a contagem com a imagem fixada e
+alocação próxima simulada; grava a distribuição de recusas no artefato. Esse
+número não mede cobertura de execução, compatibilidade Delphi ou progresso do
+produto. O ensaio de exceção executa somente a rotina conferida acima.

@@ -130,7 +130,10 @@ func TestNativeStressRepeatedOwnedCapturesReleaseResources(t *testing.T) {
 			warm = point
 			warmTypes, err = collectorHandleTypes()
 			if err != nil {
-				t.Log("warm handle diagnostics", err)
+				t.Fatal("warm handle diagnostics", err)
+			}
+			if warmTypes["DebugObject"] != 0 {
+				t.Fatal("completed captures retained Windows debugger objects", warmTypes)
 			}
 		}
 		if i > 4 && (point.Handles > warm.Handles+8 || point.Goroutines > warm.Goroutines+8 || point.Heap > warm.Heap+(16<<20)) {
@@ -146,6 +149,9 @@ func TestNativeStressRepeatedOwnedCapturesReleaseResources(t *testing.T) {
 	e.Completed = true
 	last := e.Samples[len(e.Samples)-1]
 	lastTypes, typeErr := collectorHandleTypes()
+	if typeErr != nil || lastTypes["DebugObject"] != 0 {
+		t.Fatal("completed captures retained Windows debugger objects", lastTypes, typeErr)
+	}
 	t.Logf("handle types warm=%v final=%v error=%v", warmTypes, lastTypes, typeErr)
 	t.Logf("32 owned captures, %d exact worker/finalizer calls; after warmup handles %d -> %d, goroutines %d -> %d, heap %d -> %d bytes", e.MeasuredCalls, warm.Handles, last.Handles, warm.Goroutines, last.Goroutines, warm.Heap, last.Heap)
 }

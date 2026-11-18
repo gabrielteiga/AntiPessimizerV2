@@ -60,6 +60,7 @@ jobs:
           name: Reference-Delphi-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/ap-reference-delphi/reference-delphi.json
+            ${{ runner.temp }}/ap-reference-delphi/reference-delphi-static.json
             ${{ runner.temp }}/ap-reference-delphi/reference-delphi-exceptions.json
             ${{ runner.temp }}/ap-reference-delphi/reference-delphi-metrics.ndjson
           if-no-files-found: error

@@ -27,6 +27,7 @@ type debugEvent struct {
 }
 
 var debugKernel = windows.NewLazySystemDLL("kernel32.dll")
+var debugNTDLL = windows.NewLazySystemDLL("ntdll.dll")
 
 // The creating OS thread owns every debugger API call until detach/exit. Only
 // the newly created process is debugged, already assigned to its lifetime job.
@@ -35,8 +36,35 @@ func launchStopped(ctx context.Context, path string, args []string, dll, pipe st
 	d := &debugLaunch{done: make(chan struct{}), exitedThreads: make(chan threadExit, 256)}
 	go func() {
 		runtime.LockOSThread()
-		// Completion includes releasing the debugger OS-thread affinity.
+		// DbgUiConnectToDbg caches a process-owned handle in this thread's TEB.
+		// UnlockOSThread alone returns that state to Go's thread pool. Own a new
+		// debug object exclusively and clear/close it before releasing affinity.
 		defer func() { runtime.UnlockOSThread(); close(d.done) }()
+		getObject := debugNTDLL.NewProc("DbgUiGetThreadDebugObject")
+		setObject := debugNTDLL.NewProc("DbgUiSetThreadDebugObject")
+		if err := getObject.Find(); err != nil {
+			d.err = err
+			close(ready)
+			return
+		}
+		if err := setObject.Find(); err != nil {
+			d.err = err
+			close(ready)
+			return
+		}
+		previous, _, _ := getObject.Call()
+		if previous != 0 {
+			d.err = errors.New("debugger OS thread already owns a Windows debug object")
+			close(ready)
+			return
+		}
+		defer func() {
+			object, _, _ := getObject.Call()
+			if object != 0 {
+				setObject.Call(0)
+				d.err = errors.Join(d.err, windows.CloseHandle(windows.Handle(object)))
+			}
+		}()
 		if err := ctx.Err(); err != nil {
 			d.err = err
 			close(ready)

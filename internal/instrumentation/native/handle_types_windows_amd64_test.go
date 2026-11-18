@@ -11,6 +11,8 @@ import (
 // Diagnostic only: enumerate this process's own handle table. Query type names,
 // never object/file names or data, and never close enumerated handles. This
 // distinguishes runtime thread/event growth from leaked owned target resources.
+var collectorObjectTypeQuery = windows.NewLazySystemDLL("ntdll.dll").NewProc("NtQueryObject")
+
 func collectorHandleTypes() (map[string]int, error) {
 	type handleEntry struct {
 		Handle                             windows.Handle
@@ -38,7 +40,7 @@ func collectorHandleTypes() (map[string]int, error) {
 		return nil, fmt.Errorf("invalid handle diagnostic count")
 	}
 	entries := unsafe.Slice((*handleEntry)(unsafe.Pointer(&buffer[16])), int(count))
-	query := windows.NewLazySystemDLL("ntdll.dll").NewProc("NtQueryObject")
+	query := collectorObjectTypeQuery
 	threadPID := debugKernel.NewProc("GetProcessIdOfThread")
 	names := map[uint32]string{}
 	result := map[string]int{}

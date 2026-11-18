@@ -379,3 +379,22 @@ real de uma rotina conferida, sem patch ao original. Um setup síncrono de teste
 usa callbacks, pilha física, rings e batch writer de produção, sem worker/transporte
 ao vivo. O consumidor Go exige 200 chamadas, 100 unwinds e tempos/médias completos. Ele não substitui os gates
 de contagens/tempos/cleanup/collision das fixtures integradas.
+
+
+## Retirada do objeto de depuração por sessão
+
+CreateProcess com DEBUG_ONLY_THIS_PROCESS cria um DebugObject e o mantém no
+estado da thread do debugger. Como as threads do runtime Go são reutilizadas,
+UnlockOSThread sem liberar esse estado deixava handles após capturas encerradas.
+O owner verifica que não existe objeto anterior, mantém afinidade até encerrar
+ou retirar o alvo e limpa DbgUiSetThreadDebugObject antes de fechar o handle que
+criou. A conclusão só é publicada depois dessa liberação e do UnlockOSThread.
+Os exports DbgUiGetThreadDebugObject/DbgUiSetThreadDebugObject de ntdll são
+verificados antes de criar o processo; ausência ou estado anterior falha sem
+assumir ownership de recursos de outro debugger. Não se fecham handles recebidos
+em eventos CREATE_THREAD/CREATE_PROCESS, cujo owner continua sendo o Windows.
+
+A evidência de recursos inclui tipos de handles, threads OS e threads criadas
+pelo Go. Exige zero DebugObjects após o bloco de aquecimento e ao terminar,
+além dos limites anteriores de heap/handles/goroutines, sem ampliar tolerâncias.
+O CI repete dez blocos de 32 capturas para verificar a retirada entre sessões.
