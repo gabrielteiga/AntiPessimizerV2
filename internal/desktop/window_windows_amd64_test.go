@@ -80,13 +80,19 @@ func TestNativeInstrumentedWindowSmoke(t *testing.T) {
 		}
 		send.Call(w.metricUnits, 0x14e, 0, 0) // nanoseconds
 		w.tick()
-		if w.model.Rows[0][1] != "30000000" || w.model.Headers()[1] != "Exclusivo (ns)" {
+		if w.model.Rows[0][1] != "20000000" || w.model.Headers()[1] != "Exclusivo (ns)" {
 			return fmt.Errorf("native time-unit selector did not update totals/headers: %v", w.model.Rows)
 		}
 		send.Call(w.metricUnits, 0x14e, 4, 0) // raw clock ticks, never CPU cycles
 		w.tick()
-		if w.model.Rows[0][1] != "30" || w.model.Rows[0][0] != "2" {
+		if w.model.Rows[0][1] != "20" || w.model.Rows[0][0] != "1" {
 			return fmt.Errorf("raw QPC ticks changed calls: %v", w.model.Rows)
+		}
+		send.Call(w.cursor, 0x405, 1, uintptr(w.model.HistoryLength()-1))
+		send.Call(w.hwnd, 0x0114, 0, w.cursor)
+		w.tick()
+		if w.model.Rows[0][1] != "30" || w.model.Rows[0][0] != "2" {
+			return fmt.Errorf("cursor lost raw-tick unit: %v", w.model.Rows)
 		}
 		records := w.model.Metrics
 		start := records[0].Target.Start
