@@ -361,14 +361,40 @@ static DWORD64 forward_pc(DWORD64 pc,DWORD64 clone,DWORD64 source,uint32_t sourc
     }
     return reverse?clone+offset+delta:source+offset-delta;
 }
-static EXCEPTION_DISPOSITION WINAPI function_unwind(PEXCEPTION_RECORD exception,PVOID frame,PCONTEXT context,PDISPATCHER_CONTEXT dispatcher) {
+static EXCEPTION_DISPOSITION WINAPI function_unwind(PEXCEPTION_RECORD exception,PVOID frame,PCONTEXT context,PVOID raw_dispatcher) {
+    PDISPATCHER_CONTEXT dispatcher=raw_dispatcher;
     if(!dispatcher || !dispatcher->HandlerData)return ExceptionContinueSearch;
-    const unsigned char *data=dispatcher->HandlerData;
+    /* HandlerData may already point at translated scopes during a collided
+       unwind. Recover our descriptor from the actual runtime metadata instead.
+       The shadow record preserves this wrapper and a canonical descriptor alias
+       when the language handler calls RtlUnwindEx without returning here. */
+    const unsigned char *info=(const unsigned char *)(uintptr_t)(dispatcher->ImageBase+dispatcher->FunctionEntry->UnwindData);
+    const unsigned char *data=info+4+((info[2]+1)&~1)*2+4;
+    if(hook_u32(data+4)==3)data=(const unsigned char *)(uintptr_t)hook_u64(data+8);
     /* Close only the physical frame still present at the top. A repeated
        collided pass cannot close it twice, while a frame that remained open
        at a target unwind can still close if a later cleanup abandons it. */
     if((exception->ExceptionFlags&EXCEPTION_UNWINDING) && !(exception->ExceptionFlags&EXCEPTION_TARGET_UNWIND))record_frame(AP_UNWIND_EXIT,hook_u32(data),0,unwind_entry_sp(frame,dispatcher),(exception->ExceptionFlags&EXCEPTION_COLLIDED_UNWIND)!=0);
     if(!hook_u32(data+4))return ExceptionContinueSearch;
+    if(hook_u32(data+4)==2) {
+        if((exception->ExceptionFlags&EXCEPTION_UNWINDING) && !(hook_u32(data+44)&16))return ExceptionContinueSearch;
+        DISPATCHER_CONTEXT saved=*dispatcher;
+        DWORD64 image=(DWORD64)(uintptr_t)GetModuleHandleW(NULL);
+        union {uintptr_t address;PEXCEPTION_ROUTINE routine;} handler;
+        handler.address=(uintptr_t)(image+hook_u32(data+24));
+        dispatcher->ImageBase=image;
+        dispatcher->FunctionEntry=(RUNTIME_FUNCTION *)(data+hook_u32(data+48));
+        dispatcher->LanguageHandler=function_unwind;
+        dispatcher->HandlerData=(void *)(data+hook_u32(data+52));
+        EXCEPTION_DISPOSITION result=handler.routine(exception,frame,context,dispatcher);
+        if(result!=ExceptionCollidedUnwind) {
+            dispatcher->ImageBase=saved.ImageBase;
+            dispatcher->FunctionEntry=saved.FunctionEntry;
+            dispatcher->LanguageHandler=saved.LanguageHandler;
+            dispatcher->HandlerData=saved.HandlerData;
+        }
+        return result;
+    }
     DWORD64 image=(DWORD64)(uintptr_t)GetModuleHandleW(NULL),source=image+hook_u32(data+8),clone=dispatcher->ImageBase+dispatcher->FunctionEntry->BeginAddress;
     uint32_t source_size=hook_u32(data+12),clone_size=dispatcher->FunctionEntry->EndAddress-dispatcher->FunctionEntry->BeginAddress;
     DISPATCHER_CONTEXT saved=*dispatcher;

@@ -19,13 +19,14 @@ func TestStaticPreflightUsesPlannerWithoutMutatingImage(t *testing.T) {
 	}{
 		{"supported leaf", "", func([]byte) {}},
 		{"unsupported instruction", "unsupported operation: UD2", func(b []byte) { b[0x220] = 0x0f; b[0x221] = 0x0b }},
-		{"Delphi language handler", "language handler", func(b []byte) {
+		{"unknown language handler", "unrecognized exception handler", func(b []byte) {
 			binary.LittleEndian.PutUint32(b[128+24+136:], 0x5080)
 			binary.LittleEndian.PutUint32(b[128+24+140:], 12)
 			binary.LittleEndian.PutUint32(b[0x280:], 0x5020)
 			binary.LittleEndian.PutUint32(b[0x284:], 0x5030)
 			binary.LittleEndian.PutUint32(b[0x288:], 0x50a0)
-			b[0x2a0] = 9 // version 1 with UNW_FLAG_EHANDLER; never accepted
+			b[0x2a0] = 9 // EHANDLER with an unknown language-specific format
+			binary.LittleEndian.PutUint32(b[0x2a4:], 0x50c0)
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
