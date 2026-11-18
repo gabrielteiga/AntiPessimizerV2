@@ -232,10 +232,12 @@ func nativeProbeCapture(t *testing.T, relocate bool) {
 		err      error
 	}
 	received := make(chan result, 1)
+	completed := make(chan uint64, 1)
 	receiveDone := make(chan struct{})
 	go func() {
 		defer close(receiveDone)
 		defer conn.Close()
+		var calls uint64
 		for {
 			e, err := reader.Next()
 			if err == io.EOF {
@@ -263,6 +265,10 @@ func nativeProbeCapture(t *testing.T, relocate bool) {
 				received <- result{err: err}
 				return
 			}
+			if e.Type == "exit" {
+				calls++
+				completed <- calls
+			}
 		}
 	}()
 	defer func() {
@@ -280,6 +286,19 @@ func nativeProbeCapture(t *testing.T, relocate bool) {
 	for i := uintptr(0); i < 10; i++ {
 		if got, _, _ := syscall.SyscallN(entry, 7+i, 11, 13, 17, 19, 23); got != wantReturn+i {
 			t.Fatalf("real native helper changed arguments/return: %d", got)
+		}
+		// Receive each completed call while capture is still open. Cooperative
+		// draining waits indefinitely when idle, so a missing publication wakeup
+		// cannot be masked by polling or by Shutdown's final drain.
+		select {
+		case calls := <-completed:
+			if calls != uint64(i+1) {
+				t.Fatal("live native completion changed count", calls)
+			}
+		case capture := <-received:
+			t.Fatal("native stream ended before live completion", capture.err)
+		case <-ctx.Done():
+			t.Fatal("native publication did not wake the drain worker", ctx.Err())
 		}
 	}
 	syscall.SyscallN(endProc)
@@ -321,5 +340,5 @@ func nativeProbeCapture(t *testing.T, relocate bool) {
 			t.Fatal("restored native leaf changed its result", got)
 		}
 	}
-	t.Logf("Go-generated native probes -> C DLL -> QPC/ring/pipe -> Go accounting: %d calls, %d inclusive ticks", row.Calls, row.InclusiveTicks)
+	t.Logf("Go-generated native probes -> C DLL -> QPC/ring/pipe -> Go accounting: %d calls, each received before shutdown; %d inclusive ticks", row.Calls, row.InclusiveTicks)
 }

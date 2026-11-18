@@ -21,6 +21,7 @@ static VOID WINAPI bootstrap_exit_process(UINT code) {
         }
         InterlockedDecrement(&state.writers);
         InterlockedExchange(&state.stopping,1);
+        SetEvent(state.wake);
         WaitForSingleObject(state.worker,2000);
     }
     /* Closing the stream lets Go reject an unfinished final frame on timeout.

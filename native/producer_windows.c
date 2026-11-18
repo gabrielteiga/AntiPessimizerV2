@@ -21,11 +21,11 @@ typedef struct {
     Event events[AP_CAPACITY];
 } Ring;
 static struct {
-    volatile LONG running, stopping, next_ring, io_error, writers, frozen;
+    volatile LONG running, stopping, next_ring, io_error, writers, frozen, wake_pending;
     BOOL hook_mode;
     _Alignas(8) volatile LONG64 lost;
     DWORD tls;
-    HANDLE pipe, worker, ready;
+    HANDLE pipe, worker, ready, wake;
     Ring *rings;
     APProcedure procedures[AP_SELECTION];
     uint32_t count, capacity, image_size;
@@ -35,6 +35,15 @@ static struct {
 static uint64_t load64(volatile LONG64 *p) { return (uint64_t)InterlockedCompareExchange64(p, 0, 0); }
 static LONG load32(volatile LONG *p) { return InterlockedCompareExchange(p, 0, 0); }
 static void lost(void) { InterlockedIncrement64(&state.lost); }
+/* Coalesce publication notifications while the worker is active. The worker
+ * clears this flag and rescans every ring before waiting, closing the race
+ * between an empty scan and a producer publishing its next head. */
+static void notify_drain(void) {
+    if(InterlockedCompareExchange(&state.wake_pending,1,0)==0 && !SetEvent(state.wake)) {
+        InterlockedExchange(&state.io_error,(LONG)GetLastError());
+        lost();
+    }
+}
 static uint64_t ticks(void) {
     LARGE_INTEGER n;
     if (!QueryPerformanceCounter(&n) || n.QuadPart <= 0) { lost(); return 0; }
@@ -206,7 +215,20 @@ static DWORD WINAPI drain(void *unused) {
             if(!batch(&heartbeat,1,++sequence,0)) return 1;
             last_heartbeat=now;
         }
-        if (!any) Sleep(1);
+        if (!any) {
+            InterlockedExchange(&state.wake_pending,0);
+            drained=drain_rings(&sequence);
+            if(drained<0)return 1;
+            if(drained>0 || load32(&state.stopping))continue;
+            /* Owned captures retain their command/heartbeat polling bound.
+             * Cooperative captures need no polling at all: publication and
+             * shutdown both signal the event. No callback waits for space. */
+            DWORD wait=WaitForSingleObject(state.wake,state.hook_mode==2?1:INFINITE);
+            if(wait!=WAIT_OBJECT_0 && wait!=WAIT_TIMEOUT) {
+                InterlockedExchange(&state.io_error,(LONG)GetLastError());
+                return 1;
+            }
+        }
     }
     return batch(NULL, 0, ++sequence, ticks()) ? 0 : 1;
 }
@@ -217,6 +239,7 @@ static uint64_t enqueue(Ring *r, uint32_t type, uint32_t procedure, uint32_t dep
     if (head-tail >= state.capacity) { lost(); return 0; }
     r->events[head%state.capacity] = (Event){type, (uint32_t)load32(&r->tid), procedure, depth, tick};
     InterlockedExchange64(&r->head, (LONG64)(head+1));
+    notify_drain();
     return tick;
 }
 /* Wait for a reusable slot outside the writer gate: the worker can drain/end
@@ -321,8 +344,10 @@ static BOOL init_producer(const wchar_t *name, const APProcedure *procedures, ui
     state.image_size=nt->OptionalHeader.SizeOfImage; memcpy(state.procedures, procedures, count*sizeof(APProcedure));
     state.ready=CreateEventW(NULL, TRUE, FALSE, NULL);
     if (!state.ready) { VirtualFree(state.rings, 0, MEM_RELEASE); state.rings=NULL; TlsFree(state.tls); CloseHandle(state.pipe); return FALSE; }
+    state.wake=CreateEventW(NULL, FALSE, FALSE, NULL);
+    if (!state.wake) { CloseHandle(state.ready); VirtualFree(state.rings, 0, MEM_RELEASE); state.rings=NULL; TlsFree(state.tls); CloseHandle(state.pipe); return FALSE; }
     state.worker=CreateThread(NULL, 0, drain, NULL, 0, NULL);
-    if (!state.worker) { CloseHandle(state.ready); VirtualFree(state.rings, 0, MEM_RELEASE); state.rings=NULL; TlsFree(state.tls); CloseHandle(state.pipe); return FALSE; }
+    if (!state.worker) { CloseHandle(state.wake); CloseHandle(state.ready); VirtualFree(state.rings, 0, MEM_RELEASE); state.rings=NULL; TlsFree(state.tls); CloseHandle(state.pipe); return FALSE; }
     HANDLE startup[2]={state.ready,state.worker};
     if (WaitForMultipleObjects(2, startup, FALSE, 5000)!=WAIT_OBJECT_0) { APNativeShutdown(5000); return FALSE; }
     return TRUE;
@@ -343,12 +368,13 @@ AP_API BOOL APNativeInitFunctions(const wchar_t *name,const APHookProcedure *pro
 AP_API BOOL APNativeShutdown(DWORD timeout_ms) {
     if (!state.rings || !state.worker) return FALSE;
     InterlockedExchange(&state.running, 0); InterlockedExchange(&state.stopping, 1);
+    SetEvent(state.wake);
     DWORD wait = WaitForSingleObject(state.worker, timeout_ms);
     if (wait != WAIT_OBJECT_0) { CancelSynchronousIo(state.worker); return FALSE; }
     DWORD result = 1;
     GetExitCodeThread(state.worker, &result);
     if(!hook_retire()) return FALSE;
-    CloseHandle(state.worker); CloseHandle(state.ready); CloseHandle(state.pipe); TlsFree(state.tls);
+    CloseHandle(state.worker); CloseHandle(state.wake); CloseHandle(state.ready); CloseHandle(state.pipe); TlsFree(state.tls);
     VirtualFree(state.rings, 0, MEM_RELEASE);
     BOOL ok = !result && !load32(&state.io_error);
     ZeroMemory(&state, sizeof(state));
