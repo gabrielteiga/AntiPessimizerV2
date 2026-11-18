@@ -17,6 +17,7 @@ Revisado em 18 de novembro de 2026.
 | Métricas instrumentadas | Chamadas, tempos inclusivos/exclusivos, médias, recursão, threads, unwind, Clear e perdas no núcleo Go |
 | Lançamento instrumentado | Novo processo próprio sem SDK do profiler; DLL instalada antes do ponto de entrada, seleção TD32/TDS e finalizadores preservados |
 | Funções com pilha/chamadas | Prólogos e unwind v1 verificados; calls, recursão, condições, loops e múltiplas saídas; testes Windows em alvo C com exceção SEH real |
+| Subconjunto escalar | Aritmética/condições/conversões SSE sem frame e home slots Win64 limitados; prólogo ADD RSP negativo verificado contra unwind |
 | Controle pela interface | Catálogo pesquisável, seleção de até 16 procedimentos, argumentos, prazo, iniciar/parar pelo coletor e métricas ao vivo na janela |
 | Independência do viewer | Fechar a janela/desconectar observador não encerra a captura; Parar cancela explicitamente o novo processo instrumentado |
 | Arquivos e histórico | Salvar/replay, acompanhamento de arquivo crescente, filtros, ordenação e histórico limitado; comparação entre sessões de sampling e instrumentação |

@@ -38,7 +38,7 @@ func BuildPEFunction(image []byte, rva, size uint32, loadedBase, base, enter, ex
 	}
 	framed := originalInfo[2] != 0
 	entry := entryJump(source, base)
-	flow, err := rewriteFunctionWithPatch(code, source, base, framed, int(originalInfo[1]), len(entry))
+	flow, err := rewriteFunctionWithPatch(code, source, base, framed, int(originalInfo[1]), len(entry), true)
 	if err != nil {
 		return FunctionPlan{}, err
 	}
@@ -190,8 +190,11 @@ func validatePrologueActions(code, info []byte) error {
 		case inst.Op == x86asm.PUSH:
 			depth += 8
 			stackActions[byte(at)] = true
-		case inst.Op == x86asm.SUB && inst.Args[0] == x86asm.RSP:
+		case (inst.Op == x86asm.SUB || inst.Op == x86asm.ADD) && inst.Args[0] == x86asm.RSP:
 			amount, ok := inst.Args[1].(x86asm.Imm)
+			if inst.Op == x86asm.ADD {
+				amount = -amount
+			}
 			if !ok || amount <= 0 || int64(amount) > 1<<32 {
 				return fail()
 			}
@@ -246,7 +249,10 @@ func validatePrologueActions(code, info []byte) error {
 				}
 			}
 			imm, ok := inst.Args[1].(x86asm.Imm)
-			if inst.Op != x86asm.SUB || inst.Args[0] != x86asm.RSP || !ok || imm <= 0 || uint64(imm) != amount {
+			if inst.Op == x86asm.ADD {
+				imm = -imm
+			}
+			if (inst.Op != x86asm.SUB && inst.Op != x86asm.ADD) || inst.Args[0] != x86asm.RSP || !ok || imm <= 0 || uint64(imm) != amount {
 				return fail()
 			}
 		case 3:
