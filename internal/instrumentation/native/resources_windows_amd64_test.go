@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -15,10 +16,12 @@ import (
 )
 
 type collectorResourcePoint struct {
-	Capture    int    `json:"completed_captures"`
-	Heap       uint64 `json:"go_heap_bytes"`
-	Handles    uint32 `json:"process_handles"`
-	Goroutines int    `json:"goroutines"`
+	Capture        int    `json:"completed_captures"`
+	Heap           uint64 `json:"go_heap_bytes"`
+	Handles        uint32 `json:"process_handles"`
+	Goroutines     int    `json:"goroutines"`
+	OSThreads      int    `json:"os_threads"`
+	CreatedThreads int    `json:"go_created_threads"`
 }
 
 type collectorResourceEvidence struct {
@@ -50,7 +53,24 @@ func collectorResources(t *testing.T, captures int) collectorResourcePoint {
 	if count == 0 {
 		t.Fatal("invalid collector handle count")
 	}
-	return collectorResourcePoint{Capture: captures, Heap: memory.HeapAlloc, Handles: count, Goroutines: runtime.NumGoroutine()}
+	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPTHREAD, 0)
+	if err != nil {
+		t.Fatal("snapshot collector threads", err)
+	}
+	var thread windows.ThreadEntry32
+	thread.Size = uint32(unsafe.Sizeof(thread))
+	osThreads := 0
+	for err = windows.Thread32First(snapshot, &thread); err == nil; err = windows.Thread32Next(snapshot, &thread) {
+		if thread.OwnerProcessID == windows.GetCurrentProcessId() {
+			osThreads++
+		}
+	}
+	closeErr := windows.CloseHandle(snapshot)
+	if !errors.Is(err, windows.ERROR_NO_MORE_FILES) || closeErr != nil {
+		t.Fatal("enumerate collector threads", err, closeErr)
+	}
+	createdThreads, _ := runtime.ThreadCreateProfile(nil)
+	return collectorResourcePoint{Capture: captures, Heap: memory.HeapAlloc, Handles: count, Goroutines: runtime.NumGoroutine(), OSThreads: osThreads, CreatedThreads: createdThreads}
 }
 
 func TestNativeStressRepeatedOwnedCapturesReleaseResources(t *testing.T) {
@@ -109,6 +129,7 @@ func TestNativeStressRepeatedOwnedCapturesReleaseResources(t *testing.T) {
 			warm = point
 		}
 		if i > 4 && (point.Handles > warm.Handles+8 || point.Goroutines > warm.Goroutines+8 || point.Heap > warm.Heap+(16<<20)) {
+			t.Logf("resource samples: %+v", e.Samples)
 			t.Fatal("collector resources grew after session warmup", warm, point)
 		}
 	}

@@ -96,6 +96,12 @@ jobs:
           AP_NATIVE_RESOURCE_REPORT: ${{ runner.temp }}/native-resources.json
         run: go test -v -count=1 -timeout=90s ./internal/instrumentation/native -run '^TestNativeStress'
 
+      - if: runner.os == 'Windows'
+        name: Repeated collector resource ownership
+        env:
+          AP_NATIVE_STRESS: '1'
+        run: go test -v -count=10 -timeout=90s ./internal/instrumentation/native -run '^TestNativeStressRepeatedOwnedCapturesReleaseResources$'
+
       - if: runner.os == 'Windows' && always() && (steps.native-stress.outcome == 'success' || steps.native-stress.outcome == 'failure')
         uses: actions/upload-artifact@v4
         with:
