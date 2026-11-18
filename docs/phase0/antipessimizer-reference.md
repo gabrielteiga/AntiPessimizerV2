@@ -150,3 +150,14 @@ em ordem e retorna o primeiro intervalo que contém o IP. O Go preserva essa
 prioridade para aliases com início/tamanho idênticos, mantendo seus nomes e
 unidades alternativos no catálogo. Selecionar vários nomes do mesmo intervalo
 produz somente um ID e um hook. Overlaps não exatos continuam rejeitados.
+
+
+## Cleanup original durante unwind
+
+CoreProfiler.DHUnwindExceptionBlock fecha os blocos de profiling antes da
+continuação do handler original. A adaptação mantém essa ordem ao encaminhar
+UHANDLER-only, preservando os dados originais e convertendo PCs do corpo copiado
+para a imagem fonte. Uma passagem collided não fecha a mesma chamada duas vezes.
+EHANDLER/retomada e combinações EH/UH não são inferidas desse suporte parcial.
+A integração usa um handler C com dados de escopo opacos; emissão Delphi ainda
+exige evidência própria.

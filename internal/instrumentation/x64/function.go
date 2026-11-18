@@ -11,18 +11,20 @@ type FunctionPlan struct {
 	Original, Source, Patch, Image []byte
 	BodyRVA, ExitRVA               uint32
 	Functions                      [3]RuntimeFunction
+	OriginalHandlerRVA             uint32
 }
 
 // BuildPEFunction preserves a verified version-1 native prologue and its unwind
-// codes while relocating the full procedure. Original language-specific handlers
-// and chains are rejected. A native cleanup handler records exceptional exits;
+// codes while relocating the full procedure. An original UHANDLER-only cleanup
+// is forwarded with its source metadata and PCs; EHANDLER and chains are rejected.
+// A native cleanup handler records exceptional exits;
 // it must have the Windows EXCEPTION_DISPOSITION handler ABI, not a Go callback.
 func BuildPEFunction(image []byte, rva, size uint32, loadedBase, base, enter, exit, unwind uint64, id uint32) (FunctionPlan, error) {
 	fail := func(reason string) (FunctionPlan, error) {
 		return FunctionPlan{}, fmt.Errorf("%w: function: %s", ErrUnsupported, reason)
 	}
-	var originalInfo []byte
-	code, imageSize, err := readPECode(image, rva, size, &originalInfo)
+	var metadata functionUnwind
+	code, imageSize, err := readPECode(image, rva, size, &metadata)
 	if err != nil {
 		return FunctionPlan{}, err
 	}
@@ -30,6 +32,7 @@ func BuildPEFunction(image []byte, rva, size uint32, loadedBase, base, enter, ex
 		return fail("invalid addresses/ID")
 	}
 	source := loadedBase + uint64(rva)
+	originalInfo := metadata.info
 	if len(originalInfo) == 0 {
 		originalInfo = []byte{1, 0, 0, 0}
 	}
@@ -52,7 +55,11 @@ func BuildPEFunction(image []byte, rva, size uint32, loadedBase, base, enter, ex
 	}
 	thunkRVA := (flow.exitRVA + uint32(len(out.Image)) + 15) &^ 15
 	infoRVA := (thunkRVA + JumpSize + 3) &^ 3
-	total := int(infoRVA) + len(originalInfo) + 8
+	dataSize := 8 // procedure ID and descriptor kind
+	if metadata.handlerRVA != 0 {
+		dataSize = 36 + len(flow.pcMap)*4
+	}
+	total := int(infoRVA) + len(originalInfo) + 4 + dataSize
 	if total > 8192 {
 		return fail("function image too large")
 	}
@@ -79,11 +86,22 @@ func BuildPEFunction(image []byte, rva, size uint32, loadedBase, base, enter, ex
 	copy(data[infoRVA:], info)
 	binary.LittleEndian.PutUint32(data[int(infoRVA)+len(info):], thunkRVA)
 	binary.LittleEndian.PutUint32(data[int(infoRVA)+len(info)+4:], id)
+	if metadata.handlerRVA != 0 {
+		descriptor := data[int(infoRVA)+len(info)+4:]
+		values := []uint32{id, 1, rva, size, metadata.runtimeRVA, metadata.infoRVA, metadata.handlerRVA, metadata.handlerDataRVA, uint32(len(flow.pcMap))}
+		for i, value := range values {
+			binary.LittleEndian.PutUint32(descriptor[i*4:], value)
+		}
+		for i, mapping := range flow.pcMap {
+			binary.LittleEndian.PutUint16(descriptor[36+i*4:], mapping.original)
+			binary.LittleEndian.PutUint16(descriptor[38+i*4:], mapping.relocated)
+		}
+	}
 	patch := append(entry, make([]byte, flow.overwrite-len(entry))...)
 	for i := len(entry); i < len(patch); i++ {
 		patch[i] = 0x90
 	}
-	return FunctionPlan{Original: append([]byte(nil), code[:flow.overwrite]...), Source: append([]byte(nil), code...), Patch: patch, Image: data, BodyRVA: 512, ExitRVA: flow.exitRVA, Functions: [3]RuntimeFunction{{0, in.CodeSize, in.UnwindRVA}, {512, 512 + uint32(len(flow.code)), infoRVA}, {flow.exitRVA, flow.exitRVA + out.CodeSize, flow.exitRVA + out.UnwindRVA}}}, nil
+	return FunctionPlan{Original: append([]byte(nil), code[:flow.overwrite]...), Source: append([]byte(nil), code...), Patch: patch, Image: data, BodyRVA: 512, ExitRVA: flow.exitRVA, OriginalHandlerRVA: metadata.handlerRVA, Functions: [3]RuntimeFunction{{0, in.CodeSize, in.UnwindRVA}, {512, 512 + uint32(len(flow.code)), infoRVA}, {flow.exitRVA, flow.exitRVA + out.CodeSize, flow.exitRVA + out.UnwindRVA}}}, nil
 }
 
 func validateUnwindCodes(info []byte) error {

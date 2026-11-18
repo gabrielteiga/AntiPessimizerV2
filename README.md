@@ -16,7 +16,7 @@ Revisado em 18 de novembro de 2026.
 | Símbolos Delphi | TD32/TDS FB09/FB0A, procedimentos, unidades Pascal, aliases exatos e diretórios encadeados; símbolos embutidos ou `.tds` adjacente |
 | Métricas instrumentadas | Chamadas, tempos inclusivos/exclusivos, médias, recursão, threads, unwind, Clear e perdas no núcleo Go |
 | Lançamento instrumentado | Novo processo próprio sem SDK do profiler; DLL instalada antes do ponto de entrada, seleção TD32/TDS e finalizadores preservados |
-| Funções com pilha/chamadas | Prólogos e unwind v1 verificados; calls, recursão, condições, loops e múltiplas saídas; testes Windows em alvo C com exceção SEH real |
+| Funções com pilha/chamadas | Prólogos/unwind v1 verificados; calls, recursão, condições, loops, múltiplas saídas e encaminhamento de cleanup UHANDLER original |
 | Subconjunto escalar | Aritmética/condições/conversões SSE sem frame e home slots Win64 limitados; prólogo ADD RSP negativo verificado contra unwind |
 | Memória e sincronização | MOVS/STOS com frame/unwind verificado e operações LOCK de memória; testes de cópia/preenchimento, compare/exchange e contador compartilhado |
 | Estado SSE | Probes preservam controle/status MXCSR dos callbacks; setter/getter instrumentados conferem os quatro modos de arredondamento |
@@ -113,11 +113,12 @@ rejeições, usando o mesmo planejador da instalação. Não certifica compatibi
 com todas as variantes do Delphi. Em catálogos grandes, filtre a consulta para
 verificar apenas os procedimentos desejados.
 
-O subconjunto aceita unwind v1 sem handlers próprios, prólogos verificados,
+O subconjunto aceita unwind v1 sem handler ou com cleanup UHANDLER-only original, prólogos verificados,
 chamadas/recursão, branches internos e múltiplos retornos, de 5 a 4096 bytes por procedimento quando a alocação
 permite salto próximo. Métodos menores que 5 bytes continuam rejeitados. Procedimentos não suportados são rejeitados. Um cleanup nativo
-registra saídas durante o unwind real do Windows; o handler original que recebe
-a exceção deve ficar fora da seleção. A captura inclui finalizadores anteriores
+registra saídas durante o unwind real do Windows e encaminha a limpeza original
+com seus metadados e endereços de origem. Handlers que capturam/retomam a exceção
+(EHANDLER, inclusive combinado com UHANDLER) ainda devem ficar fora da seleção. A captura inclui finalizadores anteriores
 a ExitProcess. Veja [instrumentation.md](docs/instrumentation.md) para os limites.
 
 ## Automação pelo coletor

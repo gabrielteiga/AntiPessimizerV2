@@ -32,6 +32,56 @@ extern uint64_t APFrameFill(void *,uint64_t,uint64_t);
 extern uint64_t APLeafAtomic(volatile uint64_t *,uint64_t);
 extern uint64_t APLeafCompare(uint64_t *,uint64_t,uint64_t);
 static volatile uint64_t atomic_total;
+enum { AP_CLEANUP_EXCEPTION=0xe0424243u,AP_COLLISION_EXCEPTION=0xe0424244u };
+static volatile LONG cleanup_count,cleanup_bad,collision_seen;
+static BOOL cleanup_throws;
+extern uint64_t APUnwindParent(uint64_t);
+extern unsigned char APUnwindParentEnd[];
+extern uint64_t APUnwindCatch(void);
+METHOD uint64_t APUnwindThrower(uint64_t n){
+ if(!n)RaiseException(AP_CLEANUP_EXCEPTION,0,0,NULL);
+ return n+3;
+}
+METHOD uint64_t APUnwindWork(uint64_t n){
+ InterlockedIncrement(&cleanup_count);
+ if(!n)RaiseException(AP_COLLISION_EXCEPTION,0,0,NULL);
+ return n;
+}
+void APUnwindFinally(BOOL abnormal,void *frame){
+ uint64_t n=*(uint64_t *)((unsigned char *)frame+32);
+ if((abnormal && n!=0)||(!abnormal && n!=7))InterlockedExchange(&cleanup_bad,1);
+ (void)APUnwindWork(abnormal && cleanup_throws?0:1);
+}
+EXCEPTION_DISPOSITION APUnwindLanguageHandler(PEXCEPTION_RECORD record,PVOID frame,PCONTEXT context,PDISPATCHER_CONTEXT dispatcher){
+ DWORD64 image=(DWORD64)(uintptr_t)GetModuleHandleW(NULL);
+ DWORD64 begin=(DWORD64)(uintptr_t)APUnwindParent,end=(DWORD64)(uintptr_t)APUnwindParentEnd;
+ if(dispatcher->ImageBase!=image || image+dispatcher->FunctionEntry->BeginAddress!=begin || image+dispatcher->FunctionEntry->EndAddress!=end || dispatcher->ControlPc<begin || dispatcher->ControlPc>=end || *(uint32_t *)dispatcher->HandlerData!=1)InterlockedExchange(&cleanup_bad,1);
+ return __C_specific_handler(record,frame,context,dispatcher);
+}
+LONG APUnwindFilter(EXCEPTION_POINTERS *p,void *frame){
+ (void)frame;
+ if(!p)return EXCEPTION_CONTINUE_SEARCH;
+ if(cleanup_throws && p->ExceptionRecord->ExceptionCode==AP_COLLISION_EXCEPTION){InterlockedIncrement(&collision_seen);return EXCEPTION_EXECUTE_HANDLER;}
+ return p->ExceptionRecord->ExceptionCode==AP_CLEANUP_EXCEPTION?EXCEPTION_EXECUTE_HANDLER:EXCEPTION_CONTINUE_SEARCH;
+}
+/* The early RET expands before the protected region. Successful cleanup thus
+ * requires translating both source PCs and opaque original scope metadata. */
+__asm__(
+ ".text\n .globl APUnwindParent\n .def APUnwindParent; .scl 2; .type 32; .endef\n"
+ ".seh_proc APUnwindParent\n APUnwindParent:\n subq $56,%rsp\n .seh_stackalloc 56\n .seh_endprologue\n"
+ "movq %rcx,32(%rsp)\n cmpq $999,%rcx\n jne .Lcleanup_try_begin\n movl $999,%eax\n addq $56,%rsp\n ret\n"
+ ".Lcleanup_try_begin:\n call APUnwindThrower\n nop\n .Lcleanup_try_end:\n movq %rax,48(%rsp)\n"
+ "xorl %ecx,%ecx\n movq %rsp,%rdx\n call APUnwindFinally\n movq 48(%rsp),%rax\n addq $56,%rsp\n ret\n"
+ ".globl APUnwindParentEnd\n APUnwindParentEnd:\n"
+ ".seh_handler APUnwindLanguageHandler,@unwind\n .seh_handlerdata\n .long 1\n"
+ ".rva .Lcleanup_try_begin,.Lcleanup_try_end,APUnwindFinally\n .long 0\n .text\n .seh_endproc\n"
+ ".globl APUnwindCatch\n .def APUnwindCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APUnwindCatch\n APUnwindCatch:\n subq $40,%rsp\n .seh_stackalloc 40\n .seh_endprologue\n"
+ ".Lcleanup_outer_begin:\n xorq %rcx,%rcx\n call APUnwindParent\n nop\n .Lcleanup_outer_end:\n xorq %rax,%rax\n addq $40,%rsp\n ret\n"
+ ".Lcleanup_catch:\n movl $779,%eax\n addq $40,%rsp\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Lcleanup_outer_begin,.Lcleanup_outer_end,APUnwindFilter,.Lcleanup_catch\n .text\n .seh_endproc\n"
+);
 /* Sixty-four separate six-byte methods exercise the complete bounded installer. */
 #define AP_BATCH_METHODS(X) X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7) X(8) X(9) X(10) X(11) X(12) X(13) X(14) X(15) X(16) X(17) X(18) X(19) X(20) X(21) X(22) X(23) X(24) X(25) X(26) X(27) X(28) X(29) X(30) X(31) X(32) X(33) X(34) X(35) X(36) X(37) X(38) X(39) X(40) X(41) X(42) X(43) X(44) X(45) X(46) X(47) X(48) X(49) X(50) X(51) X(52) X(53) X(54) X(55) X(56) X(57) X(58) X(59) X(60) X(61) X(62) X(63)
 #define AP_BATCH_DECLARE(n) extern uint64_t APBatch##n(void);
@@ -142,6 +192,7 @@ static DWORD WINAPI worker(void *unused){
  for(uint32_t i=0;i<iterations;i++)if(APFrameParent(i+1)!=17+2*i)return 2;
  if(APFrameCatch()!=777)return 3;
  if(APFrameMemoryCatch()!=888)return 4;
+ if(APUnwindParent(7)!=10 || APUnwindParent(999)!=999 || APUnwindCatch()!=779 || cleanup_bad)return 6;
  return 0;
 }
 int wmain(int argc,wchar_t **argv){
@@ -152,6 +203,7 @@ int wmain(int argc,wchar_t **argv){
   else if(!wcscmp(argv[i],L"--iterations"))iterations=(uint32_t)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--rounds"))rounds=(uint32_t)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--delay-ms"))child_delay_ms=(DWORD)wcstoul(argv[i+1],NULL,10);
+  else if(!wcscmp(argv[i],L"--cleanup-throws"))cleanup_throws=(BOOL)wcstoul(argv[i+1],NULL,10);
   else return 2;
  }
  if(!threads||threads>16||!rounds||rounds>1000||!iterations||iterations>1000||child_delay_ms>5000)return 2;
@@ -165,5 +217,5 @@ int wmain(int argc,wchar_t **argv){
   GetExitCodeThread(handles[i],&code);CloseHandle(handles[i]);result|=code;
  }
  }
- CloseHandle(barrier);return result||atomic_total!=(uint64_t)threads*rounds*(iterations+1)?5:0;
+ CloseHandle(barrier);return result||atomic_total!=(uint64_t)threads*rounds*(iterations+1)||cleanup_count!=(LONG)(threads*rounds*2)||(cleanup_throws && collision_seen<(LONG)(threads*rounds))?5:0;
 }

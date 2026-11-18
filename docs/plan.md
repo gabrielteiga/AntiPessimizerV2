@@ -20,6 +20,7 @@ este documento organiza as entregas e os critérios que ainda faltam.
 | Clear nativo | Barreira entre todos os produtores, drenagem anterior ao marcador, reinício dos frames abertos, ACK após publicação | PR #22: duas limpezas com seis frames abertos em três threads; recursão/SEH posteriores e RPC real |
 | Métodos escalares sem frame | Aritmética inteira/condições/conversões SSE e home slots Win64 limitados | Programa Windows exige seis argumentos, retorno inteiro/double e contagens em três threads |
 | Operações de memória | MOVS/STOS em frames verificados; LOCK em operações de memória permitidas, XADD e CMPXCHG | Testes de bytes/contagens, zero/remainder, sucesso/falha de CAS, contador compartilhado e access violation real em REP |
+| Cleanup original | Encaminhamento UHANDLER-only com PCs e metadados de origem; protocolo exige DLL compatível | Alvo C/assembly cobre retorno, saída antecipada, limpeza excepcional e exceção na própria limpeza; não comprova o compilador Delphi |
 | Controle/status SSE | MXCSR salvo/restaurado ao redor dos helpers; LDMXCSR/STMXCSR com validação normal de memória | Helper nativo clobbera status; setter/getter em três threads preservam todos os modos de arredondamento e 44 chamadas por método/thread |
 | Métodos pequenos | E9 rel32 de cinco bytes quando próximo; fallback absoluto e rejeição sem invadir o vizinho | PR #23: método Windows de seis bytes com onze chamadas por thread e testes dos limites signed rel32 |
 | Threads nativas de longa duração | Fim real por EXIT_THREAD, proteção contra TID reutilizado e pool de 64 rings reutilizáveis | 300 instâncias Windows com contagens/tempos/SEH preservados, sem crescimento do pool |
@@ -34,9 +35,9 @@ sem converter esse valor em chamadas ou duração por chamada.
 
 ## Próximos blocos para paridade
 
-1. **Handlers de linguagem Delphi.** O plano atual aceita unwind v1 sem handlers
-   próprios e registra saídas quando Windows remove o frame. Rotinas com
-   try/except/try/finally e metadados específicos ainda são rejeitadas. É necessário
+1. **Handlers de linguagem Delphi.** O plano aceita unwind v1 sem handler ou
+   com cleanup UHANDLER-only, preservando os metadados originais e a tradução de
+   endereços. EHANDLER, inclusive combinado com UHANDLER, ainda é rejeitado. É necessário
    preservar a busca do handler, seu cleanup e a retomada de execução, incluindo
    exceções aninhadas/recursivas, sem falsificar métricas nem quebrar o programa.
 2. **Cobertura de código e metadados.** Ampliar somente com casos conferidos:
