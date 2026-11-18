@@ -22,7 +22,7 @@ func (r Record) Clone() Record {
 // Validate checks the separate instrumentation contract, including redundant
 // unit conversions. A valid frame can still be provisional or incomplete.
 func (r Record) Validate() error {
-	if r.Protocol != MetricsProtocol || (r.Version != 1 && r.Version != 2) || r.SessionID == "" || len(r.SessionID) > 128 || strings.IndexFunc(r.SessionID, unicode.IsControl) >= 0 || r.Sequence == 0 {
+	if r.Protocol != MetricsProtocol || (r.Version < 1 || r.Version > 3) || r.SessionID == "" || len(r.SessionID) > 128 || strings.IndexFunc(r.SessionID, unicode.IsControl) >= 0 || r.Sequence == 0 {
 		return errors.New("invalid instrumentation metrics envelope")
 	}
 	if err := r.Target.Validate(); err != nil {
@@ -35,13 +35,16 @@ func (r Record) Validate() error {
 		return errors.New("invalid instrumentation source/clock")
 	}
 	s := r.Metrics
+	if r.NativeLostEvents > 0 && (r.Version < 3 || r.Source != "native-hook" || !s.Incomplete) {
+		return errors.New("native loss count requires v3 native incomplete metrics")
+	}
 	if s.Version != 1 || s.Mode != "instrumentation" || s.Frequency == 0 || s.Frequency > 1e12 || s.OpenCalls > MaxOpenCalls || len(s.Rows) > profiling.MaxRows || (s.AbandonedCalls > 0 && !s.Incomplete) {
 		return errors.New("invalid instrumentation metrics snapshot")
 	}
 	seen := map[key]bool{}
 	procedures := map[uint32]profiling.Location{}
 	locations := map[string]uint32{}
-	if r.Version == 1 && len(r.Selection) > 0 || r.Version == 2 && (len(r.Selection) == 0 || len(r.Selection) > 65536) {
+	if r.Version == 1 && len(r.Selection) > 0 || r.Version >= 2 && (len(r.Selection) == 0 || len(r.Selection) > 65536) {
 		return errors.New("invalid instrumentation selection envelope")
 	}
 	for _, p := range r.Selection {
@@ -71,7 +74,7 @@ func (r Record) Validate() error {
 			return errors.New("duplicate instrumentation row")
 		}
 		seen[k] = true
-		if r.Version == 2 {
+		if r.Version >= 2 {
 			if selected, ok := procedures[row.ProcedureID]; !ok || selected != row.Location {
 				return errors.New("metrics row does not match selected procedure")
 			}
@@ -193,6 +196,9 @@ func (reader *metricOrder) accept(r Record) error {
 		reader.locations = map[string]uint32{}
 	}
 	p := reader.previous
+	if p.Sequence != 0 && r.NativeLostEvents < p.NativeLostEvents {
+		return errors.New("native event loss count regressed")
+	}
 	if p.Sequence != 0 && (r.Version != p.Version || !sameSelection(r.Selection, p.Selection) || r.SessionID != p.SessionID || r.Target != p.Target || r.Source != p.Source || r.Clock != p.Clock || r.Metrics.Frequency != p.Metrics.Frequency || r.Sequence <= p.Sequence || r.At < p.At || r.Metrics.Epoch < p.Metrics.Epoch) {
 		return errors.New("instrumentation session, clock or snapshot order changed")
 	}

@@ -121,7 +121,7 @@ func TestNativeProducerOverflowInvalidatesExactness(t *testing.T) {
 		t.Fatal(readErr, err)
 	}
 	r := records[len(records)-1]
-	if !r.Metrics.Incomplete || r.Metrics.OpenCalls != 0 {
+	if !r.Metrics.Incomplete || r.Metrics.OpenCalls != 0 || r.NativeLostEvents == 0 || r.Version != 3 {
 		t.Fatal("lost native events advertised exact", r)
 	}
 }

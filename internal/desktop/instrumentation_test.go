@@ -153,6 +153,8 @@ func TestMetricModelNumericSortingAndThreadReuse(t *testing.T) {
 
 func TestMetricArchiveProbeAndPreservedProvisionalState(t *testing.T) {
 	r := metricRecords(t)[1]
+	r.Version, r.Source, r.Clock = 3, "native-hook", "qpc"
+	r.NativeLostEvents = 17
 	r.Metrics.OpenCalls = 2
 	r.Metrics.Rows[0].ActiveFrames = 1
 	r.Metrics.Incomplete = true
@@ -171,7 +173,7 @@ func TestMetricArchiveProbeAndPreservedProvisionalState(t *testing.T) {
 	}
 	m.Rebuild(1, report.Filter{})
 	got, ok := m.CurrentMetrics()
-	if !ok || !got.Metrics.Incomplete || got.Metrics.OpenCalls != 2 || got.Metrics.AbandonedCalls != 3 || m.Rows[0][12] != "1" {
+	if !ok || !got.Metrics.Incomplete || got.Metrics.OpenCalls != 2 || got.Metrics.AbandonedCalls != 3 || got.NativeLostEvents != 17 || m.Rows[0][12] != "1" {
 		t.Fatal(got, m.Rows)
 	}
 	for _, input := range []string{`{"protocol":"other"}`, `{"protocol":"antipessimizer.instrumentation.events"}`, wire.String() + "{}"} {

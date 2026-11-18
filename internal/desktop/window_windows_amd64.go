@@ -914,6 +914,9 @@ func (a *window) draw() {
 			}
 		}
 		label := fmt.Sprintf("%s | instrumentação | %s | snapshot %d | Clear %d | abertas %d | abandonadas %d | incompleto=%t | omitidos %d", mode, r.Source, r.Sequence, r.Metrics.Epoch, r.Metrics.OpenCalls, r.Metrics.AbandonedCalls, r.Metrics.Incomplete, a.model.Omitted)
+		if r.NativeLostEvents > 0 {
+			label = fmt.Sprintf("EVENTOS PERDIDOS: pelo menos %d | ", r.NativeLostEvents) + label
+		}
 		chars := windows.StringToUTF16(label)
 		gdi.NewProc("TextOutW").Call(dc, 12, uintptr(a.height-122), uintptr(unsafe.Pointer(&chars[0])), uintptr(len(chars)-1))
 		return

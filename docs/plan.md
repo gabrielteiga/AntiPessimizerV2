@@ -26,6 +26,7 @@ este documento organiza as entregas e os critérios que ainda faltam.
 | Threads nativas de longa duração | Fim real por EXIT_THREAD, proteção contra TID reutilizado e pool de 64 rings reutilizáveis | 300 instâncias Windows com contagens/tempos/SEH preservados, sem crescimento do pool |
 | Comparação instrumentada | Seleção completa no contrato v2, compatibilidade de binário/método/relógio, totais por procedimento e médias ponderadas entre snapshots | Testes de épocas/threads/overflow, GUI e executáveis diretos versus serviço |
 | Unidades de tempo | ns, us, ms, s e ticks na apresentação, preservando dados e ordenação | Testes de valores exatos/grandes, CLI e seletor Win32; ticks QPC não são ciclos de CPU |
+| Perdas nativas quantificadas | Envelope v3 preserva contador observado e origem; CLI/GUI informam mínimo perdido | Testes de perda após chamadas completas/abertas, precisão u64, monotonicidade, arquivo/modelo e saturação Windows |
 | Carga e limites de recursos | Baseline/instrumentado com 320 vidas de thread, 32.001 chamadas, memória/handles por rodada e observador Go limitado | CI Windows grava Native-stress; saturação deliberada deve falhar com perda explícita e métricas incompletas |
 | Custo em carga controlada | Três pares baseline/instrumentado, ordem alternada, uma/três threads; relógio interno ao loop e artefato bruto | Checksums iguais, chamadas/finalizador exatos e captura completa; sem limite artificial de desempenho do runner |
 

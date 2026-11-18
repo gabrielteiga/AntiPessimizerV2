@@ -30,20 +30,21 @@ type stressWorkload struct {
 }
 
 type stressEvidence struct {
-	Version       int            `json:"version"`
-	Scenario      string         `json:"scenario"`
-	ImageID       string         `json:"image_id"`
-	Workload      stressWorkload `json:"workload"`
-	ExpectedCalls uint64         `json:"expected_calls"`
-	MeasuredCalls uint64         `json:"measured_calls"`
-	Rows          int            `json:"rows"`
-	Snapshots     int            `json:"snapshots"`
-	EncodedBytes  uint64         `json:"encoded_bytes"`
-	GoHeapBefore  uint64         `json:"go_heap_before_bytes"`
-	GoHeapAfter   uint64         `json:"go_heap_after_bytes"`
-	ElapsedNS     int64          `json:"elapsed_ns"`
-	Incomplete    bool           `json:"incomplete"`
-	Error         string         `json:"error,omitempty"`
+	Version          int            `json:"version"`
+	Scenario         string         `json:"scenario"`
+	ImageID          string         `json:"image_id"`
+	Workload         stressWorkload `json:"workload"`
+	ExpectedCalls    uint64         `json:"expected_calls"`
+	MeasuredCalls    uint64         `json:"measured_calls"`
+	Rows             int            `json:"rows"`
+	Snapshots        int            `json:"snapshots"`
+	EncodedBytes     uint64         `json:"encoded_bytes"`
+	GoHeapBefore     uint64         `json:"go_heap_before_bytes"`
+	GoHeapAfter      uint64         `json:"go_heap_after_bytes"`
+	ElapsedNS        int64          `json:"elapsed_ns"`
+	Incomplete       bool           `json:"incomplete"`
+	NativeLostEvents uint64         `json:"native_lost_events_at_least"`
+	Error            string         `json:"error,omitempty"`
 }
 
 // Keep only the latest cumulative snapshot, never an archive proportional to
@@ -183,11 +184,16 @@ func TestNativeStressThreadReuseMemoryAndSaturation(t *testing.T) {
 			// Tolerances cover process/heap/loader warming, not speed on a shared
 			// runner. Compare after four rounds, once all native rings can be reused.
 			warm := e.Workload.Memory[4]
+			var maxPrivateGrowth int64
+			var maxHandleGrowth int64
 			for _, point := range e.Workload.Memory[5:] {
+				maxPrivateGrowth = max(maxPrivateGrowth, int64(point.PrivateBytes)-int64(warm.PrivateBytes))
+				maxHandleGrowth = max(maxHandleGrowth, int64(point.Handles)-int64(warm.Handles))
 				if point.PrivateBytes > warm.PrivateBytes+(16<<20) || point.Handles > warm.Handles+8 {
 					t.Fatal("target memory/handles grew after buffer warmup", warm, point)
 				}
 			}
+			t.Logf("after round 4: warm private=%d handles=%d; max later growth private=%d handles=%d", warm.PrivateBytes, warm.Handles, maxPrivateGrowth, maxHandleGrowth)
 			if instrumented && after.HeapAlloc > before.HeapAlloc+(16<<20) {
 				t.Fatal("bounded live observer retained excessive Go heap", before.HeapAlloc, after.HeapAlloc)
 			}
@@ -204,11 +210,12 @@ func TestNativeStressThreadReuseMemoryAndSaturation(t *testing.T) {
 		if err != nil {
 			e.Error = err.Error()
 		}
+		e.NativeLostEvents = output.last.NativeLostEvents
 		for _, row := range output.last.Metrics.Rows {
 			e.MeasuredCalls += row.Calls
 		}
 		writeEvidence(e)
-		if !errors.Is(err, ErrLoss) || !e.Incomplete || output.snapshots == 0 || e.MeasuredCalls >= e.ExpectedCalls {
+		if !errors.Is(err, ErrLoss) || !e.Incomplete || e.NativeLostEvents == 0 || output.snapshots == 0 || e.MeasuredCalls >= e.ExpectedCalls {
 			t.Fatal("saturation advertised exact/complete results or failed to report native loss", err, e)
 		}
 	})

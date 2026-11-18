@@ -36,16 +36,20 @@ type Event struct {
 	KeepDepth int    `json:"keep_depth,omitempty"`
 }
 type Record struct {
-	Selection []Procedure      `json:"selection,omitempty"`
-	Protocol  string           `json:"protocol"`
-	Version   int              `json:"version"`
-	SessionID string           `json:"session_id"`
-	Target    profiling.Target `json:"target"`
-	Source    string           `json:"source"`
-	Clock     string           `json:"clock"`
-	Sequence  uint64           `json:"sequence"`
-	At        uint64           `json:"observed_at_ticks,string"`
-	Metrics   Snapshot         `json:"metrics"`
+	// NativeLostEvents is the cumulative count observed in the last native
+	// batch header. Capture stops on loss, so this is a lower bound, not an
+	// estimate of events lost after the target was cancelled. Added in v3.
+	NativeLostEvents uint64           `json:"native_lost_event_count,string,omitempty"`
+	Selection        []Procedure      `json:"selection,omitempty"`
+	Protocol         string           `json:"protocol"`
+	Version          int              `json:"version"`
+	SessionID        string           `json:"session_id"`
+	Target           profiling.Target `json:"target"`
+	Source           string           `json:"source"`
+	Clock            string           `json:"clock"`
+	Sequence         uint64           `json:"sequence"`
+	At               uint64           `json:"observed_at_ticks,string"`
+	Metrics          Snapshot         `json:"metrics"`
 }
 
 func decode(b []byte, v any) error {

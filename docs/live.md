@@ -125,3 +125,10 @@ a publicação da nova `clear_epoch`. A janela oferece **Limpar métricas**. Cle
 não muda a identidade da sessão, não altera a seleção e não apaga o histórico:
 a navegação mantém cada snapshot cumulativo na sua própria época. Requests
 concomitantes são serializados, sem reaproveitar ACK de um pedido que expirou.
+
+
+Capturas instrumentadas nativas usam o envelope de métricas v3. O campo opcional
+`native_lost_event_count` é um u64 como string e informa o mínimo observado de
+eventos perdidos, junto de incomplete=true; segue preservado em latest, histórico,
+subscribe e replay. O RPC mantém sua versão: não confundir envelope JSON v3 com
+wire nativo v4. Clientes antigos devem ser atualizados com o mesmo pacote.

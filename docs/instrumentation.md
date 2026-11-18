@@ -482,7 +482,8 @@ rejeitam a unidade enganosa cycles.
 
 ## Métricas v2 e comparação instrumentada
 
-Novas capturas/replay emitem envelope de métricas v2 com `selection`, contendo
+O replay sintético emite envelope de métricas v2; capturas nativas emitem v3.
+Ambos incluem `selection`, contendo
 IDs e localizações de todos os procedimentos selecionados. O snapshot interno
 continua v1: sua semântica não mudou. Arquivos de métricas v1 sem selection
 continuam legíveis. O validador v2 exige seleção completa, IDs/localizações únicos,
@@ -653,3 +654,27 @@ intervalos QPC/checksums e amostras de memória quando o alvo conclui, chamadas
 esperadas/observadas, linhas, snapshots/bytes e heap Go. O tempo global inclui
 orquestração; não equivale ao overhead de uma chamada. A fixture continua sendo
 C/assembly, sem inferência de comportamento de um compilador Delphi inteiro.
+
+
+## Métricas v3: quantidade de eventos nativos perdidos
+
+Capturas nativas emitem envelope v3 com `native_lost_event_count`, inteiro u64
+serializado como string quando não zero. É o contador cumulativo observado no
+último header nativo recebido. A captura termina na primeira perda; eventos
+perdidos depois desse ponto não podem ser contados pelo coletor. Portanto o
+viewer exibe **pelo menos N eventos perdidos**, preservando esse valor no histórico,
+arquivo/replay e serviço. Zero/ausência não certifica que uma captura interrompida
+por outro erro não tenha perdido eventos. Não se estima chamadas a partir disso.
+
+Um valor não zero exige source native-hook e incomplete=true. O contador não
+pode regredir, nem ao mudar de época de Clear. V3 mantém seleção completa, tempos
+e contagens de v2; a comparação aceita v2/v3 completos e continua recusando perdas.
+Arquivos v1/v2 continuam legíveis, sem fabricar um contador antigo. Viewers de
+versões anteriores não leem v3; distribua coletor/viewer juntos no pacote atual.
+O wire binário da DLL continua v4: a versão do envelope JSON é independente.
+
+Testes portáveis injetam perda após uma chamada concluída e outra aberta: a
+concluída permanece, a aberta é abandonada e o valor observado chega ao arquivo.
+Os testes também cobrem precisão acima de 2^53, regressão, origem/versão inválidas,
+comparação entre versões, CLI e retenção pelo modelo da janela. O cenário Windows
+de saturação exige contador positivo junto de ErrLoss e incomplete=true.
