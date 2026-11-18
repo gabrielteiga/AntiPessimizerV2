@@ -9,11 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/instrumentation"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/instrumentation/native"
+	"github.com/gabrielteiga/AntiPessimizerV2/internal/testfixture"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/transport"
 )
 
@@ -37,9 +39,62 @@ func callRecords(t *testing.T) []instrumentation.Record {
 	}
 	return records
 }
+
+func TestPreflightRejectionPreservesHistoryAndNeverStartsOwner(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "unsupported.exe")
+	data := testfixture.PlannableImage()
+	data[0x220], data[0x221] = 0x0f, 0x0b
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := native.ReadCatalog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := New()
+	c.LaunchInstrumented = func(context.Context, native.LaunchOptions, io.Writer) error {
+		t.Error("rejected procedure launched")
+		return nil
+	}
+	previous := callRecords(t)[0]
+	if err := c.publishMetrics(previous); err != nil {
+		t.Fatal(err)
+	}
+	state := c.Status()
+	page, err := c.Catalog(CatalogQuery{Image: path, Check: true})
+	if err != nil || len(page.Checks) != 1 || page.Checks[0].PlanSupported || page.Checks[0].Reason == "" {
+		t.Fatal(page, err)
+	}
+	err = c.StartInstrumented(context.Background(), InstrumentOptions{Image: path, ImageID: catalog.ImageID, CatalogID: catalog.CatalogID, Procedures: []uint32{catalog.Procedures[0].ID}})
+	if err == nil || !strings.Contains(err.Error(), "preflight rejected") || c.Status() != state || len(c.MetricHistory()) != 1 || c.cancel != nil {
+		t.Fatal("rejection changed lifecycle/history", c.Status(), err)
+	}
+}
+
+func TestCatalogPreflightChecksOnlyRequestedPage(t *testing.T) {
+	c, o := instrumentController(t)
+	var checked []uint32
+	c.CheckCatalog = func(_ native.Catalog, procedures []native.SelectedProcedure) ([]native.ProcedureCheck, error) {
+		for _, p := range procedures {
+			checked = append(checked, p.ID)
+		}
+		return []native.ProcedureCheck{{ID: 2, PlanSupported: true}}, nil
+	}
+	page, err := c.Catalog(CatalogQuery{Image: o.Image, Offset: 1, Limit: 1, Check: true})
+	if err != nil || len(checked) != 1 || checked[0] != 2 || len(page.Checks) != 1 || page.Checks[0].ID != 2 {
+		t.Fatal("planned outside requested page", page, checked, err)
+	}
+}
 func instrumentController(t *testing.T) (*Controller, InstrumentOptions) {
 	t.Helper()
 	c := New()
+	c.CheckCatalog = func(_ native.Catalog, procedures []native.SelectedProcedure) ([]native.ProcedureCheck, error) {
+		checks := make([]native.ProcedureCheck, 0, len(procedures))
+		for _, p := range procedures {
+			checks = append(checks, native.ProcedureCheck{ID: p.ID, PlanSupported: true})
+		}
+		return checks, nil
+	}
 	c.LoadCatalog = func(string) (native.Catalog, error) {
 		return native.Catalog{CatalogID: "catalog-token", ImageID: "checked-image", Procedures: []native.SelectedProcedure{{ID: 1, RVA: 0x1000, Size: 32, Name: "Lab.Parent", Unit: "Lab"}, {ID: 2, RVA: 0x2000, Size: 32, Name: "Lab.Child", Unit: "Lab"}}}, nil
 	}

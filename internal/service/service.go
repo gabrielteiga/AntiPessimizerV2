@@ -43,6 +43,7 @@ type Controller struct {
 	metricBytes, metricRows int
 	metricSubscribers       map[chan instrumentation.Record]struct{}
 	LoadCatalog             func(string) (native.Catalog, error)
+	CheckCatalog            func(native.Catalog, []native.SelectedProcedure) ([]native.ProcedureCheck, error)
 	LaunchInstrumented      func(context.Context, native.LaunchOptions, io.Writer) error
 	mu                      sync.Mutex
 	state                   Status
@@ -56,7 +57,7 @@ type Controller struct {
 }
 
 func New() *Controller {
-	return &Controller{LoadCatalog: native.ReadCatalog, LaunchInstrumented: native.Launch, metricSubscribers: map[chan instrumentation.Record]struct{}{}, state: Status{State: "idle"}, subscribers: map[chan profiling.Snapshot]struct{}{}, Inspect: platform.Inspect, Capture: platform.Capture}
+	return &Controller{LoadCatalog: native.ReadCatalog, CheckCatalog: native.Catalog.Check, LaunchInstrumented: native.Launch, metricSubscribers: map[chan instrumentation.Record]struct{}{}, state: Status{State: "idle"}, subscribers: map[chan profiling.Snapshot]struct{}{}, Inspect: platform.Inspect, Capture: platform.Capture}
 }
 func (c *Controller) Status() Status { c.mu.Lock(); defer c.mu.Unlock(); return c.state }
 func (c *Controller) Latest() *profiling.Snapshot {

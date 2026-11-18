@@ -30,6 +30,7 @@ type InstrumentOptions struct {
 }
 
 type CatalogQuery struct {
+	Check  bool   `json:"check,omitempty"`
 	Image  string `json:"image"`
 	Text   string `json:"text,omitempty"`
 	Unit   string `json:"unit,omitempty"`
@@ -38,6 +39,7 @@ type CatalogQuery struct {
 }
 
 type CatalogPage struct {
+	Checks       []native.ProcedureCheck    `json:"checks,omitempty"`
 	CatalogID    string                     `json:"catalog_id"`
 	ImageID      string                     `json:"image_id"`
 	SymbolSource string                     `json:"symbol_source"`
@@ -69,6 +71,13 @@ func (c *Controller) StartInstrumented(parent context.Context, o InstrumentOptio
 	}
 	selected, err := catalog.Select(o.Procedures)
 	if err != nil {
+		return err
+	}
+	checks, err := c.CheckCatalog(catalog, selected)
+	if err != nil {
+		return err
+	}
+	if err := native.RequireSupported(checks); err != nil {
 		return err
 	}
 	executable, err := os.Executable()
@@ -246,6 +255,12 @@ func (c *Controller) Catalog(q CatalogQuery) (CatalogPage, error) {
 			page.Procedures = append(page.Procedures, p)
 		}
 		page.Total++
+	}
+	if q.Check {
+		page.Checks, err = c.CheckCatalog(catalog, page.Procedures)
+		if err != nil {
+			return CatalogPage{}, err
+		}
 	}
 	return page, nil
 }

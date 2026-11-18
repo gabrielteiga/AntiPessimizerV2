@@ -37,6 +37,7 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 	selection := flags.String("procedure-ids", "", "comma-separated catalog IDs to instrument (1..16)")
 	catalogText := flags.String("symbol-filter", "", "catalog search text")
 	catalogOffset := flags.Int("catalog-offset", 0, "catalog page offset")
+	catalogCheck := flags.Bool("check", false, "with instrument-catalog, check static instrumentation support")
 	timeout := flags.Duration("timeout", time.Minute, "owned instrumented target timeout")
 	var programArgs cliArgs
 	flags.Var(&programArgs, "arg", "owned program argument (repeatable)")
@@ -53,6 +54,9 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 	thread := flags.Uint64("thread", 0, "thread ID filter; 0 means all")
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	if *catalogCheck && (*op != "instrument-catalog" || *gui || *replay != "" || *save != "" || *compare != "") {
+		return errors.New("--check requires terminal --op instrument-catalog")
 	}
 	if !desktop.MetricTimeUnit(*timeUnit).Valid() {
 		return errors.New("invalid --time-unit; choose ns, us, ms, s or ticks")
@@ -153,7 +157,7 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 		now := time.Now()
 		request := service.Request{Op: *op, Start: service.StartOptions{PID: uint32(*pid), Demo: *demo, WindowMS: *window}, From: now.Add(-time.Duration(*seconds) * time.Second), To: now, Module: *module, Thread: uint32(*thread)}
 		if *op == "instrument-catalog" {
-			request.Catalog = service.CatalogQuery{Image: *image, Text: *catalogText, Unit: *unit, Offset: *catalogOffset}
+			request.Catalog = service.CatalogQuery{Image: *image, Text: *catalogText, Unit: *unit, Offset: *catalogOffset, Check: *catalogCheck}
 		}
 		if *op == "instrument-start" {
 			ids, err := parseProcedureIDs(*selection)

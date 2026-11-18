@@ -73,6 +73,13 @@ func Launch(parent context.Context, o LaunchOptions, out io.Writer) (resultErr e
 	if o.ImageID != "" && o.ImageID != build {
 		return errors.New("executable changed after symbol selection")
 	}
+	checks, err := CheckImageProcedures(data, o.Procedures)
+	if err != nil {
+		return err
+	}
+	if err := RequireSupported(checks); err != nil {
+		return err
+	}
 	// Resolve short names/junctions before matching the debugger's file path.
 	// Windows temporary folders may use RUNNER~1 while debug events report
 	// the long name, especially for Unicode/spaced fixture paths.

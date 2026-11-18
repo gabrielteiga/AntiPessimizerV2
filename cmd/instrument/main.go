@@ -33,6 +33,7 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer) (result
 	}
 	dll := flags.String("dll", filepath.Join(filepath.Dir(exe), "AntiPessimizerNative.dll"), "native adapter DLL")
 	list := flags.Bool("list", false, "list the TD32/TDS catalog without executing anything")
+	check := flags.Bool("check", false, "with --list, check static instrumentation support without launching")
 	outputPath := flags.String("output", "", "write live metrics to a new NDJSON file (never overwrite)")
 	timeout := flags.Duration("timeout", time.Minute, "capture timeout; expiry terminates this owned target")
 	capacity := flags.Int("capacity", 1024, "native events per thread (1..1024)")
@@ -46,6 +47,9 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer) (result
 	if *path == "" || flags.NArg() != 0 {
 		return errors.New("usage: instrument --image app.exe --list | --procedure Name [--unit Unit] [--arg value]")
 	}
+	if *check && !*list {
+		return errors.New("--check requires --list")
+	}
 	catalog, err := native.ReadCatalog(*path)
 	if err != nil {
 		return err
@@ -58,11 +62,19 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer) (result
 		return errors.New("--output is for capture; --list writes the catalog to stdout")
 	}
 	if *list {
+		var checks []native.ProcedureCheck
+		if *check {
+			checks, err = catalog.Check(selected)
+			if err != nil {
+				return err
+			}
+		}
 		return json.NewEncoder(out).Encode(struct {
 			ImageID      string                     `json:"image_id"`
 			SymbolSource string                     `json:"symbol_source"`
 			Procedures   []native.SelectedProcedure `json:"procedures"`
-		}{catalog.ImageID, catalog.SymbolSource, selected})
+			Checks       []native.ProcedureCheck    `json:"checks,omitempty"`
+		}{catalog.ImageID, catalog.SymbolSource, selected, checks})
 	}
 	if len(units) == 0 && len(names) == 0 {
 		return errors.New("select --procedure or --unit explicitly before launching")
