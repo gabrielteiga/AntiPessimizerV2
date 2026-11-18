@@ -10,6 +10,7 @@ import (
 )
 
 const hookStride = 8192
+const largeHookStride = x64.MaxFunctionImageBytes
 
 // installHooks runs only during the owned target's startup barrier.
 // Event consumption starts after this exchange; no second goroutine reads the
@@ -25,7 +26,8 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 	if _, err := io.ReadFull(conn, offer[:]); err != nil {
 		return fmt.Errorf("hook allocation offer: %w", err)
 	}
-	typedScopes := string(offer[:8]) == "APHOOK7\x00"
+	largePlans := string(offer[:8]) == "APHOOK8\x00"
+	typedScopes := largePlans || string(offer[:8]) == "APHOOK7\x00"
 	delphiScopes := typedScopes || string(offer[:8]) == "APHOOK6\x00"
 	resuming := delphiScopes || string(offer[:8]) == "APHOOK5\x00"
 	forwarding := resuming || string(offer[:8]) == "APHOOK3\x00" || string(offer[:8]) == "APHOOK4\x00"
@@ -40,7 +42,11 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 	const maxAddress = uint64(1) << 47
 	// New adapters reserve the runtime table after all complete code strides.
 	// Preserve the bounded layout of older (at most 16-hook) adapters as well.
-	codeCapacity := count * hookStride
+	stride := uint32(hookStride)
+	if largePlans {
+		stride = largeHookStride
+	}
+	codeCapacity := count * stride
 	if count != uint32(len(procedures)) || capacity != codeCapacity && capacity != codeCapacity+count*3*12 || allocation == 0 || allocation%4096 != 0 || allocation >= maxAddress || uint64(capacity) >= maxAddress-allocation || enter == exit {
 		return errors.New("invalid native hook allocation")
 	}
@@ -76,13 +82,16 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 	payload := make([]byte, capacity)
 	for i, proc := range procedures {
 		size := u32(sizes[i*4:])
-		offset := uint32(i) * hookStride
+		offset := uint32(i) * stride
 		var source, patch, code []byte
 		var functions []x64.RuntimeFunction
 		if general {
 			plan, err := prepared.BuildFunction(proc.RVA, size, loaded, allocation+uint64(offset), enter, exit, cleanup, proc.ID)
 			if err != nil {
 				return fmt.Errorf("procedure %d frame plan: %w", proc.ID, err)
+			}
+			if !largePlans && (size > 4096 || len(plan.Image) > hookStride) {
+				return errors.New("update the native adapter DLL: larger function plans require APHOOK8")
 			}
 			if plan.HandlerScopeStyle == 3 && !typedScopes {
 				return errors.New("update the native adapter DLL: typed Delphi scopes require APHOOK7")
@@ -104,7 +113,7 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 			}
 			source, patch, code, functions = plan.Source, plan.Patch, plan.Image, plan.Functions[:]
 		}
-		if uint64(offset)+uint64(len(code)) > uint64(tableOffset) || len(patch) > 64 {
+		if uint64(offset)+uint64(len(code)) > uint64(tableOffset) || len(patch) > 64 || uint32(len(code)) > stride {
 			return errors.New("hook plan exceeds native allocation")
 		}
 		copy(payload[offset:], code)

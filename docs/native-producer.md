@@ -426,3 +426,26 @@ deve retornar normalmente e produzir 200 chamadas/retornos, sem saídas por unwi
 perda ou frames abertos, após 100 pares da cópia e quatro pares de baseline.
 Clientes, sender threads e pipe pertencem ao filho e são retirados entre chamadas.
 Não há patch ao original, nem certificação geral de Delphi 10.4 ou DLLs/BPLs.
+
+
+## Procedimentos até 8 KiB (APHOOK8)
+
+A oferta continua com 56 bytes e APPLAN1. APHOOK8 reserva strides de 32 KiB,
+mais a tabela de três RUNTIME_FUNCTION por procedimento, até 64 selecionados.
+Source e validação de bytes completos passam a aceitar 5..8192 bytes; corpos
+expandidos ficam limitados a 12 KiB e imagem completa a 32 KiB. O mapa de PCs
+continua usando uint16, pois todos esses offsets cabem sem truncamento. Limites
+de prólogo, instruções, handlers e intervalo exato de .pdata continuam em vigor.
+
+Coletores mantêm os strides de 8 KiB de APHOOK1..7 e recusam planos maiores antes
+de enviar código a essas versões. O caminho legado sem frame conserva o limite
+anterior. A DLL nova mantém a alocação antiga no modo APHOOK1 cooperativo e usa
+a maior no lançamento completo. A seleção máxima compromete cerca de 2 MiB de
+código/metadados no alvo; buffers e contabilidade não aumentam.
+
+A fixture APFrameLarge contém quase 8 KiB e chama outra rotina comum. O programa
+confere retorno antecipado, retorno normal e exceção real capturada fora do método.
+A integração exige 12 chamadas/uma saída por unwind por worker no método grande,
+11/uma no callee e tempos inclusivos/exclusivos conservados. O instalador também
+é testado com 64 strides, incluindo o último método de 8192 bytes. Isso amplia
+o limite operacional; não certifica outras versões do compilador ou chains.

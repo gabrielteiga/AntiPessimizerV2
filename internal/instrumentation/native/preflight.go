@@ -73,8 +73,8 @@ func CheckImageProcedures(data []byte, procedures []SelectedProcedure) ([]Proced
 	checks := make([]ProcedureCheck, 0, len(procedures))
 	for _, p := range procedures {
 		check := ProcedureCheck{ID: p.ID}
-		if p.ID == 0 || p.RVA == 0 || p.Size < 5 || p.Size > 4096 {
-			check.Reason = "procedure requires a nonzero ID/RVA and a size of 5..4096 bytes"
+		if p.ID == 0 || p.RVA == 0 || p.Size < 5 || p.Size > MaxProcedureBytes {
+			check.Reason = "procedure requires a nonzero ID/RVA and a size of 5..8192 bytes"
 		} else if _, err := image.BuildFunction(p.RVA, p.Size, loadedBase, probe, helper, helper+0x100, helper+0x200, p.ID); err != nil {
 			check.Reason = err.Error()
 		} else {

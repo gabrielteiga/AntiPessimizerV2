@@ -53,7 +53,7 @@ func TestStaticPreflightUsesPlannerWithoutMutatingImage(t *testing.T) {
 		t.Fatal("32-bit image accepted")
 	}
 	checks, err := CheckImageProcedures(testfixture.PlannableImage(), []SelectedProcedure{{ID: 9, RVA: 0x5020, Size: 4}})
-	if err != nil || len(checks) != 1 || checks[0].PlanSupported || !strings.Contains(checks[0].Reason, "5..4096") {
+	if err != nil || len(checks) != 1 || checks[0].PlanSupported || !strings.Contains(checks[0].Reason, "5..8192") {
 		t.Fatal("size limit missing", checks, err)
 	}
 }

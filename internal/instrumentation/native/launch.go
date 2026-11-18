@@ -4,6 +4,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/gabrielteiga/AntiPessimizerV2/internal/instrumentation/x64"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/profiling"
 )
 
@@ -17,6 +18,7 @@ type SelectedProcedure struct {
 
 // MaxSelectedProcedures matches the native wire catalog and bounded installer.
 const MaxSelectedProcedures = 64
+const MaxProcedureBytes = x64.MaxFunctionBytes
 
 type LaunchOptions struct {
 	Control *Control
@@ -35,7 +37,7 @@ func (o LaunchOptions) validate() error {
 	}
 	ids := map[uint32]bool{}
 	for i, p := range o.Procedures {
-		if p.ID == 0 || ids[p.ID] || p.RVA == 0 || p.Size < 5 || p.Size > 4096 || uint64(p.RVA)+uint64(p.Size) > 1<<32 {
+		if p.ID == 0 || ids[p.ID] || p.RVA == 0 || p.Size < 5 || p.Size > MaxProcedureBytes || uint64(p.RVA)+uint64(p.Size) > 1<<32 {
 			return errors.New("invalid instrumented procedure selection")
 		}
 		for _, previous := range o.Procedures[:i] {
