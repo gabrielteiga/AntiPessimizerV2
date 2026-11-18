@@ -40,6 +40,7 @@ type functionUnwind struct {
 	handlerFlags                    byte
 	scopeStyle                      uint32
 	scopes                          []byte
+	typeTables                      []delphiTypeTable
 }
 
 // readPELeaf deliberately reads only bounded headers, sections and .pdata.
@@ -274,11 +275,37 @@ func (p *PEImage) readCode(rva, size uint32, collectedUnwind *functionUnwind) ([
 						default:
 							return fail("unrecognized exception handler; requires a recognized CRT or reviewed Delphi handler")
 						}
+						// Probe the bounded table header first; its typed branches need a
+						// separately recognized resolver before interpreting nested tables.
+						if collectedUnwind.scopeStyle == 2 {
+							header, ok := p.mapped(collectedUnwind.handlerDataRVA, 4, false)
+							if ok && u32(header) > 0 && u32(header) <= 64 {
+								raw, ok := p.mapped(collectedUnwind.handlerDataRVA, 4+u32(header)*16, false)
+								if ok {
+									for at := 4; at < len(raw); at += 16 {
+										if u32(raw[at+8:]) > 2 {
+											if !p.delphiTypeMatcher(collectedUnwind.handlerRVA) {
+												return fail("unrecognized Delphi typed exception matcher")
+											}
+											collectedUnwind.scopeStyle = 3
+											break
+										}
+									}
+								}
+							}
+						}
 						scopes, err := p.readScopes(collectedUnwind.handlerDataRVA, rva, size, info[1], info[0], collectedUnwind.scopeStyle)
 						if err != nil {
 							return nil, 0, err
 						}
 						collectedUnwind.scopes = scopes
+						if collectedUnwind.scopeStyle == 3 {
+							tables, err := p.delphiTypeTables(scopes, rva, size, info[1])
+							if err != nil {
+								return nil, 0, err
+							}
+							collectedUnwind.typeTables = tables
+						}
 					}
 				}
 			}

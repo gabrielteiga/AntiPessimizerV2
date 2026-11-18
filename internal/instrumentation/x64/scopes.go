@@ -126,10 +126,17 @@ func (p *PEImage) readScopes(dataRVA, rva, size uint32, prologue, flags byte, st
 		if uint64(begin) < uint64(rva)+uint64(prologue) || begin >= end || uint64(end) > uint64(rva)+uint64(size) {
 			return fail()
 		}
-		if style == 2 {
+		if style >= 2 {
 			if filter == 0 {
 				if flags != 25 || !external(target) {
 					return fail()
+				}
+			} else if style == 3 && filter > 2 {
+				if target != 0 {
+					return fail()
+				}
+				if _, err := p.readDelphiTypeTable(filter, rva, size, prologue); err != nil {
+					return nil, err
 				}
 			} else if filter != 2 || target < rva+uint32(prologue) || uint64(target) >= uint64(rva)+uint64(size) {
 				return fail()
@@ -149,6 +156,31 @@ func (p *PEImage) readScopes(dataRVA, rva, size uint32, prologue, flags byte, st
 // Forwarding a PC inside an expanded instruction would manufacture a landing.
 func relocateScopes(table, code []byte, flow leafBody, rva uint32, bodyRVA uint64, style uint32) ([]byte, error) {
 	fail := func() ([]byte, error) {
+		return nil, fmt.Errorf("%w: exception scope is not an instruction boundary", ErrUnsupported)
+	}
+	translate, err := scopePCMap(code, flow, rva, bodyRVA)
+	if err != nil {
+		return nil, err
+	}
+	out := append([]byte(nil), table...)
+	for at := 4; at < len(out); at += 16 {
+		for _, field := range []int{0, 4, 12} {
+			pc := binary.LittleEndian.Uint32(out[at+field:])
+			if field == 12 && (style == 1 && pc == 0 || style >= 2 && binary.LittleEndian.Uint32(out[at+8:]) != 2) {
+				continue
+			}
+			mapped, ok := translate(pc)
+			if !ok {
+				return fail()
+			}
+			binary.LittleEndian.PutUint32(out[at+field:], mapped)
+		}
+	}
+	return out, nil
+}
+
+func scopePCMap(code []byte, flow leafBody, rva uint32, bodyRVA uint64) (func(uint32) (uint32, bool), error) {
+	fail := func() (func(uint32) (uint32, bool), error) {
 		return nil, fmt.Errorf("%w: exception scope is not an instruction boundary", ErrUnsupported)
 	}
 	boundaries := map[uint32]bool{uint32(len(code)): true}
@@ -174,19 +206,5 @@ func relocateScopes(table, code []byte, flow leafBody, rva uint32, bodyRVA uint6
 		}
 		return uint32(bodyRVA) + offset + delta, true
 	}
-	out := append([]byte(nil), table...)
-	for at := 4; at < len(out); at += 16 {
-		for _, field := range []int{0, 4, 12} {
-			pc := binary.LittleEndian.Uint32(out[at+field:])
-			if field == 12 && (style == 1 && pc == 0 || style == 2 && binary.LittleEndian.Uint32(out[at+8:]) == 0) {
-				continue
-			}
-			mapped, ok := translate(pc)
-			if !ok {
-				return fail()
-			}
-			binary.LittleEndian.PutUint32(out[at+field:], mapped)
-		}
-	}
-	return out, nil
+	return translate, nil
 }

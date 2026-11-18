@@ -398,3 +398,31 @@ A evidência de recursos inclui tipos de handles, threads OS e threads criadas
 pelo Go. Exige zero DebugObjects após o bloco de aquecimento e ao terminar,
 além dos limites anteriores de heap/handles/goroutines, sem ampliar tolerâncias.
 O CI repete dez blocos de 32 capturas para verificar a retirada entre sessões.
+
+
+## Capturas Delphi por classe (APHOOK7)
+
+APHOOK7 mantém a oferta de 56 bytes. Style=3 exige o handler e seu resolvedor de
+classes conferidos separadamente, com fingerprints normalizados. O formato tipado
+usa Count u32 seguido de pares ClassSlotRVA/TargetRVA; ClassSlotRVA referencia
+um ponteiro inicializado na imagem original, e zero representa else final.
+Tabelas (até 64 entradas cada) e slots devem ficar fora do corpo substituído.
+Somente os destinos internos são traduzidos; as referências de classe continuam
+na RTL original. Limites de instrução e tamanho de imagem permanecem verificados.
+
+Após a tabela de scopes, style=3 armazena Count de tabelas e blocos
+SourceRVA/ByteLength/Table. Há uma cópia por RVA, até 2 KiB no total, seguida pela
+entrada/unwind sombra. Cada scope tipado aponta para o respectivo bloco traduzido.
+O adaptador confere contagens, slots, destinos, referências de scopes, ausência
+de blocos duplicados/não usados e todos os limites antes de publicar código.
+Coletores recusam enviar esse formato a DLLs APHOOK6 ou anteriores.
+
+O ensaio original adicional usa a worker 0x191700..0x1919a1. A worker automática
+criada pela DLL recebe ctEnd e sua thread é aguardada. Cada chamada posterior
+recebe ctEnd ou um comando de instrumentação sem seu inteiro obrigatório,
+provocando EReadError. Um observador VEH do próprio filho exige a classe real;
+o catch externo C não pode intervir. A captura tipada Exception da RTL original
+deve retornar normalmente e produzir 200 chamadas/retornos, sem saídas por unwind,
+perda ou frames abertos, após 100 pares da cópia e quatro pares de baseline.
+Clientes, sender threads e pipe pertencem ao filho e são retirados entre chamadas.
+Não há patch ao original, nem certificação geral de Delphi 10.4 ou DLLs/BPLs.

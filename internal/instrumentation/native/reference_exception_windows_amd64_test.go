@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -24,6 +25,18 @@ const referenceExceptionDLLSHA = "1c1bf9288a3bfd05303f2b9a86d29693c0a449e716f575
 const referenceExceptionFingerprint = "8ebb487813ebd0e56320833793e013dc48ea3e030dfd64f2157743835e165229"
 
 func TestReferenceDelphiExceptionHandlerPreservesCatchAndReraise(t *testing.T) {
+	referenceDelphiExceptionCase(t, false)
+}
+func TestReferenceDelphiTypedHandlerCatchesWorkerReadFailure(t *testing.T) {
+	referenceDelphiExceptionCase(t, true)
+}
+func referenceDelphiExceptionCase(t *testing.T, typed bool) {
+	rva, size, style := uint32(0xa930), uint32(155), uint32(2)
+	returns, unwinds, caught, code, typedExceptions := uint32(100), uint32(100), uint32(104), uint32(0x0eedfade), uint32(0)
+	if typed {
+		rva, size, style = 0x191700, 673, 3
+		returns, unwinds, caught, code, typedExceptions = 200, 0, 0, 0, 104
+	}
 	path := os.Getenv("AP_REFERENCE_DELPHI_DLL")
 	if path == "" {
 		t.Skip("pinned original Delphi release is downloaded in a separate Windows CI step")
@@ -44,6 +57,9 @@ func TestReferenceDelphiExceptionHandlerPreservesCatchAndReraise(t *testing.T) {
 	defer cancel()
 	eventPath := filepath.Join(t.TempDir(), "original-delphi-events.bin")
 	child := exec.CommandContext(ctx, filepath.Join(directory, "APReferenceException.exe"), path, filepath.Join(directory, "APReferenceAdapter.dll"), eventPath)
+	if typed {
+		child.Args = append(child.Args, "worker")
+	}
 	stdout, err := child.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -78,12 +94,36 @@ func TestReferenceDelphiExceptionHandlerPreservesCatchAndReraise(t *testing.T) {
 	if err := json.Unmarshal(line, &offer); err != nil {
 		t.Fatal(err, string(line))
 	}
-	plan, err := x64.BuildPEFunction(image, 0xa930, 155, offer.Loaded, offer.Allocation, offer.Enter, offer.Exit, offer.Unwind, 17)
+	plan, err := x64.BuildPEFunction(image, rva, size, offer.Loaded, offer.Allocation, offer.Enter, offer.Exit, offer.Unwind, 17)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !plan.RelocatedHandler || plan.HandlerScopeStyle != 2 || plan.OriginalHandlerRVA != 0xd7a0 {
+	if !plan.RelocatedHandler || plan.HandlerScopeStyle != style || plan.OriginalHandlerRVA != 0xd7a0 {
 		t.Fatal("reviewed Delphi scopes were not recognized")
+	}
+	if typed {
+		for _, version := range []string{"APHOOK6\x00", "APHOOK7\x00"} {
+			hello := make([]byte, 61)
+			copy(hello, version)
+			binary.LittleEndian.PutUint64(hello[8:], offer.Loaded)
+			binary.LittleEndian.PutUint64(hello[16:], offer.Allocation)
+			binary.LittleEndian.PutUint32(hello[24:], 8192)
+			binary.LittleEndian.PutUint32(hello[28:], 1)
+			binary.LittleEndian.PutUint64(hello[32:], offer.Enter)
+			binary.LittleEndian.PutUint64(hello[40:], offer.Exit)
+			binary.LittleEndian.PutUint64(hello[48:], offer.Unwind)
+			binary.LittleEndian.PutUint32(hello[56:], size)
+			hello[60] = 1
+			stream := &hookStream{in: bytes.NewReader(hello)}
+			err := installHooks(stream, image, []Procedure{{17, rva}})
+			if version[6] == '6' {
+				if err == nil || !strings.Contains(err.Error(), "require APHOOK7") || stream.out.Len() != 1 {
+					t.Fatal("old adapter received a typed plan", err, stream.out.Len())
+				}
+			} else if err != nil {
+				t.Fatal("typed protocol", err)
+			}
+		}
 	}
 	if err := binary.Write(stdin, binary.LittleEndian, uint32(len(plan.Image))); err != nil {
 		t.Fatal(err)
@@ -111,11 +151,12 @@ func TestReferenceDelphiExceptionHandlerPreservesCatchAndReraise(t *testing.T) {
 		Unwinds           uint32 `json:"unwinds"`
 		Caught            uint32 `json:"caught"`
 		ExceptionCode     uint32 `json:"exception_code"`
+		TypedExceptions   uint32 `json:"typed_exceptions"`
 	}
 	if err := json.Unmarshal(result, &report); err != nil {
 		t.Fatal(err, string(result))
 	}
-	if report.BaselinePairs != 4 || report.InstrumentedPairs != 100 || report.Entries != 200 || report.Returns != 100 || report.Caught != 104 || report.Unwinds != 100 || report.ExceptionCode != 0x0eedfade {
+	if report.BaselinePairs != 4 || report.InstrumentedPairs != 100 || report.Entries != 200 || report.Returns != returns || report.Caught != caught || report.Unwinds != unwinds || report.ExceptionCode != code || report.TypedExceptions != typedExceptions {
 		t.Fatal("real Delphi exception counts", report)
 	}
 	events, err := os.ReadFile(eventPath)
@@ -132,7 +173,7 @@ func TestReferenceDelphiExceptionHandlerPreservesCatchAndReraise(t *testing.T) {
 	creation := windows.Filetime{LowDateTime: uint32(offer.Created), HighDateTime: uint32(offer.Created >> 32)}
 	target := profiling.Target{PID: offer.PID, Start: time.Unix(0, creation.Nanoseconds()).UTC(), Image: "APReferenceException.exe"}
 	var metrics bytes.Buffer
-	if err := consumeCapture(ctx, readerNative, target, "original-delphi-exceptions", []instrumentation.Procedure{{ID: 17, Location: profiling.Location{ModuleID: "sha256:" + referenceExceptionDLLSHA, Module: "AntiPessimizerDLL.dll", RVA: "0x000000000000a930", Procedure: "reviewed RVA 0xa930 (no TDS)", Status: "resolved"}}}, &metrics, func() error { return nil }, func(context.Context) error { return nil }); err != nil {
+	if err := consumeCapture(ctx, readerNative, target, "original-delphi-exceptions", []instrumentation.Procedure{{ID: 17, Location: profiling.Location{ModuleID: "sha256:" + referenceExceptionDLLSHA, Module: "AntiPessimizerDLL.dll", RVA: fmt.Sprintf("0x%016x", rva), Procedure: fmt.Sprintf("reviewed RVA %#x (no TDS)", rva), Status: "resolved"}}}, &metrics, func() error { return nil }, func(context.Context) error { return nil }); err != nil {
 		t.Fatal("real Delphi native accounting", err)
 	}
 	records, err := instrumentation.ReadMetrics(bytes.NewReader(metrics.Bytes()))
@@ -144,10 +185,13 @@ func TestReferenceDelphiExceptionHandlerPreservesCatchAndReraise(t *testing.T) {
 		t.Fatal("original Delphi native accounting incomplete", snapshot)
 	}
 	row := snapshot.Rows[0]
-	if row.Calls != 200 || row.UnwoundCalls != 100 || row.InclusiveTicks != row.ExclusiveTicks || row.InclusiveTicks == 0 || row.AverageInclusiveNS != float64(row.InclusiveTicks)*1e9/float64(snapshot.Frequency)/200 {
+	if row.Calls != 200 || row.UnwoundCalls != uint64(unwinds) || row.InclusiveTicks != row.ExclusiveTicks || row.InclusiveTicks == 0 || row.AverageInclusiveNS != float64(row.InclusiveTicks)*1e9/float64(snapshot.Frequency)/200 {
 		t.Fatal("original Delphi call counts/times/means", row)
 	}
 	if output := os.Getenv("AP_REFERENCE_DELPHI_EXCEPTION_REPORT"); output != "" {
+		if typed {
+			output = filepath.Join(filepath.Dir(output), "reference-delphi-typed.json")
+		}
 		evidence := struct {
 			Version            int                      `json:"version"`
 			ImageSHA           string                   `json:"image_sha256"`
@@ -155,7 +199,7 @@ func TestReferenceDelphiExceptionHandlerPreservesCatchAndReraise(t *testing.T) {
 			ProcedureRVA       uint32                   `json:"procedure_rva"`
 			Result             any                      `json:"result"`
 			Metrics            instrumentation.Snapshot `json:"metrics"`
-		}{1, referenceExceptionDLLSHA, referenceExceptionFingerprint, 0xa930, report, snapshot}
+		}{1, referenceExceptionDLLSHA, referenceExceptionFingerprint, rva, report, snapshot}
 		data, err := json.MarshalIndent(evidence, "", "  ")
 		if err != nil {
 			t.Fatal(err)
@@ -163,7 +207,11 @@ func TestReferenceDelphiExceptionHandlerPreservesCatchAndReraise(t *testing.T) {
 		if err := os.WriteFile(output, append(data, '\n'), 0600); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(filepath.Dir(output), "reference-delphi-metrics.ndjson"), metrics.Bytes(), 0600); err != nil {
+		name := "reference-delphi-metrics.ndjson"
+		if typed {
+			name = "reference-delphi-typed-metrics.ndjson"
+		}
+		if err := os.WriteFile(filepath.Join(filepath.Dir(output), name), metrics.Bytes(), 0600); err != nil {
 			t.Fatal(err)
 		}
 	}

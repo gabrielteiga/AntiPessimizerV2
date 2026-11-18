@@ -97,6 +97,15 @@ static BOOL hook_allocate(void) {
 static EXCEPTION_DISPOSITION WINAPI function_unwind(PEXCEPTION_RECORD,PVOID,PCONTEXT,PVOID);
 static void function_enter(uint32_t,uintptr_t);
 static void function_exit(uint32_t,uintptr_t);
+static uint32_t hook_clone_pc(const unsigned char *data,uint32_t map_at,uint32_t count,uint32_t source_rva,uint32_t clone_rva,uint32_t pc){
+    uint32_t offset=pc-source_rva,shift=0;
+    for(uint32_t m=0;m<count;m++){
+        uint32_t source=data[map_at+m*4]|((uint32_t)data[map_at+1+m*4]<<8),clone=data[map_at+2+m*4]|((uint32_t)data[map_at+3+m*4]<<8);
+        if(source>offset)break;
+        shift=clone-source;
+    }
+    return clone_rva+offset+shift;
+}
 static BOOL hook_forward_info_at(unsigned char *image,const unsigned char *data,uint32_t available,RUNTIME_FUNCTION *body,uint32_t index,const unsigned char *copied_info,uint32_t info_bytes) {
     if(available<8)return FALSE;
     uint32_t kind=hook_u32(data+4);
@@ -123,37 +132,68 @@ static BOOL hook_forward_info_at(unsigned char *image,const unsigned char *data,
     if(kind==1)return TRUE;
     uint32_t scope_bytes=hook_u32(data+40),shadow_at=hook_u32(data+48),scope_at=hook_u32(data+52);
     uint32_t style=hook_u32(data+36);
-    if((style!=1 && style!=2) || (style==2 && info[0]!=25) || hook_u32(data+44)!=info[0] || scope_at!=map_at+count*4 || scope_bytes<20 || scope_bytes>4+64*16 || (scope_bytes-4)%16 || (uint64_t)scope_at+scope_bytes+12+info_bytes+20>available || shadow_at!=scope_at+scope_bytes || (uint64_t)handler_data+scope_bytes>image_size)return FALSE;
+    if((style!=1 && style!=2 && style!=3) || (style>=2 && info[0]!=25) || hook_u32(data+44)!=info[0] || scope_at!=map_at+count*4 || scope_bytes<20 || scope_bytes>4+64*16 || (scope_bytes-4)%16 || (uint64_t)scope_at+scope_bytes+12+info_bytes+20>available || (style!=3 && shadow_at!=scope_at+scope_bytes) || (uint64_t)shadow_at+12+info_bytes+20>available || (uint64_t)handler_data+scope_bytes>image_size)return FALSE;
     const unsigned char *scope=data+scope_at,*original_scope=image+handler_data;
     uint32_t scopes=hook_u32(scope);
     if(scopes!=(scope_bytes-4)/16 || scopes!=hook_u32(original_scope))return FALSE;
     uintptr_t allocation=(uintptr_t)hooks.memory,image_base=(uintptr_t)image;
     if(allocation<image_base || allocation-image_base>UINT32_MAX-hooks.bytes)return FALSE;
     uint32_t difference=(uint32_t)(allocation-image_base);
+    uint32_t typed_count=0,typed_rvas[64]={0};
+    const unsigned char *typed_data[64]={0};BOOL typed_used[64]={FALSE};
+    if(style==3){
+        uint32_t at=scope_at+scope_bytes;
+        if((uint64_t)at+4>shadow_at || shadow_at-at>2048)return FALSE;
+        typed_count=hook_u32(data+at);at+=4;
+        if(!typed_count || typed_count>64)return FALSE;
+        for(uint32_t i=0;i<typed_count;i++){
+            if((uint64_t)at+12>shadow_at)return FALSE;
+            uint32_t original_rva=hook_u32(data+at),bytes=hook_u32(data+at+4);at+=8;
+            if(bytes<12 || bytes>4+64*8 || (bytes-4)%8 || (uint64_t)at+bytes>shadow_at || (uint64_t)original_rva+bytes>image_size || ((uint64_t)original_rva<(uint64_t)rva+size && (uint64_t)rva<(uint64_t)original_rva+bytes))return FALSE;
+            for(uint32_t j=0;j<i;j++)if(typed_rvas[j]==original_rva)return FALSE;
+            typed_rvas[i]=original_rva;typed_data[i]=data+at;
+            const unsigned char *a=image+original_rva,*b=data+at;
+            uint32_t types=(bytes-4)/8;
+            if(hook_u32(a)!=types || hook_u32(b)!=types)return FALSE;
+            for(uint32_t j=0;j<types;j++){
+                uint32_t class_rva=hook_u32(a+4+j*8),target=hook_u32(a+8+j*8);
+                if(hook_u32(b+4+j*8)!=class_rva || (!class_rva && j+1!=types))return FALSE;
+                if(class_rva && ((uint64_t)class_rva+8>image_size || ((uint64_t)class_rva<(uint64_t)rva+size && (uint64_t)rva<(uint64_t)class_rva+8)))return FALSE;
+                if((uint64_t)target<(uint64_t)rva+info[1] || (uint64_t)target>=(uint64_t)rva+size || hook_u32(b+8+j*8)!=hook_clone_pc(data,map_at,count,rva,difference+body->BeginAddress,target))return FALSE;
+            }
+            at+=bytes;
+        }
+        if(at!=shadow_at)return FALSE;
+    }
     const unsigned char *shadow=data+shadow_at,*alias=shadow+12;
     uint32_t info_at=(uint32_t)(alias-hooks.memory),thunk=hook_u32(copied_info+info_bytes);
     if(hook_u32(shadow)!=difference+body->BeginAddress || hook_u32(shadow+4)!=difference+body->EndAddress || hook_u32(shadow+8)!=difference+info_at || memcmp(alias,copied_info,info_bytes) || hook_u32(alias+info_bytes)!=difference+thunk || hook_u32(alias+info_bytes+4)!=hooks.selected[index].id || hook_u32(alias+info_bytes+8)!=3 || hook_u64(alias+info_bytes+12)!=(uintptr_t)data)return FALSE;
     for(uint32_t i=0;i<scopes;i++) {
         const unsigned char *a=original_scope+4+i*16,*b=scope+4+i*16;
         uint32_t begin=hook_u32(a),end=hook_u32(a+4),filter=hook_u32(a+8),target=hook_u32(a+12);
-        if((uint64_t)begin<(uint64_t)rva+info[1] || begin>=end || (uint64_t)end>(uint64_t)rva+size || hook_u32(b+8)!=filter)return FALSE;
+        if((uint64_t)begin<(uint64_t)rva+info[1] || begin>=end || (uint64_t)end>(uint64_t)rva+size )return FALSE;
         BOOL cleanup=style==1?!target:filter==0;
-        uint32_t callback=style==2?(cleanup?target:0):filter;
-        if(style==2 && filter!=0 && filter!=2)return FALSE;
-        if(cleanup){if(!(info[0]&16) || !callback || (callback>=rva && (uint64_t)callback<(uint64_t)rva+size) || hook_u32(b+12)!=(style==1?0:target))return FALSE;}
-        else if((uint64_t)target<(uint64_t)rva+info[1] || (uint64_t)target>=(uint64_t)rva+size || (style==1 && filter!=1 && (!filter || (filter>=rva && (uint64_t)filter<(uint64_t)rva+size))))return FALSE;
-        if(callback && (style==2 || callback!=1) && (callback>=image_size || !VirtualQuery(image+callback,&memory,sizeof(memory)) || memory.AllocationBase!=image || memory.State!=MEM_COMMIT || (memory.Protect&0xff)!=PAGE_EXECUTE_READ || (memory.Protect&PAGE_GUARD)))return FALSE;
-        for(uint32_t field=0;field<4;field++) {
-            if(field==2 || (field==3 && cleanup))continue;
-            uint32_t offset=hook_u32(a+field*4)-rva,shift=0;
-            for(uint32_t m=0;m<count;m++) {
-                uint32_t source=data[map_at+m*4]|((uint32_t)data[map_at+1+m*4]<<8),clone=data[map_at+2+m*4]|((uint32_t)data[map_at+3+m*4]<<8);
-                if(source>offset)break;
-                shift=clone-source;
+        uint32_t callback=style>=2?(cleanup?target:0):filter;
+        BOOL typed=style==3 && filter>2;
+        if(style>=2 && filter!=0 && filter!=2 && !typed)return FALSE;
+        if(typed){
+            BOOL found=FALSE;
+            if(target || hook_u32(b+12))return FALSE;
+            for(uint32_t j=0;j<typed_count;j++)if(typed_rvas[j]==filter){
+                if(hook_u32(b+8)!=(uint64_t)difference+(uintptr_t)typed_data[j]-(uintptr_t)hooks.memory)return FALSE;
+                typed_used[j]=TRUE;found=TRUE;break;
             }
-            if(hook_u32(b+field*4)!=difference+body->BeginAddress+offset+shift)return FALSE;
+            if(!found)return FALSE;
+        }else if(hook_u32(b+8)!=filter)return FALSE;
+        if(cleanup){if(!(info[0]&16) || !callback || (callback>=rva && (uint64_t)callback<(uint64_t)rva+size) || hook_u32(b+12)!=(style==1?0:target))return FALSE;}
+        else if(!typed && ((uint64_t)target<(uint64_t)rva+info[1] || (uint64_t)target>=(uint64_t)rva+size || (style==1 && filter!=1 && (!filter || (filter>=rva && (uint64_t)filter<(uint64_t)rva+size)))))return FALSE;
+        if(callback && (style>=2 || callback!=1) && (callback>=image_size || !VirtualQuery(image+callback,&memory,sizeof(memory)) || memory.AllocationBase!=image || memory.State!=MEM_COMMIT || (memory.Protect&0xff)!=PAGE_EXECUTE_READ || (memory.Protect&PAGE_GUARD)))return FALSE;
+        for(uint32_t field=0;field<4;field++) {
+            if(field==2 || (field==3 && (cleanup || typed)))continue;
+            if(hook_u32(b+field*4)!=hook_clone_pc(data,map_at,count,rva,difference+body->BeginAddress,hook_u32(a+field*4)))return FALSE;
         }
     }
+    for(uint32_t i=0;i<typed_count;i++)if(!typed_used[i])return FALSE;
     return TRUE;
 }
 static BOOL hook_exchange(HANDLE pipe,BOOL general) {
@@ -163,7 +203,7 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
     hook_put64(offer+16,(uintptr_t)hooks.memory);
     hook_put32(offer+24,hooks.bytes); hook_put32(offer+28,hooks.count);
     hook_put64(offer+32,(uintptr_t)APNativeEnter); hook_put64(offer+40,(uintptr_t)APNativeExit);
-    if(general){offer[6]='6';hook_put64(offer+32,(uintptr_t)function_enter);hook_put64(offer+40,(uintptr_t)function_exit);hook_put64(offer+48,(uintptr_t)function_unwind);}
+    if(general){offer[6]='7';hook_put64(offer+32,(uintptr_t)function_enter);hook_put64(offer+40,(uintptr_t)function_exit);hook_put64(offer+48,(uintptr_t)function_unwind);}
     if(!hook_io(pipe,offer,general?56:48,TRUE)) return FALSE;
     for(uint32_t i=0;i<hooks.count;i++) {
         unsigned char extent[4]; hook_put32(extent,hooks.selected[i].size);

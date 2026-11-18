@@ -73,7 +73,7 @@ func (p *PEImage) BuildFunction(rva, size uint32, loadedBase, base, enter, exit,
 	if metadata.handlerRVA != 0 {
 		dataSize = 36 + len(flow.pcMap)*4
 	}
-	var scopes []byte
+	var scopes, typeBlocks []byte
 	if len(metadata.scopes) != 0 {
 		// The aliased dispatcher keeps the source ImageBase so external filters
 		// and cleanup callbacks retain their original RVAs. Clone code, scopes,
@@ -85,7 +85,20 @@ func (p *PEImage) BuildFunction(rva, size uint32, loadedBase, base, enter, exit,
 		if err != nil {
 			return FunctionPlan{}, err
 		}
-		dataSize = scopeDescriptorSize + len(flow.pcMap)*4 + len(scopes) + 12 + len(originalInfo) + 4 + 16
+		if metadata.scopeStyle == 3 {
+			blockRVA := base - loadedBase + uint64(infoRVA) + uint64(len(originalInfo)) + 4 + scopeDescriptorSize + uint64(len(flow.pcMap)*4) + uint64(len(scopes))
+			var addresses map[uint32]uint32
+			typeBlocks, addresses, err = relocateTypeTables(metadata.typeTables, code, flow, rva, base-loadedBase+512, blockRVA)
+			if err != nil {
+				return FunctionPlan{}, err
+			}
+			for at := 4; at < len(scopes); at += 16 {
+				if target, ok := addresses[binary.LittleEndian.Uint32(scopes[at+8:])]; ok {
+					binary.LittleEndian.PutUint32(scopes[at+8:], target)
+				}
+			}
+		}
+		dataSize = scopeDescriptorSize + len(flow.pcMap)*4 + len(scopes) + 12 + len(originalInfo) + 4 + 16 + len(typeBlocks)
 	}
 	total := int(infoRVA) + len(originalInfo) + 4 + dataSize
 	if total > 8192 {
@@ -128,7 +141,7 @@ func (p *PEImage) BuildFunction(rva, size uint32, loadedBase, base, enter, exit,
 			binary.LittleEndian.PutUint32(descriptor[4:], 2)
 			mapAt = scopeDescriptorSize
 			scopeAt := mapAt + len(flow.pcMap)*4
-			shadowAt := scopeAt + len(scopes)
+			shadowAt := scopeAt + len(scopes) + len(typeBlocks)
 			aliasAt := shadowAt + 12
 			binary.LittleEndian.PutUint32(descriptor[36:], metadata.scopeStyle)
 			binary.LittleEndian.PutUint32(descriptor[40:], uint32(len(scopes)))
@@ -136,6 +149,7 @@ func (p *PEImage) BuildFunction(rva, size uint32, loadedBase, base, enter, exit,
 			binary.LittleEndian.PutUint32(descriptor[48:], uint32(shadowAt))
 			binary.LittleEndian.PutUint32(descriptor[52:], uint32(scopeAt))
 			copy(descriptor[scopeAt:], scopes)
+			copy(descriptor[scopeAt+len(scopes):], typeBlocks)
 			difference := uint32(base - loadedBase)
 			descriptorRVA := infoRVA + uint32(len(info)) + 4
 			binary.LittleEndian.PutUint32(descriptor[shadowAt:], difference+512)
