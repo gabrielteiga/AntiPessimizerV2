@@ -244,7 +244,10 @@ O teste separado inicia APReferenceException.exe, reserva com exclusividade o
 pipe fixo do original antes de LoadLibrary e envia somente ctEnd para sua worker.
 A RTL e seus TLS/imports são inicializados normalmente nesse filho. Exige quatro
 pares normal/falha de baseline e cem pares da cópia planejada pelo Go, com a
-mesma RTL/handler original e bridge nativa de produção. As entradas/retornos
+mesma RTL/handler original e bridge nativa de produção. O catch externo aceita
+somente o relançamento Delphi 0x0EEDFADE com sete parâmetros e objeto não nulo,
+recusando capturar diretamente a falha de memória original. A validação nativa
+confere o plano real e deve recusar um destino de catch corrompido. As entradas/retornos
 são conferidas por probes C; este ensaio não produz um arquivo de métricas Go.
 O binário original não é alterado, e a DLL permanece carregada até encerrar o
 filho. O relatório Reference-Delphi inclui hashes, RVAs e resultados.

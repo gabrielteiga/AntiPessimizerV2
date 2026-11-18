@@ -763,4 +763,5 @@ a exceção continuada não inventa uma saída. O programa APScopeTarget confere
 resultados, limpeza única e continuação, além das contagens/tempos conferidos
 pelo Go. As fixtures anteriores também selecionam agora seus próprios catches.
 [Contrato e limites](native-producer.md#tabelas-de-exceção-e-retomada-aphook5).
-Handlers Delphi privados, chains e outros formatos continuam rejeitados.
+O incremento APHOOK6 reconhece o handler Delphi conferido da revisão v0.3
+para catch-all/finally. Outras variantes, tabelas tipadas e chains continuam rejeitados.

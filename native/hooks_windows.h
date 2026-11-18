@@ -97,13 +97,12 @@ static BOOL hook_allocate(void) {
 static EXCEPTION_DISPOSITION WINAPI function_unwind(PEXCEPTION_RECORD,PVOID,PCONTEXT,PVOID);
 static void function_enter(uint32_t,uintptr_t);
 static void function_exit(uint32_t,uintptr_t);
-static BOOL hook_forward_info(const unsigned char *data,uint32_t available,RUNTIME_FUNCTION *body,uint32_t index,const unsigned char *copied_info,uint32_t info_bytes) {
+static BOOL hook_forward_info_at(unsigned char *image,const unsigned char *data,uint32_t available,RUNTIME_FUNCTION *body,uint32_t index,const unsigned char *copied_info,uint32_t info_bytes) {
     if(available<8)return FALSE;
     uint32_t kind=hook_u32(data+4);
     if(!kind)return TRUE;
     if((kind!=1 && kind!=2) || available<(kind==2?56u:36u))return FALSE;
     uint32_t map_at=kind==2?56:36;
-    unsigned char *image=(unsigned char *)GetModuleHandleW(NULL);
     IMAGE_NT_HEADERS64 *nt=(IMAGE_NT_HEADERS64 *)(image+((IMAGE_DOS_HEADER *)image)->e_lfanew);
     uint32_t image_size=nt->OptionalHeader.SizeOfImage;
     uint32_t rva=hook_u32(data+8),size=hook_u32(data+12),entry_rva=hook_u32(data+16),info_rva=hook_u32(data+20),handler_rva=hook_u32(data+24),handler_data=hook_u32(data+28),count=hook_u32(data+32);
@@ -188,7 +187,7 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
             uint32_t handler=hook_u32(info+extra);
             if((uint64_t)handler+14>table || memcmp(hooks.memory+handler,"\xff\x25\0\0\0\0",6) || hook_u64(hooks.memory+handler+6)!=(uintptr_t)function_unwind || hook_u32(info+extra+4)!=hooks.selected[i/per].id) return FALSE;
             uint32_t data_at=f->UnwindData+extra+4;
-            if(!hook_forward_info(hooks.memory+data_at,table-data_at,f,i/per,info,extra) || (info[0]==25)!=(hook_u32(hooks.memory+data_at+4)==2))return FALSE;
+            if(!hook_forward_info_at((unsigned char *)GetModuleHandleW(NULL),hooks.memory+data_at,table-data_at,f,i/per,info,extra) || (info[0]==25)!=(hook_u32(hooks.memory+data_at+4)==2))return FALSE;
         } else if(info[0]!=1 || info[1]!=7 || info[2]!=2 || info[3]!=0 || info[4]!=7 || info[5]!=1 || info[6]!=25 || info[7]!=0) return FALSE;
         previous=f->EndAddress;
     }

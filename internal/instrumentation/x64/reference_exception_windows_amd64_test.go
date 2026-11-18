@@ -103,7 +103,7 @@ func TestReferenceDelphiExceptionHandlerPreservesCatchAndReraise(t *testing.T) {
 	if err := json.Unmarshal(result, &report); err != nil {
 		t.Fatal(err, string(result))
 	}
-	if report.BaselinePairs != 4 || report.InstrumentedPairs != 100 || report.Entries != 200 || report.Returns != 100 || report.Caught != 104 {
+	if report.BaselinePairs != 4 || report.InstrumentedPairs != 100 || report.Entries != 200 || report.Returns != 100 || report.Caught != 104 || report.ExceptionCode != 0x0eedfade {
 		t.Fatal("real Delphi exception counts", report)
 	}
 	if output := os.Getenv("AP_REFERENCE_DELPHI_EXCEPTION_REPORT"); output != "" {

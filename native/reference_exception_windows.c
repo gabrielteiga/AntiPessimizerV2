@@ -20,7 +20,8 @@ LONG APReferenceFilter(EXCEPTION_POINTERS *p,void *frame){
  (void)frame;
  if(!p)return EXCEPTION_CONTINUE_SEARCH;
  DWORD code=p->ExceptionRecord->ExceptionCode;
- if(code!=EXCEPTION_ACCESS_VIOLATION && code!=0x0eedfadeu)return EXCEPTION_CONTINUE_SEARCH;
+ if(code!=0x0eedfadeu)return EXCEPTION_CONTINUE_SEARCH;
+ if(p->ExceptionRecord->NumberParameters!=7 || !p->ExceptionRecord->ExceptionInformation[1])InterlockedExchange(&bad,1);
  observed_exception=code;InterlockedIncrement(&caught);return EXCEPTION_EXECUTE_HANDLER;
 }
 extern uintptr_t APReferenceCall(void *);
@@ -73,21 +74,35 @@ int wmain(int argc,wchar_t **argv){
  unsigned char *image=(unsigned char *)dll;
  static const unsigned char prefix[]={0x55,0x53,0x48,0x83,0xec,0x38,0x48,0x8b,0xec,0x48,0x89,0x6d,0x28};
  if(memcmp(image+0xa930,prefix,sizeof(prefix)))return 6;
+ unsigned char original[155];memcpy(original,image+0xa930,sizeof(original));
  reference_target=(uintptr_t)(image+0xa930);
  fprintf(stderr,"original Delphi: valid constructor and nil-object exception\n");
- if(!pairs(4)){fprintf(stderr,"original baseline failed caught=%ld code=%lx\n",caught,observed_exception);return 7;}
+ if(!pairs(4) || bad || observed_exception!=0x0eedfadeu){fprintf(stderr,"original baseline failed caught=%ld code=%lx\n",caught,observed_exception);return 7;}
  HMODULE adapter=LoadLibraryW(argv[2]);if(!adapter)return 8;
  union {FARPROC proc;uintptr_t (*address)(void);} helper;helper.proc=GetProcAddress(adapter,"APReferenceUnwindAddress");if(!helper.proc)return 8;
+ union {FARPROC proc;BOOL (*validate)(uintptr_t,uintptr_t,uint32_t,const RUNTIME_FUNCTION *);} verifier;
+ verifier.proc=GetProcAddress(adapter,"APReferenceValidatePlan");if(!verifier.proc)return 8;
  unsigned char *memory=allocate_near(image);if(!memory)return 9;
  printf("{\"loaded\":%llu,\"allocation\":%llu,\"enter\":%llu,\"exit\":%llu,\"unwind\":%llu}\n",(unsigned long long)(uintptr_t)image,(unsigned long long)(uintptr_t)memory,(unsigned long long)(uintptr_t)reference_enter,(unsigned long long)(uintptr_t)reference_exit,(unsigned long long)helper.address());fflush(stdout);
  uint32_t size=0;RUNTIME_FUNCTION functions[3];
  if(fread(&size,4,1,stdin)!=1 || size==0 || size>8192 || fread(functions,sizeof(functions),1,stdin)!=1 || fread(memory,size,1,stdin)!=1)return 10;
  for(unsigned i=0;i<3;i++)if(functions[i].BeginAddress>=functions[i].EndAddress || functions[i].EndAddress>size || functions[i].UnwindData>=size || (i && functions[i].BeginAddress<functions[i-1].EndAddress))return 10;
+ if(!verifier.validate((uintptr_t)image,(uintptr_t)memory,size,functions)){fprintf(stderr,"native scope validation failed\n");return 14;}
+ unsigned char *info=memory+functions[1].UnwindData;
+ uint32_t info_bytes=4+((info[2]+1)&~1)*2;
+ unsigned char *descriptor=info+info_bytes+4;
+ uint32_t scope_at=0;memcpy(&scope_at,descriptor+52,4);
+ uint32_t *landing=(uint32_t *)(descriptor+scope_at+16);
+ *landing^=1;
+ BOOL corrupt_accepted=verifier.validate((uintptr_t)image,(uintptr_t)memory,size,functions);
+ *landing^=1;
+ if(corrupt_accepted){fprintf(stderr,"native validator accepted a changed catch destination\n");return 14;}
  DWORD protection=0;
  if(!VirtualProtect(memory,16384,PAGE_EXECUTE_READ,&protection)||!FlushInstructionCache(GetCurrentProcess(),memory,size)||!RtlAddFunctionTable(functions,3,(DWORD64)(uintptr_t)memory))return 11;
  reference_target=(uintptr_t)memory;
  fprintf(stderr,"cloned Delphi: original handler, capture/resume/reraise and cleanup\n");
  if(!pairs(100) || bad || enter_count!=200 || exit_count!=100 || caught!=104){fprintf(stderr,"clone failed enter=%ld exit=%ld caught=%ld code=%lx bad=%ld\n",enter_count,exit_count,caught,observed_exception,bad);return 12;}
+ if(observed_exception!=0x0eedfadeu || memcmp(original,image+0xa930,sizeof(original)))return 15;
  if(!RtlDeleteFunctionTable(functions)||!VirtualFree(memory,0,MEM_RELEASE))return 13;
  printf("{\"baseline_pairs\":4,\"instrumented_pairs\":100,\"entries\":%ld,\"returns\":%ld,\"caught\":%ld,\"exception_code\":%lu}\n",enter_count,exit_count,caught,observed_exception);fflush(stdout);
  /* ExitProcess owns RTL/worker teardown; never unload a DLL underneath its worker. */
