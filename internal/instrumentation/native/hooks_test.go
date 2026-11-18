@@ -21,7 +21,7 @@ func TestOriginalCleanupRequiresForwardingCapableAdapter(t *testing.T) {
 	put(image[0x308:], 0x5140)
 	copy(image[0x340:], []byte{17, 0, 0, 0})
 	put(image[0x344:], 0x5180)
-	for _, version := range []string{"APHOOK2\x00", "APHOOK3\x00"} {
+	for _, version := range []string{"APHOOK2\x00", "APHOOK3\x00", "APHOOK4\x00"} {
 		offer := make([]byte, 61)
 		copy(offer, hookOffer()[:48])
 		copy(offer, version)

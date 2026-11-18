@@ -7,17 +7,20 @@
 #include <wchar.h>
 #include "hooks_windows.h"
 
-enum { AP_THREADS = 64, AP_CAPACITY = 1024, AP_BATCH = 256, AP_SELECTION = 64 };
+enum { AP_THREADS = 64, AP_CAPACITY = 1024, AP_BATCH = 256, AP_SELECTION = 64, AP_FRAMES = 1024 };
 _Static_assert((int)AP_HOOK_LIMIT==(int)AP_SELECTION,"native installer and event catalogs must have the same bound");
 enum { AP_START = 1, AP_ENTER = 2, AP_EXIT = 3, AP_END = 4, AP_UNWIND = 5, AP_UNWIND_EXIT = 6, AP_HEARTBEAT = 7, AP_CLEAR = 8 };
 typedef struct { uint32_t type, tid, procedure, depth; uint64_t tick; } Event;
 _Static_assert(sizeof(void *) == 8, "Windows x64 is required");
 _Static_assert(sizeof(Event) == 24, "event layout changed");
+typedef struct {uintptr_t entry_sp;uint32_t procedure;} PhysicalFrame;
 typedef struct {
     _Alignas(64) volatile LONG64 head;
     _Alignas(64) volatile LONG64 tail;
     volatile LONG tid, ended, started;
     _Alignas(8) volatile LONG64 birth;
+    _Alignas(64) uint32_t frame_count; /* owning application thread only */
+    PhysicalFrame frames[AP_FRAMES];
     Event events[AP_CAPACITY];
 } Ring;
 static struct {
@@ -281,6 +284,7 @@ static Ring *thread_ring(void) {
             }
             if(!r && count<AP_THREADS && InterlockedCompareExchange(&state.next_ring,count+1,count)==count)r=&state.rings[count];
             if(r){
+                r->frame_count=0;
                 InterlockedExchange(&r->started,0);InterlockedExchange64(&r->birth,0);InterlockedExchange(&r->tid,tid);
                 if(!TlsSetValue(state.tls,r)){InterlockedExchange(&r->ended,1);lost();return NULL;}
                 return r;
@@ -291,7 +295,7 @@ static Ring *thread_ring(void) {
     }
     return NULL;
 }
-static void record(uint32_t type,uint32_t procedure,uint32_t depth){
+static void record_frame(uint32_t type,uint32_t procedure,uint32_t depth,uintptr_t entry_sp,BOOL allow_repeated){
     DWORD error=GetLastError();
     if(load32(&state.running)){
         BOOL selected=!procedure;
@@ -302,13 +306,48 @@ static void record(uint32_t type,uint32_t procedure,uint32_t depth){
             if(r && writer_gate(TRUE)){
                 if(load32(&state.running)){
                     if(!load32(&r->started)){uint64_t birth=enqueue(r,AP_START,0,0);InterlockedExchange64(&r->birth,(LONG64)birth);InterlockedExchange(&r->started,1);}
-                    enqueue(r,type,procedure,depth);
+                    BOOL publish=TRUE;
+                    if(entry_sp){
+                        if(entry_sp&7){lost();publish=FALSE;}
+                        else if(type==AP_ENTER){
+                            if(r->frame_count>=AP_FRAMES){lost();publish=FALSE;}
+                            else r->frames[r->frame_count++]=(PhysicalFrame){entry_sp,procedure};
+                        } else if(type==AP_EXIT || type==AP_UNWIND_EXIT){
+                            if(!r->frame_count || r->frames[r->frame_count-1].entry_sp!=entry_sp || r->frames[r->frame_count-1].procedure!=procedure){
+                                if(!allow_repeated)lost();
+                                publish=FALSE;
+                            } else r->frame_count--;
+                        }
+                    }
+                    if(publish)enqueue(r,type,procedure,depth);
                 }
                 InterlockedDecrement(&state.writers);
             }
         }
     }
     SetLastError(error);
+}
+static void record(uint32_t type,uint32_t procedure,uint32_t depth){record_frame(type,procedure,depth,0,FALSE);}
+static void function_enter(uint32_t procedure,uintptr_t entry_sp){record_frame(AP_ENTER,procedure,0,entry_sp,FALSE);}
+static void function_exit(uint32_t procedure,uintptr_t entry_sp){record_frame(AP_EXIT,procedure,0,entry_sp,FALSE);}
+/* Only verified v1 actions reach this callback. EstablisherFrame is the frame
+ * base after allocation (including the documented frame-register bias); sum
+ * original stack actions to recover the unmodified entry return-slot address. */
+static uintptr_t unwind_entry_sp(PVOID frame,PDISPATCHER_CONTEXT dispatcher){
+    const unsigned char *info=(const unsigned char *)(uintptr_t)(dispatcher->ImageBase+dispatcher->FunctionEntry->UnwindData);
+    uint64_t depth=0;
+    for(uint32_t i=0;i<info[2];){
+        uint32_t op=info[5+i*2]&15,operand=info[5+i*2]>>4,extra=0;
+        if(op==0)depth+=8;
+        else if(op==1){
+            extra=operand?2:1;
+            depth+=operand?hook_u32(info+6+i*2):(uint64_t)(info[6+i*2]|((uint32_t)info[7+i*2]<<8))*8;
+        } else if(op==2)depth+=operand*8+8;
+        else if(op==4 || op==8)extra=1;
+        else if(op==5 || op==9)extra=2;
+        i+=1+extra;
+    }
+    return (uintptr_t)frame+(uintptr_t)depth;
 }
 static DWORD64 forward_pc(DWORD64 pc,DWORD64 clone,DWORD64 source,uint32_t source_size,uint32_t clone_size,const unsigned char *data,BOOL reverse) {
     DWORD64 start=reverse?source:clone;
@@ -325,10 +364,10 @@ static DWORD64 forward_pc(DWORD64 pc,DWORD64 clone,DWORD64 source,uint32_t sourc
 static EXCEPTION_DISPOSITION WINAPI function_unwind(PEXCEPTION_RECORD exception,PVOID frame,PCONTEXT context,PDISPATCHER_CONTEXT dispatcher) {
     if(!dispatcher || !dispatcher->HandlerData)return ExceptionContinueSearch;
     const unsigned char *data=dispatcher->HandlerData;
-    /* Close at the confirmed unwind boundary, before language cleanup, as in
-       CoreProfiler's exception hook. A collided unwind repeats the same frame;
-       its initial pass has already reported the exit. */
-    if((exception->ExceptionFlags&EXCEPTION_UNWINDING) && !(exception->ExceptionFlags&(EXCEPTION_TARGET_UNWIND|EXCEPTION_COLLIDED_UNWIND)))record(AP_UNWIND_EXIT,hook_u32(data),0);
+    /* Close only the physical frame still present at the top. A repeated
+       collided pass cannot close it twice, while a frame that remained open
+       at a target unwind can still close if a later cleanup abandons it. */
+    if((exception->ExceptionFlags&EXCEPTION_UNWINDING) && !(exception->ExceptionFlags&EXCEPTION_TARGET_UNWIND))record_frame(AP_UNWIND_EXIT,hook_u32(data),0,unwind_entry_sp(frame,dispatcher),(exception->ExceptionFlags&EXCEPTION_COLLIDED_UNWIND)!=0);
     if(!hook_u32(data+4))return ExceptionContinueSearch;
     DWORD64 image=(DWORD64)(uintptr_t)GetModuleHandleW(NULL),source=image+hook_u32(data+8),clone=dispatcher->ImageBase+dispatcher->FunctionEntry->BeginAddress;
     uint32_t source_size=hook_u32(data+12),clone_size=dispatcher->FunctionEntry->EndAddress-dispatcher->FunctionEntry->BeginAddress;

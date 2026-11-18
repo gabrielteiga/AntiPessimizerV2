@@ -232,7 +232,7 @@ veja o comando `instrument` em [instrumentation.md](instrumentation.md).
 O laboratório cooperativo não comprova um Delphi arbitrário.
 
 
-O lançamento sem SDK agora negocia APHOOK3 para funções com prólogo/unwind v1,
+O lançamento sem SDK agora negocia APHOOK4 para funções com prólogo/unwind v1,
 chamadas e recursão. Um cleanup nativo relata saídas por exceção real e o worker
 publica sinais de vida enquanto chamadas permanecem abertas. A API cooperativa
 APHOOK1 e os callbacks mantêm wire v1. Evidência e limites estão na seção de
@@ -292,3 +292,33 @@ Delphi ou promessa de ganho fixo. Os relatórios seguintes identificam também o
 SHA256 de cada DLL comparada. O teste de cleanup aceita zero ticks para uma
 chamada normal menor que a resolução QPC, preservando contagens e o equilíbrio
 exato dos tempos; não impõe nem inventa duração mínima.
+
+
+## Identidade física de chamadas e colisões de unwind
+
+`APHOOK4\0` mantém o layout de APHOOK3 e fornece helpers
+internos com dois argumentos Win64: ID e endereço do slot de retorno original.
+Os probes salvam os argumentos antes de passar esse valor em RDX; não alteram o
+slot nem seu endereço de retorno. Callbacks cooperativos públicos de um argumento
+continuam disponíveis. O Go ainda aceita DLLs APHOOK1/2/3 nos subconjuntos anteriores;
+coletores antigos recusam APHOOK4 antes de executar o alvo.
+
+Cada ring possui uma pilha privada de até 1024 identidades (ID e RSP de entrada),
+acessada só pela própria thread e reiniciada na reutilização do ring. No máximo
+64 × 1024 registros de 16 bytes acrescentam 1 MiB fixo ao pool, mais alinhamento.
+Clear mantém essa pilha de chamadas abertas. O wire de eventos e métricas segue
+v4/v3; endereços físicos ficam no alvo e não são enviados aos consumidores.
+
+Durante unwind confirmado, o callback soma PUSH/ALLOC dos códigos v1 já
+validados e recupera o RSP original a partir do EstablisherFrame. Fecha somente
+o frame físico ainda aberto no topo. A passagem collided repetida ignora o frame
+já fechado, mas pode fechar um frame que continuava aberto num target unwind.
+Inconsistência/overflow invalida a exatidão via perda explícita. Os callbacks não
+alocam memória por chamada nem aguardam espaço no ring.
+
+O teste de ABI compara o RSP observado pela própria função com os dois helpers
+e exige argumentos originais intactos. A carga Windows também gera access
+violation em um frame RBP com bias de 32 bytes, conferindo uma saída por unwind
+por thread. Recursão, Clear com frames abertos, cleanup/collision, reutilização,
+corpus Delphi e benchmarks permanecem gates. EHANDLER e retomada ainda são
+recusados: esta identidade prepara sua contabilidade, sem anunciar essa feature.

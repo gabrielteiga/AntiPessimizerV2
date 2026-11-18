@@ -95,6 +95,8 @@ static BOOL hook_allocate(void) {
     return FALSE;
 }
 static EXCEPTION_DISPOSITION WINAPI function_unwind(PEXCEPTION_RECORD,PVOID,PCONTEXT,PDISPATCHER_CONTEXT);
+static void function_enter(uint32_t,uintptr_t);
+static void function_exit(uint32_t,uintptr_t);
 static BOOL hook_forward_info(const unsigned char *data,uint32_t available,RUNTIME_FUNCTION *body,uint32_t index,const unsigned char *copied_info,uint32_t info_bytes) {
     if(available<8)return FALSE;
     uint32_t kind=hook_u32(data+4);
@@ -126,7 +128,7 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
     hook_put64(offer+16,(uintptr_t)hooks.memory);
     hook_put32(offer+24,hooks.bytes); hook_put32(offer+28,hooks.count);
     hook_put64(offer+32,(uintptr_t)APNativeEnter); hook_put64(offer+40,(uintptr_t)APNativeExit);
-    if(general){offer[6]='3';hook_put64(offer+48,(uintptr_t)function_unwind);}
+    if(general){offer[6]='4';hook_put64(offer+32,(uintptr_t)function_enter);hook_put64(offer+40,(uintptr_t)function_exit);hook_put64(offer+48,(uintptr_t)function_unwind);}
     if(!hook_io(pipe,offer,general?56:48,TRUE)) return FALSE;
     for(uint32_t i=0;i<hooks.count;i++) {
         unsigned char extent[4]; hook_put32(extent,hooks.selected[i].size);

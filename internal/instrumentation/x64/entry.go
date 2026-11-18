@@ -6,7 +6,9 @@ import (
 )
 
 // Probe describes a standard Win64/SSE2 native helper bridge, not an installer.
-// Helper uses the native Win64 ABI: void Helper(uint32 procedureID).
+// Helper uses the native Win64 ABI: void Helper(uint32 procedureID, uintptr entrySP).
+// entrySP points to the original return slot and is the same at entry/exit.
+// Legacy one-argument native helpers may ignore the extra volatile argument.
 // It must preserve LastError (as the native producer does), nonvolatile registers
 // and XMM6..15. The bridge preserves complete MXCSR control/status across Helper.
 // Arithmetic flags and AVX upper halves are volatile in this ABI;
@@ -92,7 +94,9 @@ func buildProbe(base, helper, continuation uint64, procedureID uint32, exiting b
 	code = append(code, 0x0f, 0xae, 0x9c, 0x24) // stmxcsr [rsp+88]
 	append32(88)
 	code = append(code, 0xb9)
-	append32(procedureID) // mov ecx,id
+	append32(procedureID)                       // mov ecx,id
+	code = append(code, 0x48, 0x8d, 0x94, 0x24) // lea rdx,[rsp+200], original entry RSP
+	append32(stackSize)
 	code = append(code, 0x48, 0xb8)
 	var addr [8]byte
 	binary.LittleEndian.PutUint64(addr[:], helper)

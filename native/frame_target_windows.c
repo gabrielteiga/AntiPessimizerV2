@@ -136,7 +136,17 @@ LONG APFrameMemoryFilter(EXCEPTION_POINTERS *p,void *frame){
  return p && p->ExceptionRecord->ExceptionCode==EXCEPTION_ACCESS_VIOLATION?EXCEPTION_EXECUTE_HANDLER:EXCEPTION_CONTINUE_SEARCH;
 }
 extern uint64_t APFrameMemoryCatch(void);
+extern uint64_t APFrameRBPCatch(void);
 __asm__(
+ ".text\n .globl APFrameFaultRBP\n .def APFrameFaultRBP; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameFaultRBP\n APFrameFaultRBP:\n pushq %rbp\n .seh_pushreg %rbp\n subq $128,%rsp\n .seh_stackalloc 128\n"
+ "leaq 32(%rsp),%rbp\n .seh_setframe %rbp,32\n .seh_endprologue\n movq (%rcx),%rax\n leaq 96(%rbp),%rsp\n popq %rbp\n ret\n .seh_endproc\n"
+ ".globl APFrameRBPCatch\n .def APFrameRBPCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameRBPCatch\n APFrameRBPCatch:\n subq $40,%rsp\n .seh_stackalloc 40\n .seh_endprologue\n"
+ ".Lrbp_try_begin:\n xorq %rcx,%rcx\n call APFrameFaultRBP\n nop\n .Lrbp_try_end:\n xorl %eax,%eax\n addq $40,%rsp\n ret\n"
+ ".Lrbp_catch:\n movl $889,%eax\n addq $40,%rsp\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Lrbp_try_begin,.Lrbp_try_end,APFrameMemoryFilter,.Lrbp_catch\n .text\n .seh_endproc\n"
  ".text\n .globl APLeafSetControl\n .def APLeafSetControl; .scl 2; .type 32; .endef\n"
  ".seh_proc APLeafSetControl\n APLeafSetControl:\n .seh_endprologue\n ldmxcsr (%rcx)\n movl (%rcx),%eax\n ret\n .seh_endproc\n"
  ".text\n .globl APLeafGetControl\n .def APLeafGetControl; .scl 2; .type 32; .endef\n"
@@ -193,6 +203,7 @@ static DWORD WINAPI worker(void *unused){
  for(uint32_t i=0;i<iterations;i++)if(APFrameParent(i+1)!=17+2*i)return 2;
  if(APFrameCatch()!=777)return 3;
  if(APFrameMemoryCatch()!=888)return 4;
+ if(APFrameRBPCatch()!=889)return 7;
  if(normal_cleanup_throws){if(APUnwindCatch(7)!=779)return 6;}
  else if(APUnwindOuter(7)!=11)return 6;
  if(APUnwindOuter(999)!=1000 || APUnwindCatch(0)!=779 || cleanup_bad)return 6;
