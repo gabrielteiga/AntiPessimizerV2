@@ -4,10 +4,10 @@
 #define AP_HOOKS_WINDOWS_H
 #include <string.h>
 
-enum { AP_HOOK_LIMIT=64, AP_HOOK_STRIDE=8192, AP_HOOK_PREFIX=64 };
+enum { AP_HOOK_LIMIT=64, AP_HOOK_STRIDE=8192, AP_HOOK_PREFIX=64, AP_HOOK_LARGE_STRIDE=32768, AP_HOOK_SOURCE_LIMIT=8192 };
 static struct {
     APHookProcedure selected[AP_HOOK_LIMIT];
-    uint32_t count, patched, bytes;
+    uint32_t count, patched, bytes, stride;
     unsigned char *memory;
     RUNTIME_FUNCTION *table;
     BOOL registered;
@@ -56,7 +56,7 @@ static BOOL hook_select(const APHookProcedure *procedures,uint32_t count) {
     IMAGE_NT_HEADERS64 *nt=(IMAGE_NT_HEADERS64 *)(image+((IMAGE_DOS_HEADER *)image)->e_lfanew);
     for(uint32_t i=0;i<count;i++) {
         APHookProcedure p=procedures[i];
-        if(!p.id || !p.rva || p.size<5 || p.size>4096 || (uint64_t)p.rva+p.size>nt->OptionalHeader.SizeOfImage) return FALSE;
+        if(!p.id || !p.rva || p.size<5 || p.size>AP_HOOK_SOURCE_LIMIT || (uint64_t)p.rva+p.size>nt->OptionalHeader.SizeOfImage) return FALSE;
         MEMORY_BASIC_INFORMATION m;
         if(!VirtualQuery(image+p.rva,&m,sizeof(m)) || m.AllocationBase!=image || m.State!=MEM_COMMIT || (m.Protect&0xff)!=PAGE_EXECUTE_READ || (m.Protect&PAGE_GUARD) || (uintptr_t)(image+p.rva)+p.size>(uintptr_t)m.BaseAddress+m.RegionSize) return FALSE;
         hooks.protections[i]=m.Protect;
@@ -69,7 +69,7 @@ static BOOL hook_select(const APHookProcedure *procedures,uint32_t count) {
     hooks.count=count;
     return TRUE;
 }
-static BOOL hook_allocate(void) {
+static BOOL hook_allocate(BOOL general) {
     SYSTEM_INFO system;
     GetSystemInfo(&system);
     uintptr_t image=(uintptr_t)GetModuleHandleW(NULL);
@@ -80,7 +80,8 @@ static BOOL hook_allocate(void) {
     if(high>(uintptr_t)system.lpMaximumApplicationAddress) high=(uintptr_t)system.lpMaximumApplicationAddress;
     /* Keep every code stride complete. A large selection must not consume the
        last procedure's space with the three-entry-per-function runtime table. */
-    hooks.bytes=(AP_HOOK_STRIDE+3*sizeof(RUNTIME_FUNCTION))*hooks.count;
+    hooks.stride=general?AP_HOOK_LARGE_STRIDE:AP_HOOK_STRIDE;
+    hooks.bytes=(hooks.stride+3*sizeof(RUNTIME_FUNCTION))*hooks.count;
     for(unsigned attempt=0;cursor<high && attempt<4096;attempt++) {
         MEMORY_BASIC_INFORMATION m;
         if(!VirtualQuery((void *)cursor,&m,sizeof(m))) return FALSE;
@@ -115,7 +116,7 @@ static BOOL hook_forward_info_at(unsigned char *image,const unsigned char *data,
     IMAGE_NT_HEADERS64 *nt=(IMAGE_NT_HEADERS64 *)(image+((IMAGE_DOS_HEADER *)image)->e_lfanew);
     uint32_t image_size=nt->OptionalHeader.SizeOfImage;
     uint32_t rva=hook_u32(data+8),size=hook_u32(data+12),entry_rva=hook_u32(data+16),info_rva=hook_u32(data+20),handler_rva=hook_u32(data+24),handler_data=hook_u32(data+28),count=hook_u32(data+32);
-    if(rva!=hooks.selected[index].rva || size!=hooks.selected[index].size || (uint64_t)entry_rva+12>image_size || (uint64_t)info_rva+info_bytes+4>image_size || info_rva%4 || !handler_rva || handler_rva>=image_size || handler_data!=(uint64_t)info_rva+info_bytes+4 || !count || count>4097 || (uint64_t)map_at+count*4>available)return FALSE;
+    if(rva!=hooks.selected[index].rva || size!=hooks.selected[index].size || (uint64_t)entry_rva+12>image_size || (uint64_t)info_rva+info_bytes+4>image_size || info_rva%4 || !handler_rva || handler_rva>=image_size || handler_data!=(uint64_t)info_rva+info_bytes+4 || !count || count>8193 || (uint64_t)map_at+count*4>available)return FALSE;
     RUNTIME_FUNCTION *original=(RUNTIME_FUNCTION *)(image+entry_rva);
     const unsigned char *info=image+info_rva;
     if(original->BeginAddress!=rva || original->EndAddress!=(uint64_t)rva+size || original->UnwindData!=info_rva || (kind==1?info[0]!=17:(info[0]!=9 && info[0]!=25)) || memcmp(info+1,copied_info+1,info_bytes-1) || hook_u32(info+info_bytes)!=handler_rva)return FALSE;
@@ -197,13 +198,13 @@ static BOOL hook_forward_info_at(unsigned char *image,const unsigned char *data,
     return TRUE;
 }
 static BOOL hook_exchange(HANDLE pipe,BOOL general) {
-    if(!hook_allocate()) return FALSE;
+    if(!hook_allocate(general)) return FALSE;
     unsigned char offer[56]={'A','P','H','O','O','K','1',0};
     hook_put64(offer+8,(uintptr_t)GetModuleHandleW(NULL));
     hook_put64(offer+16,(uintptr_t)hooks.memory);
     hook_put32(offer+24,hooks.bytes); hook_put32(offer+28,hooks.count);
     hook_put64(offer+32,(uintptr_t)APNativeEnter); hook_put64(offer+40,(uintptr_t)APNativeExit);
-    if(general){offer[6]='7';hook_put64(offer+32,(uintptr_t)function_enter);hook_put64(offer+40,(uintptr_t)function_exit);hook_put64(offer+48,(uintptr_t)function_unwind);}
+    if(general){offer[6]='8';hook_put64(offer+32,(uintptr_t)function_enter);hook_put64(offer+40,(uintptr_t)function_exit);hook_put64(offer+48,(uintptr_t)function_unwind);}
     if(!hook_io(pipe,offer,general?56:48,TRUE)) return FALSE;
     for(uint32_t i=0;i<hooks.count;i++) {
         unsigned char extent[4]; hook_put32(extent,hooks.selected[i].size);
@@ -234,7 +235,7 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
     unsigned char patches[AP_HOOK_LIMIT][AP_HOOK_PREFIX];
     unsigned char *image=(unsigned char *)GetModuleHandleW(NULL);
     for(uint32_t i=0;i<count;i++) {
-        unsigned char item[8],expected[4096];
+        unsigned char item[8],expected[AP_HOOK_SOURCE_LIMIT];
         if(!hook_io(pipe,item,8,FALSE)) return FALSE;
         uint32_t length=hook_u32(item),prefix=hook_u32(item+4);
         if(length!=hooks.selected[i].size || prefix<5 || prefix>AP_HOOK_PREFIX || prefix>length) return FALSE;

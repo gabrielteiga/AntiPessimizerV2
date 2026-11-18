@@ -20,6 +20,7 @@ Revisado em 18 de novembro de 2026.
 | Subconjunto escalar | Aritmética/condições/conversões SSE sem frame e home slots Win64 limitados; prólogo ADD RSP negativo verificado contra unwind |
 | Memória e sincronização | MOVS/STOS com frame/unwind verificado e operações LOCK de memória; testes de cópia/preenchimento, compare/exchange e contador compartilhado |
 | Captura/retomada SEH | Tabelas CRT reconhecidas e scopes Delphi catch-all/finally e capturas tipadas com handler/resolvedor conferidos são traduzidos para a cópia; testes Windows de captura, recursão, continuação e cleanup com exceção |
+| Métodos maiores | Até 8 KiB de código por procedimento, com alocação limitada de 32 KiB para código/metadados; integração Windows exige retornos e unwind reais |
 | Estado SSE | Probes preservam controle/status MXCSR dos callbacks; setter/getter instrumentados conferem os quatro modos de arredondamento |
 | Preferências da janela | Restaura EXE, filtro de resultados, busca de símbolos e unidade de tempo por usuário ao reabrir |
 | Controle pela interface | Catálogo pesquisável, seleção de até 64 procedimentos, argumentos, prazo, iniciar/parar pelo coletor e métricas ao vivo na janela |
@@ -127,7 +128,7 @@ com todas as variantes do Delphi. Em catálogos grandes, filtre a consulta para
 verificar apenas os procedimentos desejados.
 
 O subconjunto aceita unwind v1 sem handler ou com cleanup UHANDLER-only original, prólogos verificados,
-chamadas/recursão, branches internos e múltiplos retornos, de 5 a 4096 bytes por procedimento quando a alocação
+chamadas/recursão, branches internos e múltiplos retornos, de 5 a 8192 bytes por procedimento quando a alocação
 permite salto próximo. Métodos menores que 5 bytes continuam rejeitados. Procedimentos não suportados são rejeitados. Um cleanup nativo
 registra saídas durante o unwind real do Windows e encaminha a limpeza original
 com seus metadados e endereços de origem. Handlers que capturam/retomam a exceção

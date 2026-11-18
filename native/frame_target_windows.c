@@ -9,6 +9,24 @@
 #include <xmmintrin.h>
 
 enum { AP_FRAME_EXCEPTION=0xe0424242u };
+extern uint64_t APFrameLarge(uint64_t),APFrameLargeCatch(void);
+__attribute__((noinline)) uint64_t APFrameLargeWork(uint64_t n){
+ if(n==888)RaiseException(AP_FRAME_EXCEPTION,0,0,NULL);
+ return n+50;
+}
+__asm__(
+ ".text\n .globl APFrameLarge\n .def APFrameLarge; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameLarge\n APFrameLarge:\n subq $40,%rsp\n .seh_stackalloc 40\n .seh_endprologue\n"
+ "testq %rcx,%rcx\n jne .Llarge_call\n movl $50,%eax\n addq $40,%rsp\n ret\n"
+ ".Llarge_call:\n call APFrameLargeWork\n .fill 7950,1,0x90\n addq $40,%rsp\n ret\n .seh_endproc\n"
+ ".globl APFrameLargeCatch\n .def APFrameLargeCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameLargeCatch\n APFrameLargeCatch:\n subq $40,%rsp\n .seh_stackalloc 40\n .seh_endprologue\n"
+ ".Llarge_try_begin:\n movl $888,%ecx\n call APFrameLarge\n nop\n .Llarge_try_end:\n xorl %eax,%eax\n addq $40,%rsp\n ret\n"
+ ".Llarge_catch:\n movl $901,%eax\n addq $40,%rsp\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Llarge_try_begin,.Llarge_try_end,APFrameFilter,.Llarge_catch\n .text\n .seh_endproc\n"
+);
+
 #define METHOD __attribute__((noinline))
 static DWORD child_delay_ms=1;
 METHOD uint64_t APFrameChild(uint64_t n){
@@ -95,6 +113,7 @@ AP_BATCH_METHODS(AP_BATCH_ASSEMBLY)
 #define AP_BATCH_ADDRESS(n) APBatch##n,
 static uint64_t (*const batch_methods[])(void)={AP_BATCH_METHODS(AP_BATCH_ADDRESS)};
 METHOD uint64_t APFrameParent(uint64_t n){
+ if(APFrameLarge(n)!=n+50)return 0;
  if(APFrameTiny()!=77)return 0;
  uint32_t original_control=_mm_getcsr();
  BOOL control_ok=TRUE;
@@ -203,7 +222,7 @@ static DWORD WINAPI worker(void *unused){
  for(uint32_t i=0;i<iterations;i++)if(APFrameParent(i+1)!=17+2*i)return 2;
  if(APFrameCatch()!=777)return 3;
  if(APFrameMemoryCatch()!=888)return 4;
- if(APFrameRBPCatch()!=889)return 7;
+ if(APFrameRBPCatch()!=889 || APFrameLargeCatch()!=901)return 7;
  if(normal_cleanup_throws){if(APUnwindCatch(7)!=779)return 6;}
  else if(APUnwindOuter(7)!=11)return 6;
  if(APUnwindOuter(999)!=1000 || APUnwindCatch(0)!=779 || cleanup_bad)return 6;

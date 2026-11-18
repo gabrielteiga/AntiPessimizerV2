@@ -7,6 +7,9 @@ import (
 	"golang.org/x/arch/x86/x86asm"
 )
 
+const MaxFunctionBytes = 8192
+const MaxFunctionImageBytes = 32768
+
 type FunctionPlan struct {
 	Original, Source, Patch, Image []byte
 	BodyRVA, ExitRVA               uint32
@@ -42,7 +45,7 @@ func (p *PEImage) BuildFunction(rva, size uint32, loadedBase, base, enter, exit,
 	if err != nil {
 		return FunctionPlan{}, err
 	}
-	if loadedBase == 0 || loadedBase >= maxUserAddress || uint64(imageSize) >= maxUserAddress-loadedBase || base == 0 || base > maxUserAddress-8192 || id == 0 {
+	if loadedBase == 0 || loadedBase >= maxUserAddress || uint64(imageSize) >= maxUserAddress-loadedBase || base == 0 || base > maxUserAddress-MaxFunctionImageBytes || id == 0 {
 		return fail("invalid addresses/ID")
 	}
 	source := loadedBase + uint64(rva)
@@ -78,7 +81,7 @@ func (p *PEImage) BuildFunction(rva, size uint32, loadedBase, base, enter, exit,
 		// The aliased dispatcher keeps the source ImageBase so external filters
 		// and cleanup callbacks retain their original RVAs. Clone code, scopes,
 		// and an independent shadow unwind record must all fit in that RVA space.
-		if base < loadedBase || base-loadedBase > uint64(^uint32(0))-8192 {
+		if base < loadedBase || base-loadedBase > uint64(^uint32(0))-MaxFunctionImageBytes {
 			return fail("exception forwarding requires image-relative clone addresses")
 		}
 		scopes, err = relocateScopes(metadata.scopes, code, flow, rva, base-loadedBase+512, metadata.scopeStyle)
@@ -101,7 +104,7 @@ func (p *PEImage) BuildFunction(rva, size uint32, loadedBase, base, enter, exit,
 		dataSize = scopeDescriptorSize + len(flow.pcMap)*4 + len(scopes) + 12 + len(originalInfo) + 4 + 16 + len(typeBlocks)
 	}
 	total := int(infoRVA) + len(originalInfo) + 4 + dataSize
-	if total > 8192 {
+	if total > MaxFunctionImageBytes {
 		return fail("function image too large")
 	}
 	if base < loadedBase+uint64(imageSize) && base+uint64(total) > loadedBase {

@@ -117,7 +117,11 @@ func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, pro
 			overwrite = offset + inst.Len
 		}
 		total += d.length
-		if total > 6144 {
+		limit := 6144
+		if nativeFunction {
+			limit = 12288
+		}
+		if total > limit {
 			return fail("expanded body exceeds allocation limit")
 		}
 		offset += inst.Len
