@@ -15,6 +15,7 @@ import (
 )
 
 type Model struct {
+	MetricUnit              MetricTimeUnit
 	metricSizes             []int
 	metricBytes, metricRows int
 

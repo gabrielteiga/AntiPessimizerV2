@@ -9,7 +9,14 @@ import (
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/report"
 )
 
-func viewInstrumentation(in io.Reader, out io.Writer, filter report.Filter) error {
+func viewInstrumentation(in io.Reader, out io.Writer, filter report.Filter, units ...desktop.MetricTimeUnit) error {
+	unit := desktop.Milliseconds
+	if len(units) > 0 {
+		unit = units[0]
+	}
+	if !unit.Valid() {
+		return fmt.Errorf("invalid instrumentation time unit")
+	}
 	reader := instrumentation.NewMetricsReader(in)
 	var previous uint64
 	for {
@@ -35,11 +42,12 @@ func viewInstrumentation(in io.Reader, out io.Writer, filter report.Filter) erro
 		if err := model.ReplaceMetrics([]instrumentation.Record{r}); err != nil {
 			return err
 		}
+		model.MetricUnit = unit
 		if err := model.Rebuild(0, filter); err != nil {
 			return err
 		}
 		for _, row := range model.Rows {
-			if _, err := fmt.Fprintf(out, "  calls=%s exclusive_ms=%s average_exclusive_ms=%s inclusive_ms=%s average_inclusive_ms=%s tid=%s thread_instance_ticks=%s %s!%s unit=%s rva=%s unwound_calls=%s active_frames=%s\n", row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[10], row[9], row[11], row[12]); err != nil {
+			if _, err := fmt.Fprintf(out, "  calls=%s exclusive_%s=%s average_exclusive_%s=%s inclusive_%s=%s average_inclusive_%s=%s tid=%s thread_instance_ticks=%s %s!%s unit=%s rva=%s unwound_calls=%s active_frames=%s\n", row[0], unit, row[1], unit, row[2], unit, row[3], unit, row[4], row[5], row[6], row[7], row[8], row[10], row[9], row[11], row[12]); err != nil {
 				return err
 			}
 		}

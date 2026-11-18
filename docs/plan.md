@@ -1,214 +1,80 @@
-# Plano incremental e análise
+# Plano e estado de implementação
 
-## Estado atual e sequência ajustada
+Atualizado em 18 de novembro de 2026. O alvo é **Delphi 10.4, Windows 10/11 x64**
+(Intel ou AMD). Linux valida o núcleo portável. O README é a entrada de uso;
+este documento organiza as entregas e os critérios que ainda faltam.
 
-Atualização de 17/11: o bloco de frames/chamadas/recursão e unwind nativo entrou
-no PR #20 com CI completo aprovado. O serviço e a janela agora integram catálogo
-pesquisável, seleção múltipla, novo lançamento instrumentado, stop, snapshots e
-histórico. Os trechos abaixo que descrevem essas integrações como futuras
-registram os gates anteriores; handlers de linguagem Delphi e Clear sincronizado
-nativo continuam próximos gates de paridade. O README mantém a matriz atual.
+## Entregue
 
-
-O fluxo principal está implementado: processo alvo Windows amd64 → sampling
-ETW → resolução PE/TD32 → agregação por janela → histórico → Named Pipe → viewer
-Win32 independente. O viewer oferece processo/start/stop, tabela virtual, filtros,
-threads, gráfico, navegação de histórico, salvar/replay e comparação.
-
-O CI Windows executa captura real contra carga própria, janela consumindo dados
-do serviço e teste dos executáveis incluindo arquivo e comparação. O package job
-produz artifact Windows com checksums e licenças após os testes aprovarem.
-A fixture TDS controlada deriva os endereços do executável Go de laboratório e
-exige hotspot resolvido: valida o encadeamento real, sem alegar que o Delphi
-compilou essa fixture. Compatibilidade completa de variantes Delphi/TDS,
-identidade externa de TDS, custo no ambiente final e pilhas continuam lacunas.
-O incremento de sstModule acrescenta associação explícita a unidades Pascal,
-validada por índice do módulo e contribuição de código no mesmo segmento.
-
-Coleta usa PID + criação verificada no handle e TIDs conforme lifecycle. Perdas
-ETW globais são cumulativas e distintas das perdas na fila de ingestão; detectar
-perdas de lifecycle interrompe a coleta para não perpetuar correlação duvidosa.
-Snapshots finais registram duração parcial e preservam dados já consistentes.
-
-Novas mudanças passam por branch/PR e precisam do CI aprovado no commit exato
-antes de integrar à main. Windows é o alvo; Linux valida o núcleo portável.
-
-## Orientação de trabalho e validação (2026-11-16)
-
-Por orientação do usuário, conduzir o desenvolvimento e a validação de forma
-independente: consultar o AntiPessimizer na revisão fixada para resolver dúvidas,
-transformar seus comportamentos em testes automatizados e executar os testes
-Go por bloco funcional completo, agrupando recursos relacionados conforme a
-orientação do usuário de 17/11. Manter o CI do commit exato como gate de merge. Registrar quais comportamentos foram conferidos na fonte
-e quais foram efetivamente executados. Documentar diferenças deliberadas.
-
-Não solicitar ao usuário compilação, fixtures ou testes manuais durante o
-desenvolvimento. A indisponibilidade do laboratório Delphi/Windows não bloqueia
-trabalho que possa ser implementado e verificado automaticamente. Manter as
-lacunas de integração explícitas, sem apresentar testes sintéticos como execução
-real. Solicitar avaliação manual somente quando o funcionamento principal
-estiver implementado de ponta a ponta conforme o escopo acordado.
-
-O objetivo funcional é localizar e apresentar gargalos por procedimento Delphi,
-com coleta real e visualizador independente. A especificação continua definindo
-o método e a semântica das métricas: amostragem não comprova contagem exata de
-chamadas ou duração por chamada da instrumentação do original. O demo e o leitor
-isolado de símbolos ainda não constituem esse funcionamento principal.
-
-## Instrumentação exigida pelo usuário
-
-Contagem de chamadas, tempos inclusivos/exclusivos e médias passam a ser
-requisitos, conforme a solicitação posterior à auditoria de fidelidade. A seção
-anterior da especificação que chamava instrumentação de futuro opcional deixa
-de definir essa prioridade. Sampling ETW mantém sua semântica própria.
-
-O primeiro núcleo instrumentado está implementado com seleção de procedimentos,
-pilhas por instância de thread, recursão conforme saved previous-inclusive da
-referência, unwind, Clear, perdas e métricas/medias derivadas de eventos explícitos.
-O CLI instrument-replay e os testes automatizados validam o contrato. O viewer
-terminal/Win32 já consome arquivos instrumentados com as cinco métricas do
-original, filtros, ordenação, navegação e preservação das épocas de Clear. O
-planejador de prólogos x64 tem teste nativo controlado de trampolim/restauração.
-O produtor nativo C/QPC, filas limitadas e controller Go já podem ser validados
-com callbacks de uma carga C cooperativa, descrita em [native-producer.md](native-producer.md).
-A ligação dos probes à DLL já tem teste Windows com chamadas reais, incluindo
-redirecionamento/restauração de uma função simples em memória própria. Instalação
-geral x64, exceções Delphi e serviço para coleta ao vivo ainda são os próximos
-gates de paridade, detalhados em [instrumentation.md](instrumentation.md).
-O plano PE de funções simples já valida seções e diretório de exceções antes de
-aceitar uma função; frames/handlers que exigem unwind seguem rejeitados.
-O coletor já transmite esses planos para uma DLL em outro processo próprio,
-negociando alocação próxima e verificando os bytes esperados antes da instalação.
-O alvo de teste mantém os chamadores quiescentes na inicialização e na retirada.
-Três threads exigem dez chamadas reais cada, resultados e LastError preservados,
-perdas explícitas e restauração completa. Implantação sem cooperação do alvo,
-funções com frames/chamadas/handlers e integração ao vivo ao serviço seguem pendentes.
-Funções sem frame já aceitam condições, repetições e múltiplos retornos internos,
-com remapeamento de branches e leituras RIP-relative conferidos em testes.
-
-## Matriz alvo
-
-Confirmada pelo usuário: Delphi 10.4, Windows 10/11. O alvo é Win64 conforme
-a especificação; cada sistema exige validação própria. Builds exatos e acesso
-ao laboratório permanecem pendentes.
-
-## Sequência e critérios de passagem
-
-| Etapa | Incremento revisável | Evidência exigida para sair |
+| Área | Comportamento atual | Evidência |
 |---|---|---|
-| 0A, iniciada | Inventariar ambiente, referências, PE, matriz e hipóteses; quatro ADRs | Inspeção reproduzível; hipóteses e pendências explícitas |
-| 0B | Laboratório Delphi + spike ETW em Go para PID/TID/IP; primeiro sem stacks | Eventos reais, associação correta ao target, encerramento e permissões verificadas |
-| 0C | Módulos/rundown, RVA e uma estratégia real de símbolos | Hotspot conhecido resolvido; fallback e ASLR demonstrados; formato de símbolos identificado |
-| 0D | Experimentos de custo, Named Pipes e UI; congelar snapshot v1 | Baseline comparável, impacto e latência medidos, perdas visíveis; ADRs aceitos |
-| 1A, implementada | Tipos mínimos e validador do snapshot; fake determinístico | Semântica, sequência, versões, dados ausentes e fronteiras testados |
-| 1B, implementada | Agregador puro e histórico limitado | Janelas vazias/tardias, overflow, top-N estável, imutabilidade, limites; benchmarks |
-| 1C, implementada para replay | Stream sintético com consumidor de teste | Cancelamento, cliente lento, desconexão, race detector |
-| 2, implementada com CI Windows | Collector CLI + fonte ETW + Named Pipe | Start/stop, término do target, reconexão, perdas, memória limitada e telemetria |
-| 3, implementada com smoke/integração Windows | Viewer Win32 independente | Renderização com carga sintética, reconexão, coalescência e latência medida |
-| 4 | Ampliar cobertura dos símbolos Delphi e diagnóstico | Fixtures reais versionadas/licenciadas, formatos corrompidos, comparação de janelas |
-| 5, implementada para snapshot v1 | NDJSON e comparação entre sessões | Migração de arquivos, compatibilidade e critérios explícitos de comparabilidade |
+| Núcleo de sampling | Janelas, correlação PID/TID, perda explícita, histórico limitado e snapshots imutáveis | Testes Go/race e ETW real sobre carga própria no Windows |
+| Símbolos | TD32/TDS FB09/FB0A, procedimentos, unidades Pascal, diretórios encadeados, nomes Delphi suportados e conversão por BaseOfCode | Casos derivados da JCL da revisão fixada, testes de corrupção/fuzz e TDS sintético ligado ao EXE de laboratório |
+| Coletor/viewer | Processos independentes, Named Pipe local, seleção/start/stop, filtros, tabela virtual, histórico, salvar/replay e comparação de sampling | Executáveis Windows, integração ETW e smoke da janela |
+| Contabilidade de chamadas | Calls, tempos inclusivos/exclusivos, médias, recursão, instâncias de thread, unwind, Clear e perdas | Semântica conferida em CoreProfiler; testes determinísticos e callbacks C/QPC |
+| Captura sem SDK no EXE | Lançamento próprio, barreira no ponto de entrada, DLL nativa, verificação do código original, finalizadores e cancelamento | EXE C sem imports do profiler, três threads e finalizador, fluxo até o viewer |
+| Frames, chamadas e unwind nativo | Cópia do corpo, prólogo/unwind v1 preservados, calls/recursão, branches internos e cleanup de exceção | PR #20: resultados preservados, SEH real com handler externo e contagens/tempos por thread |
+| Controle instrumentado ao vivo | Catálogo pesquisável/paginado, identidades do EXE/catálogo, até 16 procedimentos, argumentos e prazo; serviço possui captura e histórico | PR #21: testes de lifecycle/concorrência, observador desconectado, GUI e executáveis reais |
+| Clear nativo | Barreira entre todos os produtores, drenagem anterior ao marcador, reinício dos frames abertos, ACK após publicação | PR #22: duas limpezas com seis frames abertos em três threads; recursão/SEH posteriores e RPC real |
+| Métodos pequenos | E9 rel32 de cinco bytes quando próximo; fallback absoluto e rejeição sem invadir o vizinho | PR #23: método Windows de seis bytes com onze chamadas por thread e testes dos limites signed rel32 |
+| Unidades de tempo | ns, us, ms, s e ticks na apresentação, preservando dados e ordenação | Testes de valores exatos/grandes, CLI e seletor Win32; ticks QPC não são ciclos de CPU |
 
-0C exige uma estratégia real mínima; a Fase 4 amplia cobertura. Endereços/módulos
-permitem investigar a coleta enquanto a simbolização não está pronta, mas não
-satisfazem sozinhos a exigência de simbolização real da Fase 0. Hooks, flame graphs,
-IA/MCP e coleta remota ficam fora destes incrementos.
+As métricas instrumentadas são cumulativas por época de Clear. Navegar no
+histórico nunca soma snapshots cumulativos. Sampling continua contando amostras,
+sem converter esse valor em chamadas ou duração por chamada.
 
-## Arquitetura que cresce conforme a necessidade
+## Próximos blocos para paridade
 
-Inicialmente collector, agregador e retenção compartilham processo; viewer é
-outro processo. Criar packages apenas quando houver comportamento implementado:
-`internal/profiling` para valores e semântica; `aggregation` para transformação
-pura; `session` para lifecycle; `sampling`/`platform/windows` para entrada ETW;
-`symbols` para resolução; `history`, `transport` e `ui` quando necessários.
-`cmd` faz composição. Domínio não importa Windows ou GUI; UI consome contrato.
-Interfaces pequenas ficam no consumidor, nas fronteiras de fonte, relógio e I/O.
+1. **Handlers de linguagem Delphi.** O plano atual aceita unwind v1 sem handlers
+   próprios e registra saídas quando Windows remove o frame. Rotinas com
+   try/except/try/finally e metadados específicos ainda são rejeitadas. É necessário
+   preservar a busca do handler, seu cleanup e a retomada de execução, incluindo
+   exceções aninhadas/recursivas, sem falsificar métricas nem quebrar o programa.
+2. **Cobertura de código e metadados.** Ampliar somente com casos conferidos:
+   unwind encadeado/versões adicionais, tail calls e instruções não suportadas;
+   funções menores que cinco bytes e formatos TD32 adicionais continuam rejeitados.
+3. **Compatibilidade Delphi demonstrada.** As fixtures de integração atuais são
+   C/GCC; TDS sintético não prova emissão por Delphi. Exigir evidência reproduzível
+   para prólogos, métodos, exceções e bibliotecas efetivamente suportados. A fixture
+   Delphi própria está em testdata/delphi/ProfilerLab; não declarar uma versão
+   inteira compatível por testes sintéticos ou leitura estática.
+4. **Custo e operação prolongada.** Medir baseline e instrumentado, chamadas/s,
+   perda, latência, memória e crescimento em seleções/threads representativas.
+   Não subtrair overhead presumido. Sampling e instrumentação mantêm metodologias
+   próprias. Limites atuais de seleção/buffer só aumentam junto dessas medições.
+5. **Complementos do fluxo principal.** Comparação instrumentada com identidade,
+   método, relógio e seleção compatíveis; demais preferências/diagnósticos do
+   original, conforme a auditoria de fidelidade. Attach a processo arbitrário e
+   DLLs/BPLs não são apresentados como implementados pelo lançamento do EXE.
 
-A fonte transfere ownership de observações; o agregador tem um único owner do
-estado. Publicação entrega valores sem aliases mutáveis; contexto cancela todo
-trabalho da sessão e seu owner aguarda o encerramento. Fila de entrada limitada
-contabiliza perdas; fila de exibição coalesce e reporta sequências omitidas.
-Testes demonstram essas políticas antes de introduzir concorrência em produção.
+Não há paridade completa enquanto esses gates materiais estiverem abertos.
 
-## Riscos e dependências
+## Forma de trabalho
 
-| Risco | Consequência | Mitigação / condição de decisão |
-|---|---|---|
-| ETW/privilégios/versão do SO | Sem amostras ou attach negado | Testar conta normal/elevada, registrar códigos; mínimo privilégio; não depender de produção |
-| Sampling sistêmico | Eventos de outros processos e custo global | Filtrar antes de reter; medir custo antes do filtro; verificar capacidades reais do provider |
-| Perda/rundown/eventos fora de ordem | IP atribuído à thread ou módulo errado | Identidade por tempo, eventos de lifecycle, incerteza explícita e contadores |
-| Stacks/unwind Delphi x64 | Pilhas parciais ou incorretas | Gate independente; MVP com IP folha; não anunciar tempo inclusivo |
-| TD32 varia com compilador/target | Parser inadequado para Win64 | Identificar formato de fixture real antes de parser; avaliar MAP gerado pelo próprio build |
-| ASLR e DLL unload/reload | Nome incorreto ou colisão de endereço | RVA + identidade do binário e vida do módulo; nunca usar base preferida como base carregada |
-| Alto volume/cardinalidade | Crescimento de RAM/latência | Limitar filas, janelas e linhas; top-N informa cobertura; benchmark antes de otimizar |
-| Fyne/CGO/driver | Build ou tabela inviável | Spike isolado de build e carga Windows antes de fixar UI |
-| APIs Windows em Go | Erros de layout, ABI e callback | Isolar bindings; validar tamanho/layout amd64 e lifecycle de callbacks em Windows |
-| Licenças das referências | Distribuição indevida | Referenciar comportamento; revisar licença antes de reutilizar código/fixtures |
+Por instrução do usuário, executar autonomamente: consultar a revisão fixada do
+AntiPessimizer, transformar os comportamentos esperados em testes e agrupar
+recursos relacionados em blocos funcionais completos. Não pedir compilação,
+fixtures ou validação manual intermediária ao usuário. Só solicitar avaliação
+manual depois de pronto o funcionamento principal acordado.
 
-Dependências atuais: Go, biblioteca padrão, `golang.org/x/sys/windows`,
-`github.com/Microsoft/go-winio` e `golang.org/x/arch/x86/x86asm` para decodificação
-dos prólogos x64. Bindings ETW e interface Win32 são próprios em Go;
-sem CGO no build de distribuição. Windows e Delphi licenciado são necessários para laboratório.
-Go 1.27.4 é a versão validada aqui, não uma conclusão sobre versão mínima futura.
+Toda implementação passa por branch e PR. Exigir testes Linux/core/race e Windows
+nativo, ETW, GUI, executáveis e empacotamento aprovados no **commit exato** antes
+do merge. Falhas de comportamento são corrigidas; testes desatualizados são
+atualizados quando a especificação do recurso muda, preservando sua cobertura.
+A pipeline tem timeout e diagnóstico para impedir esperas indefinidas.
 
-## Qualidade por incremento
+A política de qualidade inclui gofmt/vet, limites de memória e cardinalidade,
+ownership das goroutines, cancelamento com espera de encerramento, dados imutáveis
+e perdas explícitas. Mudanças de código no alvo só ocorrem no processo próprio e
+na barreira de inicialização; nunca anunciar suporte por apenas decodificar bytes.
 
-`gofmt`, `go vet`, testes table-driven úteis, integração no ambiente suportado e
-`-race` quando suportado. Fuzz para parsers ao introduzi-los; nenhum fixture
-sintético comprova compatibilidade Delphi. Benchmarks de agregação/serialização
-surgem junto desses componentes, não como números decorativos nesta fase.
-Cada PR deve incluir resultados, limitações e atualizar ADRs afetados.
+## Referências e decisões
 
-## Referência de implementação
+Consultar [o mapa do original](phase0/antipessimizer-reference.md) e a revisão
+fixada antes de resolver novamente semântica/formato. A [especificação inicial](ESPECIFICACAO_GO_PROFILER.md)
+continua válida em seus valores de engenharia; a decisão posterior do usuário
+sobre contagens/tempos torna instrumentação obrigatória, superando seu status
+inicial de opcional. Não portar a JCL inteira nem confundir módulo TD32 com DLL.
 
-Antes de resolver novamente formatos ou comportamentos presentes no original,
-consultar o [mapa de código AntiPessimizer](phase0/antipessimizer-reference.md)
-e a revisão fixada. A fonte Delphi de teste está em
-`testdata/delphi/ProfilerLab`; compilação e execução Windows permanecem pendentes.
-
-
-## Lançamento instrumentado implementado para o subconjunto sem frame
-
-O comando instrument já pode lançar um executável sem SDK do profiler, selecionar
-procedimentos por TD32/TDS e publicar chamadas/tempos/médias. O debugger bloqueia
-o ponto de entrada e o adapter instala o plano antes de liberar a aplicação.
-O CI exige chamadas de três threads e finalizador, cancelamento incompleto e
-fluxo dos executáveis até o viewer. O artifact inclui comando e DLL nativa.
-
-Próximo trabalho: tratar handlers de linguagem/exceções Delphi com testes reais; integrar seleção/start/stop e snapshots instrumentados ao
-serviço e à GUI. A validação atual de lançamento usa uma carga C própria com TDS
-sintético, não uma prova de paridade de todos os programas Delphi.
-
-
-O viewer Win32 já acompanha um arquivo instrumentado crescente por --follow,
-sem controlar ou encerrar o coletor. Contagens/tempos/médias atualizam na janela,
-com histórico limitado e coalescência. O comando instrument grava diretamente
-por --output, sem sobrescrever arquivos. Ainda falta selecionar/lançar/parar
-instrumentação pelo serviço e GUI, além do suporte a frames/exceções Delphi.
-
-
-## Bloco de chamadas, recursão e unwind nativo
-
-O lançamento sem SDK passa a negociar APHOOK2 e três intervalos de unwind por
-procedimento (entrada, corpo e saída). Preserva prólogo/códigos v1, realoca calls
-e branches, registra cleanup somente na passagem de unwind e exige o ID do topo
-da pilha Go. Handlers de linguagem/chaining continuam rejeitados. O alvo C próprio
-exercita chamadas aninhadas, recursão e SEH real; três threads devem continuar no
-handler externo original e produzir contagens, tempos e médias consistentes.
-Sinais periódicos publicam snapshots mesmo durante chamadas longas, sem simular
-saídas nem incrementar contagens. Próximo gate: controle instrumentado pelo
-serviço/GUI e tratamento específico de handlers Delphi.
-
-
-O bloco seguinte implementa Clear nativo sincronizado, RPC e botão na janela,
-com duas fronteiras reais durante chamadas abertas de três threads. O fluxo
-reinicia os relógios das chamadas abertas conforme ProfilerClearResults, sem
-misturar eventos anteriores/posteriores e sem apagar épocas do histórico.
-Handlers de linguagem Delphi, cobertura de formatos e medições de overhead no
-ambiente alvo continuam os próximos gates.
-
-
-O bloco de entradas pequenas reduz o salto inicial para cinco bytes quando a
-alocação próxima permite E9 rel32. A evidência exige um procedimento real de seis
-bytes, contagem por três threads, retorno correto e planejamento sem tomar bytes
-do vizinho. Métodos menores que cinco bytes, handlers Delphi e formatos não
-suportados continuam fora do gate.
+[Instrumentação e limites](instrumentation.md), [produtor nativo](native-producer.md),
+[protocolo ao vivo](live.md), [TD32](td32.md) e [auditoria de fidelidade](phase0/hoshoyo-fidelity-audit.md).

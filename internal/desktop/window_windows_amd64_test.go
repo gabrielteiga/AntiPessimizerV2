@@ -78,6 +78,16 @@ func TestNativeInstrumentedWindowSmoke(t *testing.T) {
 		if w.model.Rows[0][0] != "1" || w.model.Rows[0][3] != "30.000000" {
 			return fmt.Errorf("native cursor added cumulative totals: %v", w.model.Rows)
 		}
+		send.Call(w.metricUnits, 0x14e, 0, 0) // nanoseconds
+		w.tick()
+		if w.model.Rows[0][1] != "30000000" || w.model.Headers()[1] != "Exclusivo (ns)" {
+			return fmt.Errorf("native time-unit selector did not update totals/headers: %v", w.model.Rows)
+		}
+		send.Call(w.metricUnits, 0x14e, 4, 0) // raw clock ticks, never CPU cycles
+		w.tick()
+		if w.model.Rows[0][1] != "30" || w.model.Rows[0][0] != "2" {
+			return fmt.Errorf("raw QPC ticks changed calls: %v", w.model.Rows)
+		}
 		records := w.model.Metrics
 		start := records[0].Target.Start
 		sample := profiling.Snapshot{SchemaVersion: 1, SessionID: "sampling-replay", Sequence: 1, Target: records[0].Target, Mode: "sampling", Source: "synthetic", WindowStart: start, WindowEnd: start.Add(time.Second), Published: start.Add(time.Second)}
