@@ -322,3 +322,38 @@ violation em um frame RBP com bias de 32 bytes, conferindo uma saída por unwind
 por thread. Recursão, Clear com frames abertos, cleanup/collision, reutilização,
 corpus Delphi e benchmarks permanecem gates. EHANDLER e retomada ainda são
 recusados: esta identidade prepara sua contabilidade, sem anunciar essa feature.
+
+
+## Tabelas de exceção e retomada (APHOOK5)
+
+`APHOOK5\0` preserva a oferta de 56 bytes e o protocolo APPLAN1. O coletor exige
+esta versão antes de enviar um plano com scopes traduzidos. Import thunks para
+`__C_specific_handler` de CRTs reconhecidas identificam o formato; tabelas de
+handlers arbitrários ou Delphi privados não são interpretadas como scopes CRT.
+São aceitos até 64 registros por procedimento, com intervalos e destinos em
+limites exatos de instruções. Filtros/finalizadores ficam na imagem original;
+intervalos protegidos e destinos de catch passam a apontar para o corpo copiado.
+
+O descritor kind 2 contém os campos de origem e mapa de PCs do kind 1, com os
+campos adicionais: estilo (1), tamanho da tabela, flags originais, offset do
+RUNTIME_FUNCTION sombra e offset dos scopes, ambos relativos ao descritor.
+O mapa começa em 56 bytes. A tabela é seguida pela entrada sombra e por uma
+UNWIND_INFO equivalente com handler relativo à ImageBase original. Seus dados
+kind 3 guardam ID e ponteiro para o descritor canônico. Essa segunda representação
+mantém PCs, códigos, handler e dados válidos se RtlUnwindEx abandona o callback
+ou se o Windows reutiliza o dispatcher num collided unwind.
+
+O callback recupera seus dados pela UNWIND_INFO, pois HandlerData pode estar
+apontando para os scopes já traduzidos. O handler original recebe ImageBase de
+origem com PCs/RVAs da cópia; o wrapper nativo permanece LanguageHandler. ScopeIndex
+permanece no dispatcher real. Um frame alvo da retomada continua aberto e sai
+pelo probe normal; um frame abandonado fecha uma única vez por unwind. Callbacks
+UH originais só são chamados quando as flags originais os solicitam.
+
+A instalação confere os metadados/scopes contra a imagem carregada, tabela e
+alias sombra, mapa, destinos e limites da alocação, antes de publicar patches.
+A integração usa um EXE C/assembly independente para testar retorno normal,
+saída precoce, recursão com catch, exceção em cleanup normal/anormal, abandono
+para um catch externo e filtro que continua após access violation. A execução
+baseline exige os mesmos resultados e número de limpezas. Isso comprova o fluxo
+CRT e a infraestrutura de retomada, sem declarar handlers Delphi compatíveis.

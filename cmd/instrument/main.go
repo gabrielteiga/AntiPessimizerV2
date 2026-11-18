@@ -1,6 +1,6 @@
 // Command instrument launches an owned Windows x64 executable and measures an
 // explicit TD32/TDS procedure selection. Native frames and calls require verified
-// version-1 unwind; original language handlers remain unsupported.
+// version-1 unwind and recognized handler formats; unknown formats are rejected.
 package main
 
 import (

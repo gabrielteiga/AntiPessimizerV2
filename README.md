@@ -19,6 +19,7 @@ Revisado em 18 de novembro de 2026.
 | Funções com pilha/chamadas | Prólogos/unwind v1 verificados; calls, recursão, condições, loops, múltiplas saídas e encaminhamento de cleanup UHANDLER original |
 | Subconjunto escalar | Aritmética/condições/conversões SSE sem frame e home slots Win64 limitados; prólogo ADD RSP negativo verificado contra unwind |
 | Memória e sincronização | MOVS/STOS com frame/unwind verificado e operações LOCK de memória; testes de cópia/preenchimento, compare/exchange e contador compartilhado |
+| Captura/retomada SEH | Tabelas CRT reconhecidas são traduzidas para a cópia; testes Windows de captura, recursão, continuação e cleanup com exceção |
 | Estado SSE | Probes preservam controle/status MXCSR dos callbacks; setter/getter instrumentados conferem os quatro modos de arredondamento |
 | Preferências da janela | Restaura EXE, filtro de resultados, busca de símbolos e unidade de tempo por usuário ao reabrir |
 | Controle pela interface | Catálogo pesquisável, seleção de até 64 procedimentos, argumentos, prazo, iniciar/parar pelo coletor e métricas ao vivo na janela |
@@ -129,7 +130,7 @@ chamadas/recursão, branches internos e múltiplos retornos, de 5 a 4096 bytes p
 permite salto próximo. Métodos menores que 5 bytes continuam rejeitados. Procedimentos não suportados são rejeitados. Um cleanup nativo
 registra saídas durante o unwind real do Windows e encaminha a limpeza original
 com seus metadados e endereços de origem. Handlers que capturam/retomam a exceção
-(EHANDLER, inclusive combinado com UHANDLER) ainda devem ficar fora da seleção. A captura inclui finalizadores anteriores
+(EHANDLER, inclusive combinado com UHANDLER) são aceitos somente para o formato CRT reconhecido; handlers Delphi privados continuam fora da seleção. A captura inclui finalizadores anteriores
 a ExitProcess. Veja [instrumentation.md](docs/instrumentation.md) para os limites.
 
 ## Automação pelo coletor

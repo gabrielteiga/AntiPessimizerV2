@@ -12,11 +12,13 @@ type FunctionPlan struct {
 	BodyRVA, ExitRVA               uint32
 	Functions                      [3]RuntimeFunction
 	OriginalHandlerRVA             uint32
+	RelocatedHandler               bool
 }
 
 // BuildPEFunction preserves a verified version-1 native prologue and its unwind
 // codes while relocating the full procedure. An original UHANDLER-only cleanup
-// is forwarded with its source metadata and PCs; EHANDLER and chains are rejected.
+// is forwarded with its source metadata and PCs; recognized CRT exception scopes are translated for catch/resume. Unknown
+// EHANDLER formats and chains are rejected.
 // A native cleanup handler records exceptional exits;
 // it must have the Windows EXCEPTION_DISPOSITION handler ABI, not a Go callback.
 func BuildPEFunction(image []byte, rva, size uint32, loadedBase, base, enter, exit, unwind uint64, id uint32) (FunctionPlan, error) {
@@ -69,6 +71,20 @@ func (p *PEImage) BuildFunction(rva, size uint32, loadedBase, base, enter, exit,
 	if metadata.handlerRVA != 0 {
 		dataSize = 36 + len(flow.pcMap)*4
 	}
+	var scopes []byte
+	if len(metadata.scopes) != 0 {
+		// The aliased dispatcher keeps the source ImageBase so external filters
+		// and cleanup callbacks retain their original RVAs. Clone code, scopes,
+		// and an independent shadow unwind record must all fit in that RVA space.
+		if base < loadedBase || base-loadedBase > uint64(^uint32(0))-8192 {
+			return fail("exception forwarding requires image-relative clone addresses")
+		}
+		scopes, err = relocateScopes(metadata.scopes, code, flow, rva, base-loadedBase+512)
+		if err != nil {
+			return FunctionPlan{}, err
+		}
+		dataSize = scopeDescriptorSize + len(flow.pcMap)*4 + len(scopes) + 12 + len(originalInfo) + 4 + 16
+	}
 	total := int(infoRVA) + len(originalInfo) + 4 + dataSize
 	if total > 8192 {
 		return fail("function image too large")
@@ -93,6 +109,9 @@ func (p *PEImage) BuildFunction(rva, size uint32, loadedBase, base, enter, exit,
 	copy(data[thunkRVA:], jump(unwind))
 	info := append([]byte(nil), originalInfo...)
 	info[0] = 17 // v1 | UNW_FLAG_UHANDLER
+	if len(scopes) != 0 {
+		info[0] = 25
+	} // search plus profiler unwind
 	copy(data[infoRVA:], info)
 	binary.LittleEndian.PutUint32(data[int(infoRVA)+len(info):], thunkRVA)
 	binary.LittleEndian.PutUint32(data[int(infoRVA)+len(info)+4:], id)
@@ -102,16 +121,41 @@ func (p *PEImage) BuildFunction(rva, size uint32, loadedBase, base, enter, exit,
 		for i, value := range values {
 			binary.LittleEndian.PutUint32(descriptor[i*4:], value)
 		}
+		mapAt := 36
+		if len(scopes) != 0 {
+			binary.LittleEndian.PutUint32(descriptor[4:], 2)
+			mapAt = scopeDescriptorSize
+			scopeAt := mapAt + len(flow.pcMap)*4
+			shadowAt := scopeAt + len(scopes)
+			aliasAt := shadowAt + 12
+			binary.LittleEndian.PutUint32(descriptor[36:], 1) // standard CRT scopes
+			binary.LittleEndian.PutUint32(descriptor[40:], uint32(len(scopes)))
+			binary.LittleEndian.PutUint32(descriptor[44:], uint32(metadata.handlerFlags))
+			binary.LittleEndian.PutUint32(descriptor[48:], uint32(shadowAt))
+			binary.LittleEndian.PutUint32(descriptor[52:], uint32(scopeAt))
+			copy(descriptor[scopeAt:], scopes)
+			difference := uint32(base - loadedBase)
+			descriptorRVA := infoRVA + uint32(len(info)) + 4
+			binary.LittleEndian.PutUint32(descriptor[shadowAt:], difference+512)
+			binary.LittleEndian.PutUint32(descriptor[shadowAt+4:], difference+512+uint32(len(flow.code)))
+			binary.LittleEndian.PutUint32(descriptor[shadowAt+8:], difference+descriptorRVA+uint32(aliasAt))
+			copy(descriptor[aliasAt:], info)
+			binary.LittleEndian.PutUint32(descriptor[aliasAt+len(info):], difference+thunkRVA)
+			alias := descriptor[aliasAt+len(info)+4:]
+			binary.LittleEndian.PutUint32(alias, id)
+			binary.LittleEndian.PutUint32(alias[4:], 3) // canonical descriptor alias
+			binary.LittleEndian.PutUint64(alias[8:], base+uint64(descriptorRVA))
+		}
 		for i, mapping := range flow.pcMap {
-			binary.LittleEndian.PutUint16(descriptor[36+i*4:], mapping.original)
-			binary.LittleEndian.PutUint16(descriptor[38+i*4:], mapping.relocated)
+			binary.LittleEndian.PutUint16(descriptor[mapAt+i*4:], mapping.original)
+			binary.LittleEndian.PutUint16(descriptor[mapAt+2+i*4:], mapping.relocated)
 		}
 	}
 	patch := append(entry, make([]byte, flow.overwrite-len(entry))...)
 	for i := len(entry); i < len(patch); i++ {
 		patch[i] = 0x90
 	}
-	return FunctionPlan{Original: append([]byte(nil), code[:flow.overwrite]...), Source: append([]byte(nil), code...), Patch: patch, Image: data, BodyRVA: 512, ExitRVA: flow.exitRVA, OriginalHandlerRVA: metadata.handlerRVA, Functions: [3]RuntimeFunction{{0, in.CodeSize, in.UnwindRVA}, {512, 512 + uint32(len(flow.code)), infoRVA}, {flow.exitRVA, flow.exitRVA + out.CodeSize, flow.exitRVA + out.UnwindRVA}}}, nil
+	return FunctionPlan{Original: append([]byte(nil), code[:flow.overwrite]...), Source: append([]byte(nil), code...), Patch: patch, Image: data, BodyRVA: 512, ExitRVA: flow.exitRVA, OriginalHandlerRVA: metadata.handlerRVA, RelocatedHandler: len(scopes) != 0, Functions: [3]RuntimeFunction{{0, in.CodeSize, in.UnwindRVA}, {512, 512 + uint32(len(flow.code)), infoRVA}, {flow.exitRVA, flow.exitRVA + out.CodeSize, flow.exitRVA + out.UnwindRVA}}}, nil
 }
 
 func validateUnwindCodes(info []byte) error {

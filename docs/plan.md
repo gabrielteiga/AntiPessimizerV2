@@ -42,7 +42,7 @@ sem converter esse valor em chamadas ou duração por chamada.
 
 1. **Handlers de linguagem Delphi.** O plano aceita unwind v1 sem handler ou
    com cleanup UHANDLER-only, preservando os metadados originais e a tradução de
-   endereços. EHANDLER, inclusive combinado com UHANDLER, ainda é rejeitado. É necessário
+   endereços. A infraestrutura de captura/retomada já traduz scopes CRT reconhecidos (EHANDLER e EH/UH), mantendo a identidade física dos frames. Handlers Delphi privados ainda são rejeitados. É necessário
    preservar a busca do handler, seu cleanup e a retomada de execução, incluindo
    exceções aninhadas/recursivas, sem falsificar métricas nem quebrar o programa.
 2. **Cobertura de código e metadados.** Ampliar somente com casos conferidos:

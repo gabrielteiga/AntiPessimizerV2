@@ -21,7 +21,7 @@ func TestOriginalCleanupRequiresForwardingCapableAdapter(t *testing.T) {
 	put(image[0x308:], 0x5140)
 	copy(image[0x340:], []byte{17, 0, 0, 0})
 	put(image[0x344:], 0x5180)
-	for _, version := range []string{"APHOOK2\x00", "APHOOK3\x00", "APHOOK4\x00"} {
+	for _, version := range []string{"APHOOK2\x00", "APHOOK3\x00", "APHOOK4\x00", "APHOOK5\x00"} {
 		offer := make([]byte, 61)
 		copy(offer, hookOffer()[:48])
 		copy(offer, version)
@@ -229,6 +229,52 @@ func TestGeneralHookExchangeRelocatesEachProcedureCleanupThunk(t *testing.T) {
 		stride := uint32(i/3) * hookStride
 		if info[0] != 17 || thunk < stride || thunk >= stride+hookStride || binary.LittleEndian.Uint32(info[at+4:]) != uint32(i/3+1) || binary.LittleEndian.Uint64(p[thunk+6:]) != 0x200200 {
 			t.Fatal("wrong per-procedure cleanup relocation", i, thunk)
+		}
+	}
+}
+
+func exceptionHookImage() []byte {
+	b := hookImage()
+	put := binary.LittleEndian.PutUint32
+	put(b[128+24+136:], 0x50a0)
+	put(b[128+24+140:], 12)
+	put(b[0x2a0:], 0x5020)
+	put(b[0x2a4:], 0x5034)
+	put(b[0x2a8:], 0x50c0)
+	copy(b[0x2c0:], []byte{9, 0, 0, 0})
+	put(b[0x2c4:], 0x5060)
+	put(b[0x2c8:], 1)
+	put(b[0x2cc:], 0x5020)
+	put(b[0x2d0:], 0x5033)
+	put(b[0x2d4:], 1)
+	put(b[0x2d8:], 0x5033)
+	copy(b[0x260:], []byte{0xff, 0x25, 0x0a, 1, 0, 0})
+	put(b[128+24+120:], 0x5100)
+	put(b[128+24+124:], 40)
+	put(b[0x300:], 0x5160)
+	put(b[0x30c:], 0x51b0)
+	put(b[0x310:], 0x5170)
+	binary.LittleEndian.PutUint64(b[0x360:], 0x5180)
+	copy(b[0x382:], "__C_specific_handler\x00")
+	copy(b[0x3b0:], "msvcrt.dll\x00")
+	return b
+}
+func TestExceptionScopesRequireResumptionCapableAdapter(t *testing.T) {
+	for _, version := range []string{"APHOOK2\x00", "APHOOK3\x00", "APHOOK4\x00", "APHOOK5\x00"} {
+		offer := make([]byte, 61)
+		copy(offer, hookOffer()[:48])
+		copy(offer, version)
+		binary.LittleEndian.PutUint64(offer[48:], 0x200200)
+		binary.LittleEndian.PutUint32(offer[56:], 20)
+		offer[60] = 1
+		stream := &hookStream{in: bytes.NewReader(offer)}
+		err := installHooks(stream, exceptionHookImage(), []Procedure{{1, 0x5020}})
+		if version[6] != '5' {
+			if err == nil || !strings.Contains(err.Error(), "require APHOOK5") || stream.out.Len() != 1 {
+				t.Fatal("older adapter received translated scopes", err, stream.out.Len())
+			}
+		} else if err != nil {
+			t.Fatal("resumption-capable adapter rejected scopes", err)
 		}
 	}
 }

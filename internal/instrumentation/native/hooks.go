@@ -25,7 +25,8 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 	if _, err := io.ReadFull(conn, offer[:]); err != nil {
 		return fmt.Errorf("hook allocation offer: %w", err)
 	}
-	forwarding := string(offer[:8]) == "APHOOK3\x00" || string(offer[:8]) == "APHOOK4\x00"
+	resuming := string(offer[:8]) == "APHOOK5\x00"
+	forwarding := resuming || string(offer[:8]) == "APHOOK3\x00" || string(offer[:8]) == "APHOOK4\x00"
 	general := string(offer[:8]) == "APHOOK2\x00" || forwarding
 	if string(offer[:8]) != "APHOOK1\x00" && !general {
 		return errors.New("invalid hook allocation protocol")
@@ -80,6 +81,9 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 			plan, err := prepared.BuildFunction(proc.RVA, size, loaded, allocation+uint64(offset), enter, exit, cleanup, proc.ID)
 			if err != nil {
 				return fmt.Errorf("procedure %d frame plan: %w", proc.ID, err)
+			}
+			if plan.RelocatedHandler && !resuming {
+				return errors.New("update the native adapter DLL: translated exception scopes require APHOOK5")
 			}
 			if plan.OriginalHandlerRVA != 0 && !forwarding {
 				return errors.New("update the native adapter DLL: original unwind handlers require APHOOK3")

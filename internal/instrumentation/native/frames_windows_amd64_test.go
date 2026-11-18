@@ -17,9 +17,12 @@ func frameFixture(t *testing.T) LaunchOptions {
 	return frameSelectionFixture(t, map[string]uint32{"APFrameParent": 1, "APFrameChild": 2, "APFrameRecursive": 3})
 }
 func frameSelectionFixture(t *testing.T, names map[string]uint32) LaunchOptions {
+	return selectedFixture(t, "APFrameTarget.exe", names)
+}
+func selectedFixture(t *testing.T, filename string, names map[string]uint32) LaunchOptions {
 	t.Helper()
 	directory := filepath.Dir(labPath(t))
-	path := filepath.Join(directory, "APFrameTarget.exe")
+	path := filepath.Join(directory, filename)
 	image, err := pe.Open(path)
 	if err != nil {
 		t.Fatal(err)

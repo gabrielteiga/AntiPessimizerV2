@@ -94,32 +94,64 @@ static BOOL hook_allocate(void) {
     }
     return FALSE;
 }
-static EXCEPTION_DISPOSITION WINAPI function_unwind(PEXCEPTION_RECORD,PVOID,PCONTEXT,PDISPATCHER_CONTEXT);
+static EXCEPTION_DISPOSITION WINAPI function_unwind(PEXCEPTION_RECORD,PVOID,PCONTEXT,PVOID);
 static void function_enter(uint32_t,uintptr_t);
 static void function_exit(uint32_t,uintptr_t);
 static BOOL hook_forward_info(const unsigned char *data,uint32_t available,RUNTIME_FUNCTION *body,uint32_t index,const unsigned char *copied_info,uint32_t info_bytes) {
     if(available<8)return FALSE;
     uint32_t kind=hook_u32(data+4);
     if(!kind)return TRUE;
-    if(kind!=1 || available<36)return FALSE;
+    if((kind!=1 && kind!=2) || available<(kind==2?56u:36u))return FALSE;
+    uint32_t map_at=kind==2?56:36;
     unsigned char *image=(unsigned char *)GetModuleHandleW(NULL);
     IMAGE_NT_HEADERS64 *nt=(IMAGE_NT_HEADERS64 *)(image+((IMAGE_DOS_HEADER *)image)->e_lfanew);
     uint32_t image_size=nt->OptionalHeader.SizeOfImage;
     uint32_t rva=hook_u32(data+8),size=hook_u32(data+12),entry_rva=hook_u32(data+16),info_rva=hook_u32(data+20),handler_rva=hook_u32(data+24),handler_data=hook_u32(data+28),count=hook_u32(data+32);
-    if(rva!=hooks.selected[index].rva || size!=hooks.selected[index].size || (uint64_t)entry_rva+12>image_size || (uint64_t)info_rva+info_bytes+4>image_size || info_rva%4 || !handler_rva || handler_rva>=image_size || handler_data!=(uint64_t)info_rva+info_bytes+4 || !count || count>4097 || (uint64_t)36+count*4>available)return FALSE;
+    if(rva!=hooks.selected[index].rva || size!=hooks.selected[index].size || (uint64_t)entry_rva+12>image_size || (uint64_t)info_rva+info_bytes+4>image_size || info_rva%4 || !handler_rva || handler_rva>=image_size || handler_data!=(uint64_t)info_rva+info_bytes+4 || !count || count>4097 || (uint64_t)map_at+count*4>available)return FALSE;
     RUNTIME_FUNCTION *original=(RUNTIME_FUNCTION *)(image+entry_rva);
     const unsigned char *info=image+info_rva;
-    if(original->BeginAddress!=rva || original->EndAddress!=(uint64_t)rva+size || original->UnwindData!=info_rva || info[0]!=17 || memcmp(info+1,copied_info+1,info_bytes-1) || hook_u32(info+info_bytes)!=handler_rva)return FALSE;
+    if(original->BeginAddress!=rva || original->EndAddress!=(uint64_t)rva+size || original->UnwindData!=info_rva || (kind==1?info[0]!=17:(info[0]!=9 && info[0]!=25)) || memcmp(info+1,copied_info+1,info_bytes-1) || hook_u32(info+info_bytes)!=handler_rva)return FALSE;
     MEMORY_BASIC_INFORMATION memory;
     if(!VirtualQuery(image+handler_rva,&memory,sizeof(memory)) || memory.AllocationBase!=image || memory.State!=MEM_COMMIT || (memory.Protect&0xff)!=PAGE_EXECUTE_READ || (memory.Protect&PAGE_GUARD))return FALSE;
     uint32_t previous_source=0,previous_clone=0,delta=0,body_size=body->EndAddress-body->BeginAddress;
     if(body_size<size)return FALSE;
     for(uint32_t i=0;i<count;i++) {
-        uint32_t source=data[36+i*4]|((uint32_t)data[37+i*4]<<8),clone=data[38+i*4]|((uint32_t)data[39+i*4]<<8);
+        uint32_t source=data[map_at+i*4]|((uint32_t)data[map_at+1+i*4]<<8),clone=data[map_at+2+i*4]|((uint32_t)data[map_at+3+i*4]<<8);
         if((!i && (source || clone)) || (i && (source<=previous_source || clone<=previous_clone)) || source>size || clone>body_size || clone<source || clone-source<delta)return FALSE;
         previous_source=source;previous_clone=clone;delta=clone-source;
     }
-    return delta==body_size-size;
+    if(delta!=body_size-size)return FALSE;
+    if(kind==1)return TRUE;
+    uint32_t scope_bytes=hook_u32(data+40),shadow_at=hook_u32(data+48),scope_at=hook_u32(data+52);
+    if(hook_u32(data+36)!=1 || hook_u32(data+44)!=info[0] || scope_at!=map_at+count*4 || scope_bytes<20 || scope_bytes>4+64*16 || (scope_bytes-4)%16 || (uint64_t)scope_at+scope_bytes+12+info_bytes+20>available || shadow_at!=scope_at+scope_bytes || (uint64_t)handler_data+scope_bytes>image_size)return FALSE;
+    const unsigned char *scope=data+scope_at,*original_scope=image+handler_data;
+    uint32_t scopes=hook_u32(scope);
+    if(scopes!=(scope_bytes-4)/16 || scopes!=hook_u32(original_scope))return FALSE;
+    uintptr_t allocation=(uintptr_t)hooks.memory,image_base=(uintptr_t)image;
+    if(allocation<image_base || allocation-image_base>UINT32_MAX-hooks.bytes)return FALSE;
+    uint32_t difference=(uint32_t)(allocation-image_base);
+    const unsigned char *shadow=data+shadow_at,*alias=shadow+12;
+    uint32_t info_at=(uint32_t)(alias-hooks.memory),thunk=hook_u32(copied_info+info_bytes);
+    if(hook_u32(shadow)!=difference+body->BeginAddress || hook_u32(shadow+4)!=difference+body->EndAddress || hook_u32(shadow+8)!=difference+info_at || memcmp(alias,copied_info,info_bytes) || hook_u32(alias+info_bytes)!=difference+thunk || hook_u32(alias+info_bytes+4)!=hooks.selected[index].id || hook_u32(alias+info_bytes+8)!=3 || hook_u64(alias+info_bytes+12)!=(uintptr_t)data)return FALSE;
+    for(uint32_t i=0;i<scopes;i++) {
+        const unsigned char *a=original_scope+4+i*16,*b=scope+4+i*16;
+        uint32_t begin=hook_u32(a),end=hook_u32(a+4),filter=hook_u32(a+8),target=hook_u32(a+12);
+        if((uint64_t)begin<(uint64_t)rva+info[1] || begin>=end || (uint64_t)end>(uint64_t)rva+size || hook_u32(b+8)!=filter)return FALSE;
+        if(!target){if(!(info[0]&16) || !filter || (filter>=rva && (uint64_t)filter<(uint64_t)rva+size) || hook_u32(b+12))return FALSE;}
+        else if((uint64_t)target<(uint64_t)rva+info[1] || (uint64_t)target>=(uint64_t)rva+size || (filter!=1 && (!filter || (filter>=rva && (uint64_t)filter<(uint64_t)rva+size))))return FALSE;
+        if(filter!=1 && (!VirtualQuery(image+filter,&memory,sizeof(memory)) || memory.AllocationBase!=image || memory.State!=MEM_COMMIT || (memory.Protect&0xff)!=PAGE_EXECUTE_READ || (memory.Protect&PAGE_GUARD)))return FALSE;
+        for(uint32_t field=0;field<4;field++) {
+            if(field==2 || (field==3 && !target))continue;
+            uint32_t offset=hook_u32(a+field*4)-rva,shift=0;
+            for(uint32_t m=0;m<count;m++) {
+                uint32_t source=data[map_at+m*4]|((uint32_t)data[map_at+1+m*4]<<8),clone=data[map_at+2+m*4]|((uint32_t)data[map_at+3+m*4]<<8);
+                if(source>offset)break;
+                shift=clone-source;
+            }
+            if(hook_u32(b+field*4)!=difference+body->BeginAddress+offset+shift)return FALSE;
+        }
+    }
+    return TRUE;
 }
 static BOOL hook_exchange(HANDLE pipe,BOOL general) {
     if(!hook_allocate()) return FALSE;
@@ -128,7 +160,7 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
     hook_put64(offer+16,(uintptr_t)hooks.memory);
     hook_put32(offer+24,hooks.bytes); hook_put32(offer+28,hooks.count);
     hook_put64(offer+32,(uintptr_t)APNativeEnter); hook_put64(offer+40,(uintptr_t)APNativeExit);
-    if(general){offer[6]='4';hook_put64(offer+32,(uintptr_t)function_enter);hook_put64(offer+40,(uintptr_t)function_exit);hook_put64(offer+48,(uintptr_t)function_unwind);}
+    if(general){offer[6]='5';hook_put64(offer+32,(uintptr_t)function_enter);hook_put64(offer+40,(uintptr_t)function_exit);hook_put64(offer+48,(uintptr_t)function_unwind);}
     if(!hook_io(pipe,offer,general?56:48,TRUE)) return FALSE;
     for(uint32_t i=0;i<hooks.count;i++) {
         unsigned char extent[4]; hook_put32(extent,hooks.selected[i].size);
@@ -148,11 +180,11 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
         unsigned char *info=hooks.memory+f->UnwindData;
         if(general && i%per==1) {
             uint32_t extra=4+((info[2]+1)&~1)*2;
-            if(info[0]!=17 || (uint64_t)f->UnwindData+extra+12>table) return FALSE;
+            if((info[0]!=17 && info[0]!=25) || (uint64_t)f->UnwindData+extra+12>table) return FALSE;
             uint32_t handler=hook_u32(info+extra);
             if((uint64_t)handler+14>table || memcmp(hooks.memory+handler,"\xff\x25\0\0\0\0",6) || hook_u64(hooks.memory+handler+6)!=(uintptr_t)function_unwind || hook_u32(info+extra+4)!=hooks.selected[i/per].id) return FALSE;
             uint32_t data_at=f->UnwindData+extra+4;
-            if(!hook_forward_info(hooks.memory+data_at,table-data_at,f,i/per,info,extra))return FALSE;
+            if(!hook_forward_info(hooks.memory+data_at,table-data_at,f,i/per,info,extra) || (info[0]==25)!=(hook_u32(hooks.memory+data_at+4)==2))return FALSE;
         } else if(info[0]!=1 || info[1]!=7 || info[2]!=2 || info[3]!=0 || info[4]!=7 || info[5]!=1 || info[6]!=25 || info[7]!=0) return FALSE;
         previous=f->EndAddress;
     }

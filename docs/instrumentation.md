@@ -751,3 +751,16 @@ contagens, amostras e completed. Em falha, o arquivo preserva a evidência parci
 Isso complementa a medição de memória/handles do alvo durante 320 vidas de thread;
 não equivale a uma prova de execução contínua por horas nem estabelece limite
 mínimo de memória para um aplicativo Delphi arbitrário.
+
+
+## Busca, captura e continuação no formato CRT
+
+APHOOK5 acrescenta tabelas CRT reconhecidas ao subconjunto v1. Scopes internos
+são traduzidos para o corpo instrumentado, preservando callbacks externos.
+A representação sombra da função mantém o wrapper e ScopeIndex válidos em
+RtlUnwindEx/collided unwind. O frame que captura continua aberto até retornar;
+a exceção continuada não inventa uma saída. O programa APScopeTarget confere
+resultados, limpeza única e continuação, além das contagens/tempos conferidos
+pelo Go. As fixtures anteriores também selecionam agora seus próprios catches.
+[Contrato e limites](native-producer.md#tabelas-de-exceção-e-retomada-aphook5).
+Handlers Delphi privados, chains e outros formatos continuam rejeitados.

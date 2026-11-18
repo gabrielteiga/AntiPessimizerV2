@@ -24,4 +24,6 @@ if ($LASTEXITCODE -ne 0) { throw 'Controlled hook workload build failed' }
 if ($LASTEXITCODE -ne 0) { throw 'Unmodified launch target build failed' }
 & $gcc -m64 -std=c11 -O1 -Wall -Wextra -Werror -municode -fno-optimize-sibling-calls -static-libgcc -o (Join-Path $Output 'APFrameTarget.exe') ./native/frame_target_windows.c
 if ($LASTEXITCODE -ne 0) { throw 'Framed SEH target build failed' }
+& $gcc -m64 -std=c11 -O1 -Wall -Wextra -Werror -municode -fno-optimize-sibling-calls -static-libgcc -o (Join-Path $Output 'APScopeTarget.exe') ./native/scope_target_windows.c
+if ($LASTEXITCODE -ne 0) { throw 'Catch/resume SEH target build failed' }
 Write-Host "Native producer and controlled workload built in $Output"

@@ -37,6 +37,8 @@ type functionUnwind struct {
 	info                            []byte
 	runtimeRVA, infoRVA, handlerRVA uint32
 	handlerDataRVA                  uint32
+	handlerFlags                    byte
+	scopes                          []byte
 }
 
 // readPELeaf deliberately reads only bounded headers, sections and .pdata.
@@ -234,7 +236,7 @@ func (p *PEImage) readCode(rva, size uint32, collectedUnwind *functionUnwind) ([
 					return fail("procedure requires unwind/exception handling")
 				}
 			} else {
-				if (info[0] != 1 && info[0] != 17) || uint32(info[1]) > size {
+				if (info[0] != 1 && info[0] != 9 && info[0] != 17 && info[0] != 25) || uint32(info[1]) > size {
 					return fail("unsupported language handler, chained or non-v1 unwind info")
 				}
 				length := uint32(4 + ((uint32(info[2])+1)&^1)*2)
@@ -248,7 +250,7 @@ func (p *PEImage) readCode(rva, size uint32, collectedUnwind *functionUnwind) ([
 					return nil, 0, err
 				}
 				*collectedUnwind = functionUnwind{info: original, runtimeRVA: p.directoryRVA + uint32(offset), infoRVA: unwind}
-				if info[0] == 17 {
+				if info[0] != 1 {
 					if uint64(unwind)+uint64(length)+4 > uint64(p.imageSize) {
 						return fail("truncated original unwind handler")
 					}
@@ -258,8 +260,19 @@ func (p *PEImage) readCode(rva, size uint32, collectedUnwind *functionUnwind) ([
 					}
 					collectedUnwind.handlerRVA = u32(handler)
 					collectedUnwind.handlerDataRVA = unwind + length + 4
+					collectedUnwind.handlerFlags = info[0]
 					if _, ok := p.mapped(collectedUnwind.handlerRVA, 1, true); !ok || collectedUnwind.handlerRVA >= rva && uint64(collectedUnwind.handlerRVA) < uint64(rva)+uint64(size) {
 						return fail("invalid or self-referential original unwind handler")
+					}
+					if info[0]&8 != 0 {
+						if !p.cSpecificHandler(collectedUnwind.handlerRVA) {
+							return fail("unrecognized exception handler; only imported __C_specific_handler scopes are supported")
+						}
+						scopes, err := p.readScopes(collectedUnwind.handlerDataRVA, rva, size, info[1], info[0])
+						if err != nil {
+							return nil, 0, err
+						}
+						collectedUnwind.scopes = scopes
 					}
 				}
 			}
