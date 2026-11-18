@@ -20,6 +20,7 @@ procedimentos TD32; o DLL inspecionado não fornece a fixture TDS necessária.
 | Unwind v1, EHANDLER + UHANDLER | 523 |
 | Plano aceito antes da ampliação escalar | 6.698 |
 | Plano aceito após instruções escalares/home slots, antes do ajuste de ADD RSP | 6.892 |
+| Plano aceito após ADD RSP, strings com frame e operações LOCK permitidas | 7.075 |
 
 As principais lacunas confirmadas foram handlers de linguagem (1.562 entradas),
 operações de strings/estado implícito e instruções escalares comuns. Sete prólogos
@@ -37,7 +38,11 @@ O teste unitário preserva esse formato de bytes/metadados; o alvo Windows próp
 executa uma forma equivalente antes/depois de receber o plano instrumentado.
 
 O resultado orientou a ampliação de aritmética/condições/conversões SSE e a
-validação de ADD negativo. Stores sem frame permanecem limitados aos home slots;
-strings, CPUID, x87/AVX, MXCSR e handlers continuam rejeitados. Não transformar
+validação de ADD negativo. Uma segunda rodada, usando CheckImageProcedures nos
+mesmos intervalos runtime, aceitou 7.075 planos após MOVS/STOS com frame e operações
+LOCK permitidas. Continuam recusadas 1.562 entradas com handlers, 114 fora dos
+limites de tamanho e 26 por instruções/fluxos/prefixos ainda não cobertos.
+Stores sem frame permanecem limitados aos home slots; strings sem frame, CPUID,
+x87/AVX, MXCSR e handlers continuam rejeitados. Não transformar
 esta tabela numa porcentagem de paridade ou garantia de execução Delphi. Os
 resultados nativos publicados no CI continuam vindo de cargas C/assembly próprias.

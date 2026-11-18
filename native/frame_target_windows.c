@@ -24,8 +24,25 @@ extern uint64_t APFrameTiny(void);
 extern uint64_t APLeafMath(uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
 extern double APLeafConvert(float);
 extern uint64_t APFrameSignedAlloc(uint64_t);
+extern void *APFrameCopy(void *,const void *,uint64_t);
+extern uint64_t APFrameFill(void *,uint64_t,uint64_t);
+extern uint64_t APLeafAtomic(volatile uint64_t *,uint64_t);
+extern uint64_t APLeafCompare(uint64_t *,uint64_t,uint64_t);
+static volatile uint64_t atomic_total;
 METHOD uint64_t APFrameParent(uint64_t n){
  if(APFrameTiny()!=77)return 0;
+ uint64_t source[16],copied[16],filled[16];
+ for(uint32_t i=0;i<16;i++){source[i]=n+i+1;copied[i]=0;filled[i]=99;}
+ uint64_t bytes=n%16,words=n%8;
+ if(APFrameCopy(copied,source,bytes)!=copied)return 0;
+ const unsigned char *actual=(const unsigned char *)copied,*expected=(const unsigned char *)source;
+ for(uint32_t i=0;i<sizeof(copied);i++)if(actual[i]!=(i<bytes?expected[i]:0))return 0;
+ if(APFrameFill(filled,n+7,words)!=n+7)return 0;
+ for(uint32_t i=0;i<16;i++)if(filled[i]!=(i<words?n+7:99))return 0;
+ uint64_t local=n+1;
+ if(APLeafCompare(&local,n+1,n+2)!=n+1||local!=n+2)return 0;
+ if(APLeafCompare(&local,n+1,999)!=n+2||local!=n+2)return 0;
+ if(APLeafAtomic(&atomic_total,1)>=16016000)return 0;
  if(APLeafMath(n,11,13,17,19,23)!=((((n+11)*3)^13)+60))return 0;
  if(APFrameSignedAlloc(n)!=n+5)return 0;
  float input=(float)n-2.75f;
@@ -40,6 +57,11 @@ LONG APFrameFilter(EXCEPTION_POINTERS *p,void *frame){
  return p && p->ExceptionRecord->ExceptionCode==AP_FRAME_EXCEPTION?EXCEPTION_EXECUTE_HANDLER:EXCEPTION_CONTINUE_SEARCH;
 }
 extern uint64_t APFrameCatch(void);
+LONG APFrameMemoryFilter(EXCEPTION_POINTERS *p,void *frame){
+ (void)frame;
+ return p && p->ExceptionRecord->ExceptionCode==EXCEPTION_ACCESS_VIOLATION?EXCEPTION_EXECUTE_HANDLER:EXCEPTION_CONTINUE_SEARCH;
+}
+extern uint64_t APFrameMemoryCatch(void);
 __asm__(
  ".text\n .globl APFrameTiny\n .def APFrameTiny; .scl 2; .type 32; .endef\n"
  ".seh_proc APFrameTiny\n APFrameTiny:\n .seh_endprologue\n movl $77,%eax\n ret\n .seh_endproc\n"
@@ -55,6 +77,17 @@ __asm__(
  ".seh_proc APFrameSignedAlloc\n APFrameSignedAlloc:\n pushq %rbp\n .seh_pushreg %rbp\n"
  "addq $-128,%rsp\n .seh_stackalloc 128\n movq %rsp,%rbp\n .seh_setframe %rbp,0\n .seh_endprologue\n"
  "movq %rcx,48(%rsp)\n call *__imp_GetCurrentThreadId(%rip)\n movq 48(%rsp),%rax\n addq $5,%rax\n leaq 128(%rbp),%rsp\n popq %rbp\n ret\n .seh_endproc\n"
+ ".text\n .globl APFrameCopy\n .def APFrameCopy; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameCopy\n APFrameCopy:\n pushq %rsi\n .seh_pushreg %rsi\n pushq %rdi\n .seh_pushreg %rdi\n .seh_endprologue\n"
+ "movq %rcx,%rdi\n movq %rdx,%rsi\n movq %rcx,%rax\n movq %r8,%rcx\n shrq $3,%rcx\n rep movsq\n"
+ "movq %r8,%rcx\n andq $7,%rcx\n rep movsb\n popq %rdi\n popq %rsi\n ret\n .seh_endproc\n"
+ ".text\n .globl APFrameFill\n .def APFrameFill; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameFill\n APFrameFill:\n pushq %rdi\n .seh_pushreg %rdi\n .seh_endprologue\n"
+ "movq %rcx,%rdi\n movq %rdx,%rax\n movq %r8,%rcx\n rep stosq\n popq %rdi\n ret\n .seh_endproc\n"
+ ".text\n .globl APLeafAtomic\n .def APLeafAtomic; .scl 2; .type 32; .endef\n"
+ ".seh_proc APLeafAtomic\n APLeafAtomic:\n .seh_endprologue\n movq %rdx,%rax\n lock xaddq %rax,(%rcx)\n ret\n .seh_endproc\n"
+ ".text\n .globl APLeafCompare\n .def APLeafCompare; .scl 2; .type 32; .endef\n"
+ ".seh_proc APLeafCompare\n APLeafCompare:\n .seh_endprologue\n movq %rdx,%rax\n lock cmpxchgq %r8,(%rcx)\n ret\n .seh_endproc\n"
  ".text\n .globl APFrameCatch\n .def APFrameCatch; .scl 2; .type 32; .endef\n"
  ".seh_proc APFrameCatch\n APFrameCatch:\n"
  "subq $40,%rsp\n .seh_stackalloc 40\n .seh_endprologue\n"
@@ -64,6 +97,15 @@ __asm__(
  ".seh_handler __C_specific_handler, @except\n .seh_handlerdata\n"
  ".long 1\n .rva .Lframe_try_begin,.Lframe_try_end,APFrameFilter,.Lframe_catch\n"
  ".text\n .seh_endproc\n"
+ ".text\n .globl APFrameMemoryCatch\n .def APFrameMemoryCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameMemoryCatch\n APFrameMemoryCatch:\n"
+ "subq $56,%rsp\n .seh_stackalloc 56\n .seh_endprologue\n"
+ ".Lmemory_try_begin:\n leaq 32(%rsp),%rcx\n xorq %rdx,%rdx\n movq $8,%r8\n call APFrameCopy\n nop\n"
+ ".Lmemory_try_end:\n xorq %rax,%rax\n addq $56,%rsp\n ret\n"
+ ".Lmemory_catch:\n movq $888,%rax\n addq $56,%rsp\n ret\n"
+ ".seh_handler __C_specific_handler, @except\n .seh_handlerdata\n"
+ ".long 1\n .rva .Lmemory_try_begin,.Lmemory_try_end,APFrameMemoryFilter,.Lmemory_catch\n"
+ ".text\n .seh_endproc\n"
 );
 static HANDLE barrier;
 static uint32_t iterations=10;
@@ -72,6 +114,7 @@ static DWORD WINAPI worker(void *unused){
  if(WaitForSingleObject(barrier,5000)!=WAIT_OBJECT_0)return 1;
  for(uint32_t i=0;i<iterations;i++)if(APFrameParent(i+1)!=17+2*i)return 2;
  if(APFrameCatch()!=777)return 3;
+ if(APFrameMemoryCatch()!=888)return 4;
  return 0;
 }
 int wmain(int argc,wchar_t **argv){
@@ -95,5 +138,5 @@ int wmain(int argc,wchar_t **argv){
   GetExitCodeThread(handles[i],&code);CloseHandle(handles[i]);result|=code;
  }
  }
- CloseHandle(barrier);return result?5:0;
+ CloseHandle(barrier);return result||atomic_total!=(uint64_t)threads*rounds*(iterations+1)?5:0;
 }

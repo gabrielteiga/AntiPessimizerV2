@@ -33,7 +33,7 @@ func rewriteLeafBody(code []byte, source, base uint64) (leafBody, error) {
 func rewriteFunctionBody(code []byte, source, base uint64, framed bool, prologue int) (leafBody, error) {
 	return rewriteFunctionWithPatch(code, source, base, framed, prologue, JumpSize, false)
 }
-func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, prologue, patchSize int, homeWrites bool) (leafBody, error) {
+func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, prologue, patchSize int, nativeFunction bool) (leafBody, error) {
 	fail := func(reason string) (leafBody, error) {
 		return leafBody{}, fmt.Errorf("%w: leaf: %s", ErrUnsupported, reason)
 	}
@@ -49,9 +49,12 @@ func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, pro
 			return fail("invalid instruction")
 		}
 		for _, p := range inst.Prefix {
-			if p&x86asm.PrefixInvalid != 0 || p&0xff == x86asm.PrefixLOCK {
+			if p&x86asm.PrefixInvalid != 0 || p&0xff == x86asm.PrefixLOCK && (!nativeFunction || !lockedMemoryOperation(inst)) {
 				return fail("unsupported prefix")
 			}
+		}
+		if stringOperations[inst.Op.String()] && (!nativeFunction || !framed || inst.AddrSize != 64) {
+			return fail("string operation requires a verified native frame and 64-bit addresses")
 		}
 		d := leafInstruction{offset: offset, relocated: total, length: inst.Len, inst: inst}
 		switch {
@@ -87,7 +90,7 @@ func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, pro
 			}
 			d.absolute = target
 		default:
-			if !leafOperations[inst.Op.String()] && !scalarOperations[inst.Op.String()] && !(framed && frameOperations[inst.Op.String()]) {
+			if !leafOperations[inst.Op.String()] && !scalarOperations[inst.Op.String()] && !(framed && frameOperations[inst.Op.String()]) && !(nativeFunction && (atomicOperations[inst.Op.String()] || framed && stringOperations[inst.Op.String()])) {
 				return fail("unsupported operation: " + inst.Op.String())
 			}
 		}
@@ -171,7 +174,8 @@ func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, pro
 					return fail("stack, nonvolatile or unsupported register")
 				}
 			case x86asm.Mem:
-				if arg.Segment != 0 && !(framed && (arg.Segment == x86asm.GS || arg.Segment == x86asm.FS)) || arg.Base == x86asm.EIP {
+				flatString := stringOperations[d.inst.Op.String()] && (arg.Segment == x86asm.ES || arg.Segment == x86asm.DS)
+				if arg.Segment != 0 && !flatString && !(framed && (arg.Segment == x86asm.GS || arg.Segment == x86asm.FS)) || arg.Base == x86asm.EIP {
 					return fail("segmented/address-size memory")
 				}
 				if !framed && (arg.Index == x86asm.RSP || arg.Index == x86asm.ESP) {
@@ -189,7 +193,7 @@ func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, pro
 							return fail("indexed bit write can escape home slots")
 						}
 					}
-					if writes && (!homeWrites || d.inst.MemBytes <= 0 || arg.Disp+int64(d.inst.MemBytes) > 40) {
+					if writes && (!nativeFunction || d.inst.MemBytes <= 0 || arg.Disp+int64(d.inst.MemBytes) > 40) {
 						return fail("stack write outside Win64 home slots")
 					}
 				}

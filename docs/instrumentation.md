@@ -540,8 +540,8 @@ A leitura estática do DLL distribuído pelo original identificou rotinas sem
 frame que usam multiplicação/divisão, shifts, condições e conversões SSE sem
 necessidade de unwind adicional. O planejador agora aceita esse subconjunto
 posicionalmente independente, mantendo validação dos operandos e rejeitando
-operações com estado implícito não suportado (CPUID/RBX, strings/RSI/RDI, x87,
-AVX, MXCSR e prefixos LOCK). Chamadas continuam exigindo metadados de frame.
+operações com estado implícito não suportado (CPUID/RBX, strings/RSI/RDI sem
+frame, x87, AVX e MXCSR). Chamadas continuam exigindo metadados de frame.
 
 No caminho BuildPEFunction, stores sem frame podem usar apenas os 32 bytes de
 home slots Win64, entre RSP+8 e RSP+39. A largura inteira precisa caber nesse
@@ -563,3 +563,23 @@ UWOP_ALLOC_SMALL 128 e frame pointer RBP. O validador agora aceita ADD negativo
 como alocação, conferindo o valor assinado exato e todos os offsets/códigos.
 O teste nativo inclui essa forma com PUSH RBP, chamada Win64 e epílogo via RBP.
 Não aceita qualquer atualização de RSP por apenas ter o mesmo efeito aparente.
+
+## Cópia de memória e operações atômicas
+
+O caminho BuildPEFunction aceita MOVS/STOS (byte/word/dword/qword), com ou sem
+REP, apenas quando há frame nativo com prólogo/unwind conferidos e endereçamento
+de 64 bits. Essas operações alteram RSI/RDI implicitamente; continuam recusadas
+em funções sem frame. Os segmentos planos implícitos DS/ES são preservados.
+STD, I/O de strings e endereçamento de 32 bits permanecem fora do subconjunto.
+
+LOCK é preservado apenas nas operações permitidas com destino de memória:
+aritmética/bit, INC/DEC/NEG/NOT, XCHG, XADD e CMPXCHG. O caminho legado continua
+recusando LOCK. HLE, LOCK inválido, CMPXCHG8B/16B e seus estados implícitos não
+validados são rejeitados. As restrições de operandos, stack e referências RIP
+continuam aplicadas, incluindo a proibição de escrever no endereço de retorno.
+
+O alvo próprio confere todos os bytes de cópia/preenchimento, comprimentos zero
+e resto, contador global compartilhado entre threads e compare/exchange com
+sucesso/falha. Uma access violation real em REP MOVSQ atravessa o frame copiado
+e precisa chegar ao handler externo, com uma saída por unwind por thread.
+Esses testes C/assembly não comprovam handlers de linguagem Delphi.
