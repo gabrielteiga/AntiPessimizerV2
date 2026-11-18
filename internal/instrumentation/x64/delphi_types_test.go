@@ -100,3 +100,31 @@ func TestDelphiTypedCatchRejectsMalformedMetadata(t *testing.T) {
 		t.Fatal("typed target in instruction interior accepted", err)
 	}
 }
+
+func TestDelphiTypedMetadataBudgetBoundsNestedTables(t *testing.T) {
+	b, code := typedScopePE()
+	b = append(b, make([]byte, 0x1400-len(b))...)
+	w32(b, peSections+40+8, 0x1000)
+	w32(b, peSections+40+16, 0x1000)
+	scopes := make([]byte, 4+4*16)
+	w32(scopes, 0, 4)
+	for i := 0; i < 4; i++ {
+		address := uint32(0x2100 + i*0x300)
+		at := int(address-0x2000) + 0x400
+		w32(b, at, 64)
+		for j := 0; j < 64; j++ {
+			w32(b, at+4+j*8, 0x2f00)
+			w32(b, at+8+j*8, peLeafRVA+9)
+		}
+		w32(scopes, 4+i*16, peLeafRVA+5)
+		w32(scopes, 8+i*16, peLeafRVA+9)
+		w32(scopes, 12+i*16, address)
+	}
+	p, err := parsePEImage(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.delphiTypeTables(scopes, peLeafRVA, uint32(len(code)), 5); !errors.Is(err, ErrUnsupported) {
+		t.Fatal("nested typed tables exceeded metadata budget", err)
+	}
+}
