@@ -682,13 +682,14 @@ de saturação exige contador positivo junto de ErrLoss e incomplete=true.
 
 ## Corpus de execução da DLL Delphi original
 
-O CI Windows inclui um ensaio separado de seis rotinas com bytes conferidos na
-DLL v0.3 do Hoshoyo, comparando 600 pares original/corpo relocado com resultados
+O CI Windows inclui um ensaio separado de dez rotinas com bytes conferidos na
+DLL v0.3 do Hoshoyo, comparando 1.000 pares original/corpo relocado com resultados
 esperados e um helper nativo que altera GPR voláteis. São rotinas puras sobre
 buffers privados, chamadas sem inicializar a DLL ou suas dependências. O original
 não é modificado. Hashes, RVAs, bytes e limites de evidência estão no
 [mapa do original](phase0/antipessimizer-reference.md#execução-limitada-do-código-delphi-distribuído-pelo-original).
 Isso não certifica Delphi 10.4, handlers privados ou o fluxo completo num EXE Delphi.
+
 ## Planejamento de várias funções na mesma imagem
 
 Pré-validação e instalação preparam um snapshot PE imutável por lote. Cabeçalhos,

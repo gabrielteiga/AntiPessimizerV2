@@ -46,7 +46,7 @@ sem converter esse valor em chamadas ou duração por chamada.
    unwind encadeado/versões adicionais, tail calls e instruções não suportadas;
    funções menores que cinco bytes e formatos TD32 adicionais continuam rejeitados.
 3. **Compatibilidade Delphi demonstrada.** As fixtures de integração atuais são
-   C/GCC para o fluxo completo. Um ensaio separado compara seis rotinas conferidas
+   C/GCC para o fluxo completo. Um ensaio separado compara dez rotinas conferidas
    da DLL Delphi original com seus corpos relocados; não inclui handlers nem TDS.
    Exigir evidência reproduzível
    para prólogos, métodos, exceções e bibliotecas efetivamente suportados. A fixture

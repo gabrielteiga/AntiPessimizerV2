@@ -181,11 +181,14 @@ scripts/test-reference-delphi.ps1 fixa o ZIP v0.3 (SHA256
 e a DLL pelo hash acima. O CI baixa o asset público e confere ambos antes de
 extrair/executar. Os binários externos não entram no repositório nem no pacote.
 A DLL é mapeada com DONT_RESOLVE_DLL_REFERENCES: não se executam DllMain,
-inicializadores ou dependências. Somente seis corpos com bytes completos
+inicializadores ou dependências. Somente dez corpos com bytes completos
 conferidos podem ser chamados, com buffers privados preparados pelo teste.
 
-O corpus usa os RVAs 0x19210, 0x7a9e0, 0x8c460, 0x3ffe0, 0x8e900 e 0x98700:
-retorno constante, acesso a campos, indireção opcional, leitura de word e bool.
+O corpus usa os RVAs 0x19210, 0x7a9e0, 0x8c460, 0x3ffe0, 0x8e900, 0x98700,
+0x18020, 0x18050, 0x18570 e 0x18700: retorno constante, acesso a campos,
+indireção opcional, leitura de word/bool, igualdade/desigualdade de inteiros,
+indexação e retorno de argumento. Quatro rotinas têm frame RBP e locals,
+com os códigos de unwind e prólogos reais do binário original.
 Há 100 pares original/cópia por rotina, exigindo o valor calculado a partir dos
 operandos em ambos os lados. Os helpers nativos clobberam os GPR voláteis para
 conferir preservação pelo probe. A tabela dinâmica de unwind é registrada/retirada
@@ -193,6 +196,6 @@ e os bytes do original são conferidos novamente; não se aplica patch à DLL.
 
 Essa é evidência de execução de um subconjunto do binário Delphi do projeto de
 referência. Não há nomes TDS nem versão de compilador comprovados; não testa o
-instalador completo, handlers Delphi ou prologues complexos. A integração completa
+instalador completo, handlers Delphi ou todos os prólogos do compilador. A integração completa
 com chamadas, seleção, métricas e exceções permanece demonstrada em fixtures C.
 O artefato Reference-Delphi-<run_id> grava hash, RVAs, bytes e número de pares.

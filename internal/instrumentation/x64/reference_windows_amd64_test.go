@@ -36,6 +36,10 @@ var referenceCases = []referenceCase{
 	{0x3ffe0, "488b41084885c07404488b40f8c3", "nullable"},
 	{0x8e900, "488b4108480fb7400ac3", "word"},
 	{0x98700, "488b41088038ff0f95c0c3", "boolean"},
+	{0x18020, "554883ec10488bec488b0148894508488b0248894500488b4508483b45000f94c0488d65105dc3", "equal-framed"},
+	{0x18050, "554883ec10488bec488b0148894508488b0248894500488b4508483b45000f95c0488d65105dc3", "not-equal-framed"},
+	{0x18570, "554883ec10488bec488b024a8b040048894508488b4508488d65105dc3", "indexed-framed"},
+	{0x18700, "554883ec10488bec48895508488b4508488d65105dc3", "argument-framed"},
 }
 
 func referenceAllocation(t *testing.T, loaded uint64, imageSize uint32) uintptr {
@@ -177,6 +181,7 @@ func TestReferenceDelphiReadOnlyRoutinesPreserveNativeResults(t *testing.T) {
 			for trial := uint64(0); trial < 100; trial++ {
 				input := make([]byte, 256)
 				put := binary.LittleEndian.PutUint64
+				put(input, 0x123456789abcd000+trial)
 				put(input[8:], uint64(rw+512))
 				put(input[32:], 0xfedcba9876543200+trial)
 				secondary := make([]byte, 32)
@@ -186,6 +191,9 @@ func TestReferenceDelphiReadOnlyRoutinesPreserveNativeResults(t *testing.T) {
 				}
 				binary.LittleEndian.PutUint16(secondary[10:], uint16(trial+1000))
 				var mask, want uint64 = ^uint64(0), 0
+				var peer [8]byte
+				put(peer[:], 0x123456789abcd000+trial+trial%2)
+				arguments := []uintptr{rw + 128, rw + 384, uintptr(trial % 4 * 8)}
 				switch c.Kind {
 				case "constant":
 					want = 0x260
@@ -203,14 +211,28 @@ func TestReferenceDelphiReadOnlyRoutinesPreserveNativeResults(t *testing.T) {
 					want = trial + 1000
 				case "boolean":
 					mask, want = 0xff, trial%2
+				case "equal-framed":
+					mask, want = 0xff, 1-trial%2
+				case "not-equal-framed":
+					mask, want = 0xff, trial%2
+				case "indexed-framed":
+					put(peer[:], uint64(rw+512))
+					for i := uint64(0); i < 4; i++ {
+						put(secondary[i*8:], 0x123456789000+i+trial)
+					}
+					want = 0x123456789000 + trial%4 + trial
+				case "argument-framed":
+					want = 0xfedcba9876543000 + trial
+					arguments[1] = uintptr(want)
 				}
 				write(rw+128, input)
 				write(rw+512, secondary)
+				write(rw+384, peer[:])
 				var preceding [8]byte
 				put(preceding[:], want)
 				write(rw+504, preceding[:])
-				original, _, _ := syscall.SyscallN(uintptr(dll)+uintptr(c.RVA), rw+128)
-				cloned, _, _ := syscall.SyscallN(memory, rw+128)
+				original, _, _ := syscall.SyscallN(uintptr(dll)+uintptr(c.RVA), arguments...)
+				cloned, _, _ := syscall.SyscallN(memory, arguments...)
 				if uint64(original)&mask != want || uint64(cloned)&mask != want {
 					t.Fatalf("original/relocated result changed: trial=%d original=%#x clone=%#x want=%#x mask=%#x", trial, original, cloned, want, mask)
 				}
