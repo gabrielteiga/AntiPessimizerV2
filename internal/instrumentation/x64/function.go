@@ -20,11 +20,21 @@ type FunctionPlan struct {
 // A native cleanup handler records exceptional exits;
 // it must have the Windows EXCEPTION_DISPOSITION handler ABI, not a Go callback.
 func BuildPEFunction(image []byte, rva, size uint32, loadedBase, base, enter, exit, unwind uint64, id uint32) (FunctionPlan, error) {
+	p, err := parsePEImage(image)
+	if err != nil {
+		return FunctionPlan{}, err
+	}
+	return p.BuildFunction(rva, size, loadedBase, base, enter, exit, unwind, id)
+}
+
+// BuildFunction plans against this prepared image. Every call still validates
+// the selected code/prologue, native unwind actions and actual relocation range.
+func (p *PEImage) BuildFunction(rva, size uint32, loadedBase, base, enter, exit, unwind uint64, id uint32) (FunctionPlan, error) {
 	fail := func(reason string) (FunctionPlan, error) {
 		return FunctionPlan{}, fmt.Errorf("%w: function: %s", ErrUnsupported, reason)
 	}
 	var metadata functionUnwind
-	code, imageSize, err := readPECode(image, rva, size, &metadata)
+	code, imageSize, err := p.readCode(rva, size, &metadata)
 	if err != nil {
 		return FunctionPlan{}, err
 	}

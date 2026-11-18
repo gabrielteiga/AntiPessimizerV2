@@ -59,6 +59,14 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 		patch, source []byte
 	}
 	plans := make([]selectedPlan, 0, count)
+	var prepared *x64.PEImage
+	if general {
+		var err error
+		prepared, err = x64.NewPEImage(image)
+		if err != nil {
+			return err
+		}
+	}
 	// A whole stride per procedure keeps its relative RVAs independent. The
 	// final runtime table follows code and is relative to allocation.
 	tableOffset := capacity - uint32(int(count)*per*12)
@@ -69,7 +77,7 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 		var source, patch, code []byte
 		var functions []x64.RuntimeFunction
 		if general {
-			plan, err := x64.BuildPEFunction(image, proc.RVA, size, loaded, allocation+uint64(offset), enter, exit, cleanup, proc.ID)
+			plan, err := prepared.BuildFunction(proc.RVA, size, loaded, allocation+uint64(offset), enter, exit, cleanup, proc.ID)
 			if err != nil {
 				return fmt.Errorf("procedure %d frame plan: %w", proc.ID, err)
 			}
