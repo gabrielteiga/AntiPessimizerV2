@@ -15,6 +15,17 @@ func Image(symbols bool) []byte { return image(symbols, true) }
 // Image32 is the I386 equivalent of Image.
 func Image32(symbols bool) []byte { return image(symbols, false) }
 
+// PlannableImage has a valid header size and one supported sixteen-byte leaf
+// (MOV EAX,42; NOPs; RET) at Lab.Hot. It remains a synthetic, non-runnable PE.
+func PlannableImage() []byte {
+	b := Image(true)
+	binary.LittleEndian.PutUint32(b[128+24+60:], 0x200) // SizeOfHeaders
+	copy(b[0x220:], []byte{0xb8, 42, 0, 0, 0})
+	copy(b[0x225:], bytes.Repeat([]byte{0x90}, 10))
+	b[0x22f] = 0xc3
+	return b
+}
+
 func image(symbols, wide bool) []byte {
 	var b bytes.Buffer
 	dos := make([]byte, 128)

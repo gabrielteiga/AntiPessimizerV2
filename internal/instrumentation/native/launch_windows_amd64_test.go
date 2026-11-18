@@ -167,3 +167,37 @@ func TestNativeProducerDebugLaunchRejectsChangedBuildBeforeStartup(t *testing.T)
 		t.Fatal("build identity check did not precede startup", err)
 	}
 }
+
+func TestNativeProducerPreflightRejectsUnsupportedBeforeStartup(t *testing.T) {
+	o := launchFixture(t)
+	data, err := os.ReadFile(o.Image)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := pe.Open(o.Image)
+	if err != nil {
+		t.Fatal(err)
+	}
+	patched := false
+	for _, section := range f.Sections {
+		rva := o.Procedures[0].RVA
+		if rva >= section.VirtualAddress && uint64(rva)+2 <= uint64(section.VirtualAddress)+uint64(section.Size) {
+			at := uint64(section.Offset) + uint64(rva-section.VirtualAddress)
+			data[at], data[at+1] = 0x0f, 0x0b // UD2 is rejected by the planner.
+			patched = true
+		}
+	}
+	f.Close()
+	if !patched {
+		t.Fatal("fixture procedure is not mapped")
+	}
+	o.Image = filepath.Join(t.TempDir(), "unsupported.exe")
+	if err := os.WriteFile(o.Image, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	o.DLL = "missing.dll"
+	var output bytes.Buffer
+	if err := Launch(context.Background(), o, &output); err == nil || !strings.Contains(err.Error(), "preflight rejected") || output.Len() != 0 {
+		t.Fatal("unsupported code reached DLL startup", err, output.String())
+	}
+}

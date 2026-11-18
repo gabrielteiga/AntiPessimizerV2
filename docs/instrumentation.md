@@ -314,6 +314,17 @@ instala o plano antes de liberar o startup. O debugger permanece num único OS
 thread e preserva o tratamento das exceções da aplicação. Não faz attach num
 processo já em uso. A DLL não é o DLL Delphi original.
 
+`instrument --list --check` acrescenta `checks` por ID (`plan_supported` e
+`reason`), sem executar código nem exigir a DLL. A mesma opção no RPC de catálogo
+(`check: true`, CLI `viewer --op instrument-catalog --check`) verifica apenas a
+página retornada. A janela solicita a checagem e marca funções rejeitadas.
+Serviço e launcher repetem a pré-validação antes de iniciar um alvo, preservando
+o histórico anterior quando a seleção é recusada. O arquivo é limitado a 128 MiB
+como no lançamento nativo, e sua identidade SHA-256 deve coincidir com o catálogo.
+O planejamento estático pressupõe alocação próxima e não comprova ABI ou suporte
+a uma versão Delphi. A instalação continua obrigada a conferir os endereços
+reais, bytes originais e unwind; ela pode rejeitar um plano estático aceito.
+
 Os testes executam APLaunchTarget.exe sem imports/SDK/callbacks do profiler e
 exigem 30 chamadas de workers mais uma chamada de finalizador. A captura é
 drenada antes da saída normal, preservando a execução dos finalizadores. Para

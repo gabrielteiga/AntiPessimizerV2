@@ -19,6 +19,7 @@ Revisado em 18 de novembro de 2026.
 | Funções com pilha/chamadas | Prólogos e unwind v1 verificados; calls, recursão, condições, loops e múltiplas saídas; testes Windows em alvo C com exceção SEH real |
 | Subconjunto escalar | Aritmética/condições/conversões SSE sem frame e home slots Win64 limitados; prólogo ADD RSP negativo verificado contra unwind |
 | Controle pela interface | Catálogo pesquisável, seleção de até 16 procedimentos, argumentos, prazo, iniciar/parar pelo coletor e métricas ao vivo na janela |
+| Pré-validação | Catálogo identifica funções fora do subconjunto aceito; serviço e launcher recusam a seleção antes de abrir o programa |
 | Independência do viewer | Fechar a janela/desconectar observador não encerra a captura; Parar cancela explicitamente o novo processo instrumentado |
 | Arquivos e histórico | Salvar/replay, acompanhamento de arquivo crescente, filtros, ordenação e histórico limitado; comparação entre sessões de sampling e instrumentação |
 | Ciclos de vida de threads | Encerramento pelo evento real do Windows e reutilização do pool nativo; teste de 300 instâncias sem mesclar contagens |
@@ -61,6 +62,10 @@ esse modo diretamente:
 viewer.exe --gui --instrumentation
 ```
 
+O catálogo marca procedimentos não suportados e mostra o motivo. Essa checagem
+estática não executa o EXE nem carrega a DLL. O início refaz as verificações;
+um plano estático aceito ainda depende dos endereços reais e da validação na instalação.
+
 O coletor inicia e possui um **novo processo**. Não faz attach ao programa que já
 está aberto. O EXE não é alterado em disco. **Parar** encerra o novo processo e
 marca a captura interrompida como incompleta; fechar o viewer mantém o coletor e
@@ -83,6 +88,7 @@ thread; o núcleo limita a 4096 linhas por época de Clear.
 
 ```bat
 instrument.exe --image caminho\app.exe --list
+instrument.exe --image caminho\app.exe --list --check --procedure MinhaUnidade.Calcular
 instrument.exe --image caminho\app.exe --unit MinhaUnidade --procedure MinhaUnidade.Calcular --output chamadas.ndjson
 viewer.exe --gui --instrumentation --follow chamadas.ndjson
 ```
@@ -93,6 +99,11 @@ prazo e `--dll caminho` seleciona a DLL no lançamento direto. `--output` exige
 arquivo novo. O viewer também abre a captura encerrada com
 `viewer.exe --gui --replay chamadas.ndjson`. No acompanhamento, **Desconectar**
 fecha apenas a leitura, preservando o escritor e o alvo.
+
+`--list --check` acrescenta `checks` por ID, com `plan_supported` e o motivo das
+rejeições, usando o mesmo planejador da instalação. Não certifica compatibilidade
+com todas as variantes do Delphi. Em catálogos grandes, filtre a consulta para
+verificar apenas os procedimentos desejados.
 
 O subconjunto aceita unwind v1 sem handlers próprios, prólogos verificados,
 chamadas/recursão, branches internos e múltiplos retornos, de 5 a 4096 bytes por procedimento quando a alocação
@@ -110,7 +121,7 @@ viewer.exe --op status
 viewer.exe --op stop
 viewer.exe --save session.ndjson --seconds 30
 viewer.exe --replay before.ndjson --compare after.ndjson
-viewer.exe --op instrument-catalog --image C:\app\app.exe --symbol-filter Calcular
+viewer.exe --op instrument-catalog --image C:\app\app.exe --symbol-filter Calcular --check
 ```
 
 O catálogo retorna `image_id`, `catalog_id` e IDs dos procedimentos. Use os valores

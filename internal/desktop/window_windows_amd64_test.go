@@ -11,6 +11,7 @@ import (
 	"golang.org/x/sys/windows"
 	"io"
 	"os"
+	"strings"
 	"testing"
 	"time"
 	"unsafe"
@@ -244,7 +245,18 @@ func TestNativeInstrumentedControlWindowSmoke(t *testing.T) {
 	address := listener.Addr().String()
 	c := service.New()
 	c.LoadCatalog = func(string) (native.Catalog, error) {
-		return native.Catalog{CatalogID: "catalog-token", ImageID: "smoke-build", Procedures: []native.SelectedProcedure{{ID: 7, RVA: 0x1000, Size: 32, Name: "Lab.Parent", Unit: "Lab"}}}, nil
+		return native.Catalog{CatalogID: "catalog-token", ImageID: "smoke-build", Procedures: []native.SelectedProcedure{{ID: 7, RVA: 0x1000, Size: 32, Name: "Lab.Parent", Unit: "Lab"}, {ID: 8, RVA: 0x2000, Size: 32, Name: "Lab.Handler", Unit: "Lab"}}}, nil
+	}
+	c.CheckCatalog = func(_ native.Catalog, procedures []native.SelectedProcedure) ([]native.ProcedureCheck, error) {
+		var checks []native.ProcedureCheck
+		for _, p := range procedures {
+			check := native.ProcedureCheck{ID: p.ID, PlanSupported: p.ID == 7}
+			if !check.PlanSupported {
+				check.Reason = "language handler"
+			}
+			checks = append(checks, check)
+		}
+		return checks, nil
 	}
 	launch := make(chan native.LaunchOptions, 1)
 	records := metricRecords(t)
@@ -277,10 +289,21 @@ func TestNativeInstrumentedControlWindowSmoke(t *testing.T) {
 			w.tick()
 			time.Sleep(10 * time.Millisecond)
 		}
-		if w.catalog == nil || len(w.catalog.Procedures) != 1 {
+		if w.catalog == nil || len(w.catalog.Procedures) != 2 || len(w.catalog.Checks) != 2 {
 			return fmt.Errorf("symbol selection did not reach the native list")
 		}
-		send.Call(w.procedureList, 0x185, 1, 0) // LB_SETSEL: choose the first procedure.
+		var label [256]uint16
+		send.Call(w.procedureList, 0x189, 1, uintptr(unsafe.Pointer(&label[0]))) // LB_GETTEXT
+		if !strings.Contains(windows.UTF16ToString(label[:]), "não suportado: language handler") {
+			return fmt.Errorf("unsupported procedure label missing")
+		}
+		send.Call(w.procedureList, 0x185, 1, 1) // Select unsupported procedure.
+		w.command(3)
+		if !strings.Contains(value(w.status), "language handler") || c.Status().State != "idle" || len(launch) != 0 {
+			return fmt.Errorf("unsupported procedure reached collector launch")
+		}
+		send.Call(w.procedureList, 0x185, 0, ^uintptr(0)) // Clear all selections.
+		send.Call(w.procedureList, 0x185, 1, 0)           // LB_SETSEL: choose the first procedure.
 		text(w.programArgs, `--name "valor com espaços"`)
 		text(w.launchTimeout, "120")
 		w.command(3)

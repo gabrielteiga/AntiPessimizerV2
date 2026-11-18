@@ -779,6 +779,11 @@ func (a *window) tick() {
 				send.Call(a.procedureList, 0x184, 0, 0)
 				for _, procedure := range page.Procedures {
 					label := procedure.Unit + " | " + procedure.Name
+					for _, check := range page.Checks {
+						if check.ID == procedure.ID && !check.PlanSupported {
+							label += " [não suportado: " + check.Reason + "]"
+						}
+					}
 					send.Call(a.procedureList, 0x180, 0, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(label))))
 				}
 				text(a.details, fmt.Sprintf("%d de %d símbolos. Selecione até 16 com Ctrl/Shift. Iniciar lança um novo processo; Parar encerra esse processo.", len(page.Procedures), page.Total))
@@ -1006,7 +1011,7 @@ func (a *window) configureMode() {
 func (a *window) instrumentCommand(id int) {
 	path := value(a.imagePath)
 	if id == 2 {
-		a.request(service.Request{Op: "instrument-catalog", Catalog: service.CatalogQuery{Image: path, Text: value(a.symbolSearch), Limit: 200}})
+		a.request(service.Request{Op: "instrument-catalog", Catalog: service.CatalogQuery{Image: path, Text: value(a.symbolSearch), Limit: 200, Check: true}})
 		return
 	}
 	if a.catalog == nil || a.catalogPath != path {
@@ -1030,7 +1035,14 @@ func (a *window) instrumentCommand(id int) {
 			text(a.status, "Seleção inválida; leia os símbolos novamente.")
 			return
 		}
-		ids = append(ids, a.catalog.Procedures[index].ID)
+		procedureID := a.catalog.Procedures[index].ID
+		for _, check := range a.catalog.Checks {
+			if check.ID == procedureID && !check.PlanSupported {
+				text(a.status, "Procedimento não suportado: "+check.Reason)
+				return
+			}
+		}
+		ids = append(ids, procedureID)
 	}
 	seconds, err := strconv.ParseInt(value(a.launchTimeout), 10, 64)
 	if err != nil || seconds < 1 || seconds > 86400 {

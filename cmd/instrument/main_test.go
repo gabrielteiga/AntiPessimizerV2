@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/gabrielteiga/AntiPessimizerV2/internal/instrumentation/native"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/testfixture"
 	"os"
 	"path/filepath"
@@ -34,6 +35,34 @@ func TestCatalogSelectionDoesNotLaunch(t *testing.T) {
 		output.Reset()
 		if err := run(context.Background(), args, &output, &diagnostics); err == nil || output.Len() != 0 {
 			t.Fatal("invalid selection launched or emitted data", args, err)
+		}
+	}
+}
+
+func TestCatalogPreflightReportsSupportWithoutNativeDLL(t *testing.T) {
+	for _, supported := range []bool{true, false} {
+		path := filepath.Join(t.TempDir(), "app.exe")
+		data := testfixture.PlannableImage()
+		if !supported {
+			data[0x220], data[0x221] = 0x0f, 0x0b // UD2, outside accepted instructions
+		}
+		if err := os.WriteFile(path, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		var out, diagnostics bytes.Buffer
+		if err := run(context.Background(), []string{"--image", path, "--list", "--check", "--dll", "missing.dll"}, &out, &diagnostics); err != nil {
+			t.Fatal(err)
+		}
+		var result struct{ Checks []native.ProcedureCheck }
+		if err := json.Unmarshal(out.Bytes(), &result); err != nil || len(result.Checks) != 1 || result.Checks[0].PlanSupported != supported {
+			t.Fatal("static support missing", out.String(), err)
+		}
+		if !supported && result.Checks[0].Reason == "" {
+			t.Fatal("unsupported procedure has no explanation")
+		}
+		out.Reset()
+		if err := run(context.Background(), []string{"--image", path, "--check"}, &out, &diagnostics); err == nil || out.Len() != 0 {
+			t.Fatal("preflight without catalog mode accepted", err)
 		}
 	}
 }

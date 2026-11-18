@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/symbols"
@@ -18,6 +19,7 @@ type Catalog struct {
 	ImageID      string              `json:"image_id"`
 	SymbolSource string              `json:"symbol_source"`
 	Procedures   []SelectedProcedure `json:"procedures"`
+	sourcePath   string
 }
 
 func ReadCatalog(path string) (Catalog, error) {
@@ -25,7 +27,11 @@ func ReadCatalog(path string) (Catalog, error) {
 	if err != nil {
 		return Catalog{}, err
 	}
-	result := Catalog{ImageID: image.ID, SymbolSource: image.SymbolSource}
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return Catalog{}, err
+	}
+	result := Catalog{ImageID: image.ID, SymbolSource: image.SymbolSource, sourcePath: path}
 	for i, p := range image.Index.Procedures() {
 		result.Procedures = append(result.Procedures, SelectedProcedure{ID: uint32(i + 1), RVA: uint32(p.RVA), Size: uint32(p.Size), Name: p.Name, Unit: p.Unit})
 	}

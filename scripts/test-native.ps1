@@ -42,6 +42,8 @@ go run ./experiments/tdsfixture $launchTarget
 if ($LASTEXITCODE -ne 0) { throw 'Owned native TD32 fixture generation failed' }
 go build -o (Join-Path $dir 'instrument.exe') ./cmd/instrument
 if ($LASTEXITCODE -ne 0) { throw 'Instrument command build failed' }
+$preflight = & (Join-Path $dir 'instrument.exe') --image $launchTarget --list --check --dll 'missing.dll' | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0 -or @($preflight.checks).Count -ne 1 -or !$preflight.checks[0].plan_supported) { throw 'Static TD32 preflight rejected supported native code' }
 $launchArchive = Join-Path $dir 'unmodified-target-metrics.ndjson'
 $nativeDll = Join-Path (Split-Path $env:AP_NATIVE_LAB) 'AntiPessimizerNative.dll'
 & (Join-Path $dir 'instrument.exe') --image $launchTarget --dll $nativeDll --unit LabWorkload --procedure Lab.Hotspot --arg=--threads --arg=3 --arg=--iterations --arg=10 --output $launchArchive
@@ -72,8 +74,8 @@ try {
         Start-Sleep -Milliseconds 50
     }
     if (!$ready) { throw 'Instrumented service did not start' }
-    $catalog = & (Join-Path $dir 'viewer.exe') --address $servicePipe --op instrument-catalog --image $launchTarget | ConvertFrom-Json
-    if ($LASTEXITCODE -ne 0 -or $catalog.catalog.total -ne 1) { throw 'Service TD32 catalog failed' }
+    $catalog = & (Join-Path $dir 'viewer.exe') --address $servicePipe --op instrument-catalog --image $launchTarget --check | ConvertFrom-Json
+    if ($LASTEXITCODE -ne 0 -or $catalog.catalog.total -ne 1 -or @($catalog.catalog.checks).Count -ne 1 -or !$catalog.catalog.checks[0].plan_supported) { throw 'Service TD32 catalog failed' }
     $procedureID = $catalog.catalog.procedures[0].id
     $null = & (Join-Path $dir 'viewer.exe') --address $servicePipe --op instrument-start --image $launchTarget --image-id $catalog.catalog.image_id --catalog-id $catalog.catalog.catalog_id --procedure-ids $procedureID --arg=--threads --arg=3 --arg=--iterations --arg=10
     if ($LASTEXITCODE -ne 0) { throw 'Service instrumented launch failed' }
