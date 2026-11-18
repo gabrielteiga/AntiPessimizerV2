@@ -27,6 +27,7 @@ Revisado em 18 de novembro de 2026.
 | Arquivos e histórico | Salvar/replay, acompanhamento de arquivo crescente, filtros, ordenação e histórico limitado; comparação entre sessões de sampling e instrumentação |
 | Ciclos de vida de threads | Encerramento pelo evento real do Windows e reutilização do pool nativo; teste de 300 instâncias sem mesclar contagens |
 | Drenagem cooperativa | Worker ocioso desperta por evento coalescido, com rescan contra despertar perdido; entrega ao vivo conferida antes de encerrar a captura |
+| Evidência do original | Dez rotinas conferidas da DLL Delphi v0.3: 1.000 pares de retornos originais/relocados, sem inicializar a DLL; sem certificação de Delphi 10.4 |
 | Qualidade | Testes Go/race, integração nativa Windows, ETW, janela Win32, executáveis e empacotamento; merge somente com CI aprovado no commit exato |
 | Carga e recursos | Ensaio C de 320 vidas de thread/32.001 chamadas, memória/handles por rodada e perda explícita sob saturação; relatório bruto no CI |
 | Contadores nativos | Leituras atômicas sequencialmente consistentes; CI compara DLLs com/sem RMW no mesmo alvo e runner |
@@ -38,6 +39,8 @@ continuam fora do subconjunto aceito. A limpeza de métricas já usa uma barreir
 preservando as chamadas em andamento e o histórico das épocas anteriores. A compatibilidade com todas as
 variantes do Delphi 10.4 e o overhead nesse ambiente ainda não foram comprovados.
 Fixtures C e TDS sintéticos não são apresentados como binários compilados no Delphi.
+O ensaio adicional da DLL original executa apenas dez rotinas simples conferidas;
+não comprova handlers, integração completa ou a versão do compilador.
 
 ## Pacote Windows
 
