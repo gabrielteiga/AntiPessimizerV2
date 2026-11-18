@@ -735,3 +735,19 @@ recuperar o mesmo slot no unwind, incluindo RBP com FrameOffset. O teste Win64
 exige igualdade dos tokens de entrada/saída com o RSP real e preservação de RCX/RDX;
 uma access violation atravessa um frame RBP de bias não zero. A contabilidade Go,
 Clear e os formatos de arquivo não mudam. O suporte a EHANDLER continua pendente.
+
+
+## Recursos do coletor entre sessões
+
+TestNativeStressRepeatedOwnedCapturesReleaseResources executa 32 lançamentos
+sequenciais, cada um com um worker e um finalizador, exigindo 64 chamadas exatas
+e métricas completas em todas as sessões. Depois de cada encerramento, mede
+heap Go após GC, goroutines e handles do processo coletor. Após quatro capturas
+de aquecimento, admite no máximo +16 MiB de heap e +8 handles/goroutines em
+qualquer amostra. O observador retém somente o último snapshot de cada captura.
+
+Native-stress inclui native-resources.json v1 com SHA do alvo, versão Go,
+contagens, amostras e completed. Em falha, o arquivo preserva a evidência parcial.
+Isso complementa a medição de memória/handles do alvo durante 320 vidas de thread;
+não equivale a uma prova de execução contínua por horas nem estabelece limite
+mínimo de memória para um aplicativo Delphi arbitrário.
