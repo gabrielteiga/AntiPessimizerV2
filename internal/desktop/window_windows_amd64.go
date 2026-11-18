@@ -779,6 +779,15 @@ func (a *window) tick() {
 				send.Call(a.procedureList, 0x184, 0, 0)
 				for _, procedure := range page.Procedures {
 					label := procedure.Unit + " | " + procedure.Name
+					for _, alias := range page.Aliases {
+						if alias.ID == procedure.ID {
+							if len(label)+len(alias.Unit)+len(alias.Name) > 2040 {
+								label += " | …"
+								break
+							}
+							label += " | " + alias.Unit + " | " + alias.Name
+						}
+					}
 					for _, check := range page.Checks {
 						if check.ID == procedure.ID && !check.PlanSupported {
 							label += " [não suportado: " + check.Reason + "]"
@@ -786,7 +795,7 @@ func (a *window) tick() {
 					}
 					send.Call(a.procedureList, 0x180, 0, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(label))))
 				}
-				text(a.details, fmt.Sprintf("%d de %d símbolos. Selecione até 16 com Ctrl/Shift. Iniciar lança um novo processo; Parar encerra esse processo.", len(page.Procedures), page.Total))
+				text(a.details, fmt.Sprintf("%d de %d procedimentos; %d de %d aliases. Cada intervalo é medido uma vez. Selecione até 16 com Ctrl/Shift. Iniciar lança um novo processo; Parar encerra esse processo.", len(page.Procedures), page.Total, len(page.Aliases), page.AliasTotal))
 			}
 			if u.Live && !a.offline.Load() && len(u.Metrics) > 0 {
 				if a.model.Session != u.Metrics[0].SessionID {

@@ -45,6 +45,41 @@ func TestCatalogIDsStayStableAcrossFiltersAndSelection(t *testing.T) {
 	}
 }
 
+func TestCatalogAliasesShareIDSelectionAndBuildIdentity(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "owned.exe")
+	sidecar := filepath.Join(directory, "owned.tds")
+	if err := os.WriteFile(path, testfixture.Image(false), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sidecar, testfixture.TDSWithAlias("Lab.Alias"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := ReadCatalog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.Procedures) != 1 || len(catalog.Aliases) != 1 || catalog.Aliases[0].ID != catalog.Procedures[0].ID {
+		t.Fatal("alias got a second instrumentation ID", catalog)
+	}
+	for _, names := range [][]string{{"lab.alias"}, {"lab.hot", "Lab.Alias"}} {
+		selected := catalog.Match(nil, names)
+		if len(selected) != 1 || selected[0] != catalog.Procedures[0] {
+			t.Fatal("alias selection duplicates or renames physical procedure", selected)
+		}
+	}
+	if found := catalog.Search("ALIAS", ""); len(found) != 1 || found[0] != catalog.Procedures[0] {
+		t.Fatal("alias search absent", found)
+	}
+	if err := os.WriteFile(sidecar, testfixture.TDSWithAlias("Lab.Other"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	after, err := ReadCatalog(path)
+	if err != nil || after.ImageID != catalog.ImageID || after.CatalogID == catalog.CatalogID || after.Procedures[0] != catalog.Procedures[0] {
+		t.Fatal("alias change did not invalidate symbol selection", after, err)
+	}
+}
+
 func TestCatalogIdentityDetectsChangedExternalSymbolsForSameExecutable(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "owned.exe")

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"debug/pe"
+	"encoding/binary"
 	"errors"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"unsafe"
 
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/instrumentation"
+	"github.com/gabrielteiga/AntiPessimizerV2/internal/testfixture"
 )
 
 func launchFixture(t *testing.T) LaunchOptions {
@@ -165,6 +167,65 @@ func TestNativeProducerDebugLaunchRejectsChangedBuildBeforeStartup(t *testing.T)
 	var output bytes.Buffer
 	if err := Launch(context.Background(), o, &output); err == nil || !strings.Contains(err.Error(), "changed after symbol selection") || output.Len() != 0 {
 		t.Fatal("build identity check did not precede startup", err)
+	}
+}
+
+func TestNativeProducerTD32AliasesSelectPhysicalFunctionOnce(t *testing.T) {
+	o := launchFixture(t)
+	f, err := pe.Open(o.Image)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := f.OptionalHeader.(*pe.OptionalHeader64).BaseOfCode
+	f.Close()
+	data, err := os.ReadFile(o.Image)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "alias-target.exe")
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	// Synthetic TDS aliases reference the actual COFF extent of the owned C
+	// target. This exercises parser -> catalog -> selection -> native capture.
+	payload := testfixture.TDSWithAlias("Lab.Alias")
+	for _, record := range []int{52, 96} {
+		binary.LittleEndian.PutUint32(payload[record+16:], o.Procedures[0].Size)
+		binary.LittleEndian.PutUint32(payload[record+28:], o.Procedures[0].RVA-code)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(path), "alias-target.tds"), payload, 0600); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := ReadCatalog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.Image, o.ImageID = path, catalog.ImageID
+	o.Procedures = catalog.Match(nil, []string{"Lab.Alias", "Lab.Hot"})
+	if len(o.Procedures) != 1 || len(catalog.Aliases) != 1 {
+		t.Fatal("alias produced multiple physical selections", o.Procedures, catalog.Aliases)
+	}
+	var output bytes.Buffer
+	if err := Launch(context.Background(), o, &output); err != nil {
+		t.Fatal(err, output.String())
+	}
+	records, err := instrumentation.ReadMetrics(&output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := records[len(records)-1]
+	if last.Metrics.Incomplete || len(last.Selection) != 1 || len(last.Metrics.Rows) != 4 {
+		t.Fatal("alias duplicated capture metadata/rows", last)
+	}
+	var calls uint64
+	for _, row := range last.Metrics.Rows {
+		if row.Procedure != "Lab.Hot" {
+			t.Fatal("alias changed canonical result identity", row)
+		}
+		calls += row.Calls
+	}
+	if calls != 31 {
+		t.Fatal("two names counted the same calls twice", calls)
 	}
 }
 

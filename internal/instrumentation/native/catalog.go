@@ -19,7 +19,16 @@ type Catalog struct {
 	ImageID      string              `json:"image_id"`
 	SymbolSource string              `json:"symbol_source"`
 	Procedures   []SelectedProcedure `json:"procedures"`
+	Aliases      []ProcedureAlias    `json:"aliases,omitempty"`
 	sourcePath   string
+}
+
+// ProcedureAlias names the same complete code interval as one primary catalog
+// ID. Selection and metrics use that ID once, regardless of matching names.
+type ProcedureAlias struct {
+	ID   uint32 `json:"id"`
+	Name string `json:"name"`
+	Unit string `json:"unit,omitempty"`
 }
 
 func ReadCatalog(path string) (Catalog, error) {
@@ -34,6 +43,13 @@ func ReadCatalog(path string) (Catalog, error) {
 	result := Catalog{ImageID: image.ID, SymbolSource: image.SymbolSource, sourcePath: path}
 	for i, p := range image.Index.Procedures() {
 		result.Procedures = append(result.Procedures, SelectedProcedure{ID: uint32(i + 1), RVA: uint32(p.RVA), Size: uint32(p.Size), Name: p.Name, Unit: p.Unit})
+	}
+	ids := make(map[uint32]uint32, len(result.Procedures))
+	for _, p := range result.Procedures {
+		ids[p.RVA] = p.ID
+	}
+	for _, alias := range image.Index.Aliases() {
+		result.Aliases = append(result.Aliases, ProcedureAlias{ID: ids[uint32(alias.RVA)], Name: alias.Name, Unit: alias.Unit})
 	}
 	if len(result.Procedures) == 0 {
 		return Catalog{}, errors.New("no supported TD32/TDS procedures found")
@@ -82,13 +98,48 @@ func (c Catalog) Match(units, names []string) []SelectedProcedure {
 		}
 		return false
 	}
+	return c.filter(func(name, unit string) bool { return matches(units, unit) && matches(names, name) })
+}
+
+func (c Catalog) Search(text, unit string) []SelectedProcedure {
+	text = strings.ToLower(text)
+	return c.filter(func(name, candidateUnit string) bool {
+		return (unit == "" || strings.EqualFold(unit, candidateUnit)) && (text == "" || strings.Contains(strings.ToLower(candidateUnit+" "+name), text))
+	})
+}
+
+func (c Catalog) filter(match func(name, unit string) bool) []SelectedProcedure {
+	matchedAliases := map[uint32]bool{}
+	for _, alias := range c.Aliases {
+		if match(alias.Name, alias.Unit) {
+			matchedAliases[alias.ID] = true
+		}
+	}
 	var result []SelectedProcedure
 	for _, p := range c.Procedures {
-		if matches(units, p.Unit) && matches(names, p.Name) {
+		if matchedAliases[p.ID] || match(p.Name, p.Unit) {
 			result = append(result, p)
 		}
 	}
 	return result
+}
+
+// AliasesFor limits presentation metadata independently from symbol lookup.
+// limit=0 returns all matching aliases. Total includes entries beyond the limit.
+func (c Catalog) AliasesFor(procedures []SelectedProcedure, limit int) (aliases []ProcedureAlias, total int) {
+	ids := make(map[uint32]bool, len(procedures))
+	for _, p := range procedures {
+		ids[p.ID] = true
+	}
+	for _, alias := range c.Aliases {
+		if ids[alias.ID] {
+			total++
+			if limit == 0 || len(aliases) < limit {
+				aliases = append(aliases, alias)
+			}
+		}
+	}
+	return aliases, total
 }
 
 func (c Catalog) RequireImage(id string) error {

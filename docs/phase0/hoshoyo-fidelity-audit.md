@@ -3,6 +3,13 @@
 Data: 2026-11-16. Base Go auditada: `fee0a18603c9f2618256bc2644ccbd03f40cdfaf`.
 Referência original: `ab67a710f152a25deef7593b8b18e59fa7827979`.
 
+**Auditoria histórica do commit acima.** Ela não descreve o estado atual:
+contabilidade, captura nativa, lançamento/seleção, Clear e controle pela janela
+foram implementados posteriormente. Consulte [o plano atual](../plan.md) e
+[os limites instrumentados](../instrumentation.md). Handlers Delphi e evidência
+de execução por versão do compilador continuam pendentes. Aliases de intervalos
+exatos agora são preservados, mantendo a rejeição dos demais overlaps.
+
 ## Conclusão
 
 A implementação Go é uma adaptação parcial consistente do formato de símbolos e
@@ -24,7 +31,7 @@ mesmo executável Delphi. Não se atribui porcentagem de fidelidade sem essa evi
 
 ## Matriz de comportamento
 
-| Capacidade | Original | Go atual | Avaliação |
+| Capacidade | Original | Go no commit fee0a18 | Avaliação |
 |---|---|---|---|
 | Assinaturas TD32 | FB09/FB0A | FB09/FB0A | Alinhado no subconjunto |
 | Diretórios e nomes | DirectoryHeader/Entry, nomes com comprimento módulo 256 e NUL | Mesmos layouts, slices e limites verificados | Alinhado no subconjunto |

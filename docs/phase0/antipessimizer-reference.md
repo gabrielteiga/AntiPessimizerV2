@@ -133,3 +133,20 @@ seções PE/pdata e só aceita unwind ausente ou vazio. É uma restrição delib
 o tratamento de exceções separado em HookedExceptionHandler não é substituído
 por aceitar um prólogo decodificável. O teste Windows compara a tabela de uma
 DLL C própria com o loader nativo e rejeita o frame antes de gerar qualquer patch.
+
+## Atualização de implementação em 18/11/2026
+
+Os parágrafos de preparação acima registram os primeiros incrementos. O caminho
+atual lança EXE próprio sem SDK, mantém debugger e processo separados do viewer,
+instrumenta funções completas com prólogo/unwind v1 conferidos, calls/recursão,
+branches e cleanup nativo para unwind. Clear usa barreira sincronizada e os
+ciclos de vida reais das threads permitem reutilizar buffers limitados. Há
+pré-validação antes do lançamento, unidades de tempo e comparação instrumentada.
+Esses comportamentos passaram por cargas Windows C/assembly; não comprovam os
+handlers Delphi do original. [Plano atual](../plan.md).
+
+Foi reconferido `TJclTD32InfoParser.FindProc` (JclTD32.pas:1530): percorre a lista
+em ordem e retorna o primeiro intervalo que contém o IP. O Go preserva essa
+prioridade para aliases com início/tamanho idênticos, mantendo seus nomes e
+unidades alternativos no catálogo. Selecionar vários nomes do mesmo intervalo
+produz somente um ID e um hook. Overlaps não exatos continuam rejeitados.

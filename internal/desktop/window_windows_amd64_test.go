@@ -245,7 +245,7 @@ func TestNativeInstrumentedControlWindowSmoke(t *testing.T) {
 	address := listener.Addr().String()
 	c := service.New()
 	c.LoadCatalog = func(string) (native.Catalog, error) {
-		return native.Catalog{CatalogID: "catalog-token", ImageID: "smoke-build", Procedures: []native.SelectedProcedure{{ID: 7, RVA: 0x1000, Size: 32, Name: "Lab.Parent", Unit: "Lab"}, {ID: 8, RVA: 0x2000, Size: 32, Name: "Lab.Handler", Unit: "Lab"}}}, nil
+		return native.Catalog{CatalogID: "catalog-token", ImageID: "smoke-build", Procedures: []native.SelectedProcedure{{ID: 7, RVA: 0x1000, Size: 32, Name: "Lab.Parent", Unit: "Lab"}, {ID: 8, RVA: 0x2000, Size: 32, Name: "Lab.Handler", Unit: "Lab"}}, Aliases: []native.ProcedureAlias{{ID: 7, Name: "Lab.ParentAlias", Unit: "Shared"}}}, nil
 	}
 	c.CheckCatalog = func(_ native.Catalog, procedures []native.SelectedProcedure) ([]native.ProcedureCheck, error) {
 		var checks []native.ProcedureCheck
@@ -293,6 +293,10 @@ func TestNativeInstrumentedControlWindowSmoke(t *testing.T) {
 			return fmt.Errorf("symbol selection did not reach the native list")
 		}
 		var label [256]uint16
+		send.Call(w.procedureList, 0x189, 0, uintptr(unsafe.Pointer(&label[0])))
+		if !strings.Contains(windows.UTF16ToString(label[:]), "Lab.ParentAlias") {
+			return fmt.Errorf("alias did not appear beside its primary selection")
+		}
 		send.Call(w.procedureList, 0x189, 1, uintptr(unsafe.Pointer(&label[0]))) // LB_GETTEXT
 		if !strings.Contains(windows.UTF16ToString(label[:]), "não suportado: language handler") {
 			return fmt.Errorf("unsupported procedure label missing")
