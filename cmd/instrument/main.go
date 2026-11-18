@@ -62,6 +62,7 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer) (result
 		return errors.New("--output is for capture; --list writes the catalog to stdout")
 	}
 	if *list {
+		aliases, _ := catalog.AliasesFor(selected, 0)
 		var checks []native.ProcedureCheck
 		if *check {
 			checks, err = catalog.Check(selected)
@@ -74,7 +75,8 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer) (result
 			SymbolSource string                     `json:"symbol_source"`
 			Procedures   []native.SelectedProcedure `json:"procedures"`
 			Checks       []native.ProcedureCheck    `json:"checks,omitempty"`
-		}{catalog.ImageID, catalog.SymbolSource, selected, checks})
+			Aliases      []native.ProcedureAlias    `json:"aliases,omitempty"`
+		}{catalog.ImageID, catalog.SymbolSource, selected, checks, aliases})
 	}
 	if len(units) == 0 && len(names) == 0 {
 		return errors.New("select --procedure or --unit explicitly before launching")

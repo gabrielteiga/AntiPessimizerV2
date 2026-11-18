@@ -13,7 +13,7 @@ Revisado em 18 de novembro de 2026.
 | Capacidade | Implementação e evidência |
 |---|---|
 | Sampling ao vivo | ETW Windows, identidade de processo/thread, perdas e encerramento; integração automatizada em carga própria |
-| Símbolos Delphi | TD32/TDS FB09/FB0A, procedimentos, unidades Pascal e diretórios encadeados; símbolos embutidos ou `.tds` adjacente |
+| Símbolos Delphi | TD32/TDS FB09/FB0A, procedimentos, unidades Pascal, aliases exatos e diretórios encadeados; símbolos embutidos ou `.tds` adjacente |
 | Métricas instrumentadas | Chamadas, tempos inclusivos/exclusivos, médias, recursão, threads, unwind, Clear e perdas no núcleo Go |
 | Lançamento instrumentado | Novo processo próprio sem SDK do profiler; DLL instalada antes do ponto de entrada, seleção TD32/TDS e finalizadores preservados |
 | Funções com pilha/chamadas | Prólogos e unwind v1 verificados; calls, recursão, condições, loops e múltiplas saídas; testes Windows em alvo C com exceção SEH real |
@@ -66,6 +66,10 @@ viewer.exe --gui --instrumentation
 O catálogo marca procedimentos não suportados e mostra o motivo. Essa checagem
 estática não executa o EXE nem carrega a DLL. O início refaz as verificações;
 um plano estático aceito ainda depende dos endereços reais e da validação na instalação.
+
+Nomes com início e tamanho idênticos são aliases de um único procedimento.
+A busca aceita os nomes/unidades alternativos; seleção e métricas usam o primeiro
+nome do arquivo e um único ID, evitando medir o mesmo código duas vezes.
 
 O coletor inicia e possui um **novo processo**. Não faz attach ao programa que já
 está aberto. O EXE não é alterado em disco. **Parar** encerra o novo processo e

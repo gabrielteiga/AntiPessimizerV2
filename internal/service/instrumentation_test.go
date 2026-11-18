@@ -85,6 +85,27 @@ func TestCatalogPreflightChecksOnlyRequestedPage(t *testing.T) {
 		t.Fatal("planned outside requested page", page, checked, err)
 	}
 }
+
+func TestCatalogAliasSearchHasBoundedMetadataAndOneSelection(t *testing.T) {
+	c, o := instrumentController(t)
+	load := c.LoadCatalog
+	c.LoadCatalog = func(path string) (native.Catalog, error) {
+		catalog, err := load(path)
+		for i := 0; i < 1000; i++ {
+			catalog.Aliases = append(catalog.Aliases, native.ProcedureAlias{ID: 1, Name: fmt.Sprintf("Alternate%d", i), Unit: "Shared"})
+		}
+		return catalog, err
+	}
+	page, err := c.Catalog(CatalogQuery{Image: o.Image, Text: "Alternate999", Unit: "Shared", Check: true})
+	if err != nil || page.Total != 1 || len(page.Procedures) != 1 || page.Procedures[0].ID != 1 || len(page.Checks) != 1 || page.AliasTotal != 1000 || len(page.Aliases) != 512 {
+		t.Fatal("alias lookup duplicated/omitted procedure or unbounded metadata", page.Total, page.AliasTotal, len(page.Aliases), err)
+	}
+	page.Aliases[0].Name = "changed"
+	again, err := c.Catalog(CatalogQuery{Image: o.Image, Text: "Alternate999"})
+	if err != nil || again.Aliases[0].Name != "Alternate0" {
+		t.Fatal("alias response mutation changed catalog", err)
+	}
+}
 func instrumentController(t *testing.T) (*Controller, InstrumentOptions) {
 	t.Helper()
 	c := New()

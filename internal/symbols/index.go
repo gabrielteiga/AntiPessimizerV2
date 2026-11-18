@@ -19,6 +19,7 @@ type Index struct {
 	id, name   string
 	size       uint64
 	procedures []Procedure
+	aliases    []Procedure
 }
 
 func New(id, name string, size uint64, procedures []Procedure) (*Index, error) {
@@ -30,7 +31,12 @@ func New(id, name string, size uint64, procedures []Procedure) (*Index, error) {
 		return nil, errors.New("empty image")
 	}
 	ps := append([]Procedure(nil), procedures...)
-	sort.Slice(ps, func(i, j int) bool { return ps[i].RVA < ps[j].RVA })
+	// The original JCL FindProc returns the first matching symbol in file
+	// order. Stable sorting preserves that primary name for exact aliases.
+	sort.SliceStable(ps, func(i, j int) bool { return ps[i].RVA < ps[j].RVA })
+	unique := ps[:0]
+	var aliases []Procedure
+	seenAliases := map[Procedure]bool{}
 	var end uint64
 	for _, p := range ps {
 		loc := base
@@ -41,12 +47,26 @@ func New(id, name string, size uint64, procedures []Procedure) (*Index, error) {
 		if err := loc.Validate(); err != nil {
 			return nil, err
 		}
-		if p.Size == 0 || p.RVA >= size || p.Size > size-p.RVA || p.RVA < end {
+		if p.Size == 0 || p.RVA >= size || p.Size > size-p.RVA {
 			return nil, errors.New("invalid or overlapping procedure range")
 		}
+		if len(unique) > 0 {
+			previous := unique[len(unique)-1]
+			if p.RVA == previous.RVA && p.Size == previous.Size {
+				if p != previous && !seenAliases[p] {
+					aliases = append(aliases, p)
+					seenAliases[p] = true
+				}
+				continue
+			}
+		}
+		if p.RVA < end {
+			return nil, errors.New("invalid or overlapping procedure range")
+		}
+		unique = append(unique, p)
 		end = p.RVA + p.Size
 	}
-	return &Index{id: id, name: name, size: size, procedures: ps}, nil
+	return &Index{id: id, name: name, size: size, procedures: unique, aliases: aliases}, nil
 }
 
 // Resolve uses the actual load base. It never assumes a fixed code offset.
@@ -74,3 +94,7 @@ func (x *Index) Resolve(base, address uint64) (profiling.Location, bool) {
 // Procedures returns a detached, RVA-ordered catalog for explicit selection.
 // Mutating this copy cannot affect address resolution in an active session.
 func (x *Index) Procedures() []Procedure { return append([]Procedure(nil), x.procedures...) }
+
+// Aliases returns detached alternate names for exactly identical ranges.
+// Partial overlaps and different extents at one address remain invalid.
+func (x *Index) Aliases() []Procedure { return append([]Procedure(nil), x.aliases...) }

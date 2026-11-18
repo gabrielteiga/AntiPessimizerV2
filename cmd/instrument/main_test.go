@@ -67,6 +67,25 @@ func TestCatalogPreflightReportsSupportWithoutNativeDLL(t *testing.T) {
 	}
 }
 
+func TestAliasCatalogFilterListsOnePhysicalProcedure(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "app.exe")
+	if err := os.WriteFile(path, testfixture.Image(false), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "app.tds"), testfixture.TDSWithAlias("Lab.Alias"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var out, diagnostics bytes.Buffer
+	if err := run(context.Background(), []string{"--image", path, "--list", "--procedure", "lab.alias", "--procedure", "Lab.Hot"}, &out, &diagnostics); err != nil {
+		t.Fatal(err)
+	}
+	var catalog native.Catalog
+	if err := json.Unmarshal(out.Bytes(), &catalog); err != nil || len(catalog.Procedures) != 1 || len(catalog.Aliases) != 1 || catalog.Procedures[0].ID != catalog.Aliases[0].ID || catalog.Procedures[0].Name != "Lab.Hot" {
+		t.Fatal("alias created another instrumentation selection", out.String(), err)
+	}
+}
+
 func TestCaptureOutputNeverOverwritesFile(t *testing.T) {
 	directory := t.TempDir()
 	image := filepath.Join(directory, "app.exe")

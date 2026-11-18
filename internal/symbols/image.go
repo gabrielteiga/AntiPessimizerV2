@@ -20,7 +20,7 @@ type Image struct {
 	Index                  *Index
 	ID, Name, SymbolSource string
 	Size, PreferredBase    uint64
-	ProcedureCount         int
+	ProcedureCount         int // raw TD32 procedure records, before exact-alias deduplication
 }
 
 // LoadImage supports the single-code-segment convention used by AntiPessimizer:

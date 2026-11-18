@@ -10,7 +10,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/instrumentation"
@@ -39,6 +38,8 @@ type CatalogQuery struct {
 }
 
 type CatalogPage struct {
+	Aliases      []native.ProcedureAlias    `json:"aliases,omitempty"`
+	AliasTotal   int                        `json:"alias_total,omitempty"`
 	Checks       []native.ProcedureCheck    `json:"checks,omitempty"`
 	CatalogID    string                     `json:"catalog_id"`
 	ImageID      string                     `json:"image_id"`
@@ -246,16 +247,13 @@ func (c *Controller) Catalog(q CatalogQuery) (CatalogPage, error) {
 		return CatalogPage{}, err
 	}
 	page := CatalogPage{CatalogID: catalog.CatalogID, ImageID: catalog.ImageID, SymbolSource: catalog.SymbolSource, Procedures: []native.SelectedProcedure{}}
-	text := strings.ToLower(q.Text)
-	for _, p := range catalog.Procedures {
-		if q.Unit != "" && !strings.EqualFold(q.Unit, p.Unit) || text != "" && !strings.Contains(strings.ToLower(p.Unit+" "+p.Name), text) {
-			continue
-		}
+	for _, p := range catalog.Search(q.Text, q.Unit) {
 		if page.Total >= q.Offset && len(page.Procedures) < q.Limit {
 			page.Procedures = append(page.Procedures, p)
 		}
 		page.Total++
 	}
+	page.Aliases, page.AliasTotal = catalog.AliasesFor(page.Procedures, 512)
 	if q.Check {
 		page.Checks, err = c.CheckCatalog(catalog, page.Procedures)
 		if err != nil {

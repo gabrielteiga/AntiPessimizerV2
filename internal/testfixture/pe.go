@@ -91,3 +91,26 @@ func TDS() []byte {
 	p32(113, uint32(len(b)))
 	return b
 }
+
+// TDSWithAlias adds another name for Lab.Hot's exact code interval. The second
+// procedure record is kept in file order to exercise JCL's first-match policy.
+func TDSWithAlias(name string) []byte {
+	original := TDS()
+	b := append([]byte(nil), original[:96]...)
+	record := append([]byte(nil), original[52:96]...)
+	binary.LittleEndian.PutUint32(record[40:], 2)
+	b = append(b, record...)
+	namesAt := len(b)
+	b = append(b, original[96:109]...)
+	binary.LittleEndian.PutUint32(b[namesAt:], 2)
+	b = append(b, byte(len(name)))
+	b = append(b, name...)
+	b = append(b, 0)
+	namesSize := len(b) - namesAt
+	b = append(b, original[109:]...)
+	binary.LittleEndian.PutUint32(b[32:], 92)
+	binary.LittleEndian.PutUint32(b[40:], uint32(namesAt))
+	binary.LittleEndian.PutUint32(b[44:], uint32(namesSize))
+	binary.LittleEndian.PutUint32(b[len(b)-4:], uint32(len(b)))
+	return b
+}

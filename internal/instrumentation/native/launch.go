@@ -30,9 +30,14 @@ func (o LaunchOptions) validate() error {
 		return errors.New("invalid owned instrumented launch options")
 	}
 	ids := map[uint32]bool{}
-	for _, p := range o.Procedures {
-		if p.ID == 0 || ids[p.ID] || p.RVA == 0 || p.Size < 5 || p.Size > 4096 {
+	for i, p := range o.Procedures {
+		if p.ID == 0 || ids[p.ID] || p.RVA == 0 || p.Size < 5 || p.Size > 4096 || uint64(p.RVA)+uint64(p.Size) > 1<<32 {
 			return errors.New("invalid instrumented procedure selection")
+		}
+		for _, previous := range o.Procedures[:i] {
+			if uint64(p.RVA) < uint64(previous.RVA)+uint64(previous.Size) && uint64(previous.RVA) < uint64(p.RVA)+uint64(p.Size) {
+				return errors.New("instrumented procedure selections overlap; select each code interval once")
+			}
 		}
 		if err := (profiling.Location{ModuleID: "checked-build", Module: "image.exe", Procedure: p.Name, Unit: p.Unit, RVA: "0x0000000000000000", Status: "resolved"}).Validate(); err != nil {
 			return err

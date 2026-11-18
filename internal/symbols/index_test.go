@@ -36,7 +36,7 @@ func TestResolveIntervalsAndASLR(t *testing.T) {
 	}
 }
 func TestInvalidRanges(t *testing.T) {
-	for _, ps := range [][]Procedure{{{"A", 0, 0, ""}}, {{"A", 0xfff, 2, ""}}, {{"A", 1, 10, ""}, {"B", 5, 10, ""}}, {{"A", 0, 10, ""}, {"B", 0, 10, ""}}, {{"", 0, 1, ""}}} {
+	for _, ps := range [][]Procedure{{{"A", 0, 0, ""}}, {{"A", 0xfff, 2, ""}}, {{"A", 1, 10, ""}, {"B", 5, 10, ""}}, {{"A", 0, 10, ""}, {"B", 0, 11, ""}}, {{"", 0, 1, ""}}} {
 		if _, err := New("hash", "lab.exe", 0x1000, ps); err == nil {
 			t.Fatalf("accepted %+v", ps)
 		}
