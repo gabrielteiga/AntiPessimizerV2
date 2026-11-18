@@ -689,3 +689,25 @@ buffers privados, chamadas sem inicializar a DLL ou suas dependências. O origin
 não é modificado. Hashes, RVAs, bytes e limites de evidência estão no
 [mapa do original](phase0/antipessimizer-reference.md#execução-limitada-do-código-delphi-distribuído-pelo-original).
 Isso não certifica Delphi 10.4, handlers privados ou o fluxo completo num EXE Delphi.
+## Planejamento de várias funções na mesma imagem
+
+Pré-validação e instalação preparam um snapshot PE imutável por lote. Cabeçalhos,
+seções e toda a tabela de exceções são validados uma vez; cada procedimento busca
+seu intervalo por índice binário. Isso mantém a rejeição de overlaps parciais e
+metadados inválidos em entradas não selecionadas. Código, prólogo, ações de
+unwind, helper e deslocamentos reais continuam verificados em cada plano.
+
+O snapshot possui uma cópia da imagem para impedir que a alteração do buffer de
+entrada ou de um plano anterior invalide o índice. O limite externo de captura
+continua 128 MiB. A preparação acrescenta uma cópia limitada por lote, liberada
+ao concluir a pré-validação/instalação; não cria cache global por executável.
+BuildPEFunction permanece disponível para um único plano.
+
+Benchmark Linux local (Xeon 8573C, Go 1.27.4), tabela sintética de 2.048 entradas
+e seleção de 64 métodos: reparse por método 1,87–1,89 ms/lote; preparado
+0,204–0,207 ms/lote, incluindo a cópia/construção em cada lote. Alocação medida
+244.736 → 292.504 bytes/lote e 1.920 → 1.732 alocações. Essa troca melhora o
+planejamento neste caso; não mede overhead dos probes nem velocidade Delphi.
+Reproduzir com go test ./internal/instrumentation/x64 -run '^$' -bench
+BenchmarkPlanSelection64. Testes incluem lookup contra varredura independente,
+alteração da entrada/planos, uso concorrente e corrupção fora da seleção.

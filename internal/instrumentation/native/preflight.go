@@ -1,9 +1,7 @@
 package native
 
 import (
-	"bytes"
 	"crypto/sha256"
-	"debug/pe"
 	"errors"
 	"fmt"
 	"io"
@@ -65,24 +63,19 @@ func (c Catalog) Check(procedures []SelectedProcedure) ([]ProcedureCheck, error)
 // CheckImageProcedures uses the same planner as native installation. No code is
 // emitted into another process, and the input executable is never modified.
 func CheckImageProcedures(data []byte, procedures []SelectedProcedure) ([]ProcedureCheck, error) {
-	f, err := pe.NewFile(bytes.NewReader(data))
+	image, err := x64.NewPEImage(data)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
-	header, ok := f.OptionalHeader.(*pe.OptionalHeader64)
-	if !ok || f.Machine != pe.IMAGE_FILE_MACHINE_AMD64 {
-		return nil, errors.New("instrumentation preflight requires a Windows x64 image")
-	}
 	const loadedBase uint64 = 0x100000000
-	probe := loadedBase + ((uint64(header.SizeOfImage) + 0xffff) &^ 0xffff) + 0x10000
+	probe := loadedBase + ((uint64(image.ImageSize()) + 0xffff) &^ 0xffff) + 0x10000
 	helper := probe + 0x1000000
 	checks := make([]ProcedureCheck, 0, len(procedures))
 	for _, p := range procedures {
 		check := ProcedureCheck{ID: p.ID}
 		if p.ID == 0 || p.RVA == 0 || p.Size < 5 || p.Size > 4096 {
 			check.Reason = "procedure requires a nonzero ID/RVA and a size of 5..4096 bytes"
-		} else if _, err := x64.BuildPEFunction(data, p.RVA, p.Size, loadedBase, probe, helper, helper+0x100, helper+0x200, p.ID); err != nil {
+		} else if _, err := image.BuildFunction(p.RVA, p.Size, loadedBase, probe, helper, helper+0x100, helper+0x200, p.ID); err != nil {
 			check.Reason = err.Error()
 		} else {
 			check.PlanSupported = true
