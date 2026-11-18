@@ -21,7 +21,10 @@ type leafBody struct {
 	overwrite   int
 	exitRVA     uint32
 	dataTargets []uint64
+	pcMap       []pcMapping
 }
+
+type pcMapping struct{ original, relocated uint16 }
 
 // rewriteLeafBody widens internal relative branches and redirects every RET.
 // Every target must be a decoded instruction boundary inside this procedure.
@@ -227,6 +230,12 @@ func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, pro
 		}
 		if d.inst.PCRel != 0 && !hasRIP {
 			return fail("unclassified position-dependent operand")
+		}
+	}
+	out.pcMap = []pcMapping{{0, 0}}
+	for _, d := range instructions {
+		if d.length != d.inst.Len {
+			out.pcMap = append(out.pcMap, pcMapping{uint16(d.offset + d.inst.Len), uint16(d.relocated + d.length)})
 		}
 	}
 	return out, nil

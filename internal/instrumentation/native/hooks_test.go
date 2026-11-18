@@ -5,10 +5,40 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/testfixture"
 )
+
+func TestOriginalCleanupRequiresForwardingCapableAdapter(t *testing.T) {
+	image := hookImage()
+	put := binary.LittleEndian.PutUint32
+	put(image[128+24+112+3*8:], 0x5100)
+	put(image[128+24+116+3*8:], 12)
+	put(image[0x300:], 0x5020)
+	put(image[0x304:], 0x5034)
+	put(image[0x308:], 0x5140)
+	copy(image[0x340:], []byte{17, 0, 0, 0})
+	put(image[0x344:], 0x5180)
+	for _, version := range []string{"APHOOK2\x00", "APHOOK3\x00"} {
+		offer := make([]byte, 61)
+		copy(offer, hookOffer()[:48])
+		copy(offer, version)
+		binary.LittleEndian.PutUint64(offer[48:], 0x200200)
+		put(offer[56:], 20)
+		offer[60] = 1
+		stream := &hookStream{in: bytes.NewReader(offer)}
+		err := installHooks(stream, image, []Procedure{{1, 0x5020}})
+		if version[6] == '2' {
+			if err == nil || !strings.Contains(err.Error(), "require APHOOK3") || stream.out.Len() != 1 || stream.out.Bytes()[0] != 2 {
+				t.Fatal("older DLL could silently omit original cleanup", err, stream.out.Len())
+			}
+		} else if err != nil {
+			t.Fatal("forwarding-capable adapter rejected original cleanup", err)
+		}
+	}
+}
 
 type hookStream struct {
 	in    *bytes.Reader

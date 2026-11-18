@@ -31,12 +31,18 @@ func BuildPELeaf(image []byte, rva, size uint32, loadedBase, allocation, enter, 
 
 type peLeafSection struct{ rva, virtual, raw, offset, flags uint32 }
 
+type functionUnwind struct {
+	info                            []byte
+	runtimeRVA, infoRVA, handlerRVA uint32
+	handlerDataRVA                  uint32
+}
+
 // readPELeaf deliberately reads only bounded headers, sections and .pdata.
 // A general COFF parser also loads symbol tables, which are unnecessary here.
 func readPELeaf(image []byte, rva, size uint32) ([]byte, uint32, error) {
 	return readPECode(image, rva, size, nil)
 }
-func readPECode(image []byte, rva, size uint32, collectedUnwind *[]byte) ([]byte, uint32, error) {
+func readPECode(image []byte, rva, size uint32, collectedUnwind *functionUnwind) ([]byte, uint32, error) {
 	fail := func(reason string) ([]byte, uint32, error) {
 		return nil, 0, fmt.Errorf("%w: PE: %s", ErrUnsupported, reason)
 	}
@@ -163,13 +169,14 @@ func readPECode(image []byte, rva, size uint32, collectedUnwind *[]byte) ([]byte
 				return fail("partial runtime-function overlap")
 			}
 			// Empty version-1 metadata has no prologue, codes, frame or handler.
-			// All other versions, chains and language-specific handlers are rejected.
+			// The legacy leaf path requires empty metadata. Full plans also allow
+			// verified v1 actions and UHANDLER-only cleanup forwarding.
 			if collectedUnwind == nil {
 				if info[0] != 1 || info[1] != 0 || info[2] != 0 || info[3] != 0 {
 					return fail("procedure requires unwind/exception handling")
 				}
 			} else {
-				if info[0] != 1 || uint32(info[1]) > size {
+				if (info[0] != 1 && info[0] != 17) || uint32(info[1]) > size {
 					return fail("unsupported language handler, chained or non-v1 unwind info")
 				}
 				length := uint32(4 + ((uint32(info[2])+1)&^1)*2)
@@ -177,10 +184,26 @@ func readPECode(image []byte, rva, size uint32, collectedUnwind *[]byte) ([]byte
 				if !ok {
 					return fail("truncated function unwind codes")
 				}
-				if err := validateUnwindCodes(complete); err != nil {
+				original := append([]byte(nil), complete...)
+				original[0] = 1 // validate actions separately from original UHANDLER
+				if err := validateUnwindCodes(original); err != nil {
 					return nil, 0, err
 				}
-				*collectedUnwind = append([]byte(nil), complete...)
+				*collectedUnwind = functionUnwind{info: original, runtimeRVA: directoryRVA + uint32(offset), infoRVA: unwind}
+				if info[0] == 17 {
+					if uint64(unwind)+uint64(length)+4 > uint64(imageSize) {
+						return fail("truncated original unwind handler")
+					}
+					handler, ok := mapped(unwind+length, 4, false)
+					if !ok {
+						return fail("original unwind handler is not raw-backed")
+					}
+					collectedUnwind.handlerRVA = u32(handler)
+					collectedUnwind.handlerDataRVA = unwind + length + 4
+					if _, ok := mapped(collectedUnwind.handlerRVA, 1, true); !ok || collectedUnwind.handlerRVA >= rva && uint64(collectedUnwind.handlerRVA) < uint64(rva)+uint64(size) {
+						return fail("invalid or self-referential original unwind handler")
+					}
+				}
 			}
 		}
 		previousEnd = end

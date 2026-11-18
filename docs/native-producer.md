@@ -214,8 +214,32 @@ veja o comando `instrument` em [instrumentation.md](instrumentation.md).
 O laboratório cooperativo não comprova um Delphi arbitrário.
 
 
-O lançamento sem SDK agora negocia APHOOK2 para funções com prólogo/unwind v1,
+O lançamento sem SDK agora negocia APHOOK3 para funções com prólogo/unwind v1,
 chamadas e recursão. Um cleanup nativo relata saídas por exceção real e o worker
 publica sinais de vida enquanto chamadas permanecem abertas. A API cooperativa
 APHOOK1 e os callbacks mantêm wire v1. Evidência e limites estão na seção de
 [funções com pilha](instrumentation.md#funções-com-pilha-chamadas-e-exceções-nativas).
+
+
+## Encaminhamento de cleanup original
+
+`APHOOK3\0` mantém o layout de APHOOK2,
+mas declara suporte ao descritor estendido após o handler de unwind. O Go ainda
+aceita APHOOK2 para funções sem handler original; exige APHOOK3 antes de enviar
+um plano que precise executar o cleanup original. Não se omite a limpeza para
+compatibilizar uma DLL antiga.
+
+O descritor começa com ID/kind u32. Kind 0 ocupa oito bytes. Kind 1 tem nove
+u32 (ID, kind, RVA/tamanho fonte, RVA da entrada RUNTIME_FUNCTION original,
+RVA de UNWIND_INFO original, RVA do handler, RVA dos dados originais, número
+de pares), seguidos por pares u16 (offset fonte, offset copiado). O mapa registra
+as mudanças cumulativas de tamanho das instruções; não copia nem interpreta os
+dados privados do handler. A DLL confere os campos contra a imagem carregada,
+a seleção e os códigos de unwind antes de publicar qualquer patch.
+
+O callback chama o handler original com ImageBase, FunctionEntry, HandlerData,
+ControlPc e contexto correspondentes à imagem de origem. ScopeIndex permanece no
+dispatcher real, inclusive se a limpeza lançar outra exceção. O unwind confirmado
+fecha a métrica antes do cleanup; a passagem COLLIDED_UNWIND não a fecha duas
+vezes. EHANDLER, combinações EH/UH e chains continuam recusados. A integração
+controlada é C/assembly, não evidência de emissão/execução pelo Delphi 10.4.
