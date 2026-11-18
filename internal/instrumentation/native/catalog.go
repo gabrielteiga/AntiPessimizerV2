@@ -64,8 +64,8 @@ func ReadCatalog(path string) (Catalog, error) {
 }
 
 func (c Catalog) Select(ids []uint32) ([]SelectedProcedure, error) {
-	if len(ids) == 0 || len(ids) > 16 {
-		return nil, errors.New("select 1..16 procedures explicitly")
+	if len(ids) == 0 || len(ids) > MaxSelectedProcedures {
+		return nil, fmt.Errorf("select 1..%d procedures explicitly", MaxSelectedProcedures)
 	}
 	requested := map[uint32]bool{}
 	for _, id := range ids {

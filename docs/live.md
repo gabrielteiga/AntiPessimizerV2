@@ -101,7 +101,7 @@ executado por esse teste e a fixture não representa todos os seus formatos.
 O mesmo coletor mantém uma única sessão ativa: `sampling` ou `instrumentation`
 no campo `status.mode`. `instrument-catalog` recebe caminho, busca por texto/unidade
 e página (até 512; padrão 200), e retorna image_id, catalog_id, total e IDs estáveis.
-`instrument-start` exige ambas as identidades, 1..16 IDs distintos, argumentos e
+`instrument-start` exige ambas as identidades, 1..64 IDs distintos, argumentos e
 prazo de 1 ms a 24 h (padrão 1 minuto). O catálogo é relido antes do lançamento;
 se o EXE ou os símbolos selecionáveis mudarem, os IDs antigos são rejeitados.
 A DLL vem da pasta do collector; clientes não escolhem um helper arbitrário.

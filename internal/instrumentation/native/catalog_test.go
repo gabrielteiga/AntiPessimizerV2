@@ -2,9 +2,11 @@ package native
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/testfixture"
 )
@@ -42,6 +44,30 @@ func TestCatalogIDsStayStableAcrossFiltersAndSelection(t *testing.T) {
 		if _, err = catalog.Select(bad); err == nil {
 			t.Fatal("invalid IDs accepted", bad)
 		}
+	}
+}
+
+func TestFullProcedureSelectionHas64DistinctPhysicalRanges(t *testing.T) {
+	var catalog Catalog
+	var ids []uint32
+	for id := uint32(1); id <= 64; id++ {
+		catalog.Procedures = append(catalog.Procedures, SelectedProcedure{ID: id, RVA: 0x1000 + id*16, Size: 6, Name: fmt.Sprintf("Batch%d", id)})
+		ids = append(ids, id)
+	}
+	selected, err := catalog.Select(ids)
+	if err != nil || len(selected) != 64 {
+		t.Fatal(selected, err)
+	}
+	options := LaunchOptions{Image: "owned.exe", DLL: "adapter.dll", Procedures: selected, Capacity: 1024, Timeout: time.Minute}
+	if err := options.validate(); err != nil {
+		t.Fatal("full selection rejected before startup", err)
+	}
+	if _, err := catalog.Select(append(ids, 65)); err == nil {
+		t.Fatal("selection exceeds 64 procedures")
+	}
+	options.Procedures = append(options.Procedures, SelectedProcedure{ID: 65, RVA: 0x2000, Size: 6, Name: "TooMany"})
+	if err := options.validate(); err == nil {
+		t.Fatal("native launch exceeds capacity")
 	}
 }
 

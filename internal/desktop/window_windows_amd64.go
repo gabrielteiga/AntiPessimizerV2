@@ -795,7 +795,7 @@ func (a *window) tick() {
 					}
 					send.Call(a.procedureList, 0x180, 0, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(label))))
 				}
-				text(a.details, fmt.Sprintf("%d de %d procedimentos; %d de %d aliases. Cada intervalo é medido uma vez. Selecione até 16 com Ctrl/Shift. Iniciar lança um novo processo; Parar encerra esse processo.", len(page.Procedures), page.Total, len(page.Aliases), page.AliasTotal))
+				text(a.details, fmt.Sprintf("%d de %d procedimentos; %d de %d aliases. Cada intervalo é medido uma vez. Selecione até %d com Ctrl/Shift. Iniciar lança um novo processo; Parar encerra esse processo.", len(page.Procedures), page.Total, len(page.Aliases), page.AliasTotal, service.MaxInstrumentedProcedures))
 			}
 			if u.Live && !a.offline.Load() && len(u.Metrics) > 0 {
 				if a.model.Session != u.Metrics[0].SessionID {
@@ -1028,11 +1028,11 @@ func (a *window) instrumentCommand(id int) {
 		return
 	}
 	count, _, _ := send.Call(a.procedureList, 0x190, 0, 0)
-	if count < 1 || count > 16 {
-		text(a.status, "Selecione de 1 a 16 procedimentos (Ctrl/Shift).")
+	if count < 1 || count > service.MaxInstrumentedProcedures {
+		text(a.status, fmt.Sprintf("Selecione de 1 a %d procedimentos (Ctrl/Shift).", service.MaxInstrumentedProcedures))
 		return
 	}
-	var indexes [16]int32
+	var indexes [service.MaxInstrumentedProcedures]int32
 	n, _, _ := send.Call(a.procedureList, 0x191, count, uintptr(unsafe.Pointer(&indexes[0])))
 	if n != count {
 		text(a.status, "Falha ao ler seleção de procedimentos.")

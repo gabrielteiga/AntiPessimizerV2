@@ -14,6 +14,10 @@ type SelectedProcedure struct {
 	Name string `json:"name"`
 	Unit string `json:"unit,omitempty"`
 }
+
+// MaxSelectedProcedures matches the native wire catalog and bounded installer.
+const MaxSelectedProcedures = 64
+
 type LaunchOptions struct {
 	Control *Control
 	ImageID string // optional expected SHA-256 from symbol selection
@@ -26,7 +30,7 @@ type LaunchOptions struct {
 }
 
 func (o LaunchOptions) validate() error {
-	if o.Image == "" || o.DLL == "" || len(o.Procedures) == 0 || len(o.Procedures) > 16 || o.Capacity < 1 || o.Capacity > 1024 || o.Timeout < time.Millisecond || o.Timeout > 24*time.Hour {
+	if o.Image == "" || o.DLL == "" || len(o.Procedures) == 0 || len(o.Procedures) > MaxSelectedProcedures || o.Capacity < 1 || o.Capacity > 1024 || o.Timeout < time.Millisecond || o.Timeout > 24*time.Hour {
 		return errors.New("invalid owned instrumented launch options")
 	}
 	ids := map[uint32]bool{}

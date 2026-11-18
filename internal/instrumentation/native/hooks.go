@@ -15,7 +15,7 @@ const hookStride = 8192
 // Event consumption starts after this exchange; no second goroutine reads the
 // synchronous startup stream. Plans are built from the exact executable file.
 func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) error {
-	if len(procedures) == 0 || len(procedures) > 16 {
+	if len(procedures) == 0 || len(procedures) > MaxSelectedProcedures {
 		return errors.New("invalid hook selection count")
 	}
 	if err := writeHookBytes(conn, []byte{2}); err != nil {

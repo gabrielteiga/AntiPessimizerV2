@@ -74,6 +74,47 @@ func TestHookExchangeIncludesExactSourceAndCompleteUnwindTable(t *testing.T) {
 		}
 	}
 }
+
+func TestHookExchangeSupports64ProcedureRuntimeTables(t *testing.T) {
+	const count = 64
+	image := testfixture.Image(false)
+	binary.LittleEndian.PutUint32(image[128+24+60:], 0x200)
+	offer := make([]byte, 56+count*4+1)
+	copy(offer, "APHOOK2\x00")
+	binary.LittleEndian.PutUint64(offer[8:], 0x100000)
+	binary.LittleEndian.PutUint64(offer[16:], 0x110000)
+	binary.LittleEndian.PutUint32(offer[24:], count*8192)
+	binary.LittleEndian.PutUint32(offer[28:], count)
+	binary.LittleEndian.PutUint64(offer[32:], 0x200000)
+	binary.LittleEndian.PutUint64(offer[40:], 0x200100)
+	binary.LittleEndian.PutUint64(offer[48:], 0x200200)
+	var procedures []Procedure
+	for i := 0; i < count; i++ {
+		copy(image[0x220+i*6:], []byte{0xb8, byte(i + 1), 0, 0, 0, 0xc3})
+		binary.LittleEndian.PutUint32(offer[56+i*4:], 6)
+		procedures = append(procedures, Procedure{uint32(i + 1), 0x5020 + uint32(i)*6})
+	}
+	offer[len(offer)-1] = 1
+	stream := &hookStream{in: bytes.NewReader(offer)}
+	if err := installHooks(stream, image, procedures); err != nil {
+		t.Fatal(err)
+	}
+	data := stream.out.Bytes()
+	header, payload := data[1:25], data[25:25+count*8192]
+	table := binary.LittleEndian.Uint32(header[16:])
+	if binary.LittleEndian.Uint32(header[8:]) != count || binary.LittleEndian.Uint32(header[20:]) != count*3 {
+		t.Fatal("full catalog lost runtime entries")
+	}
+	var end uint32
+	for i := 0; i < count*3; i++ {
+		entry := payload[int(table)+i*12:]
+		begin, next := binary.LittleEndian.Uint32(entry), binary.LittleEndian.Uint32(entry[4:])
+		if begin < end || next <= begin || next > table {
+			t.Fatal("runtime table unsorted or overlaps code", i, begin, next)
+		}
+		end = next
+	}
+}
 func TestHookExchangeRejectsInvalidOfferWithoutSendingCode(t *testing.T) {
 	for _, mutate := range []func([]byte){
 		func(b []byte) { b[0] = 0 }, func(b []byte) { binary.LittleEndian.PutUint32(b[28:], 17) },
