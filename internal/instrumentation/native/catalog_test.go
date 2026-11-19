@@ -47,25 +47,25 @@ func TestCatalogIDsStayStableAcrossFiltersAndSelection(t *testing.T) {
 	}
 }
 
-func TestFullProcedureSelectionHas64DistinctPhysicalRanges(t *testing.T) {
+func TestFullProcedureSelectionHas256DistinctPhysicalRanges(t *testing.T) {
 	var catalog Catalog
 	var ids []uint32
-	for id := uint32(1); id <= 64; id++ {
+	for id := uint32(1); id <= MaxSelectedProcedures; id++ {
 		catalog.Procedures = append(catalog.Procedures, SelectedProcedure{ID: id, RVA: 0x1000 + id*16, Size: 6, Name: fmt.Sprintf("Batch%d", id)})
 		ids = append(ids, id)
 	}
 	selected, err := catalog.Select(ids)
-	if err != nil || len(selected) != 64 {
+	if err != nil || len(selected) != MaxSelectedProcedures {
 		t.Fatal(selected, err)
 	}
 	options := LaunchOptions{Image: "owned.exe", DLL: "adapter.dll", Procedures: selected, Capacity: 1024, Timeout: time.Minute}
 	if err := options.validate(); err != nil {
 		t.Fatal("full selection rejected before startup", err)
 	}
-	if _, err := catalog.Select(append(ids, 65)); err == nil {
-		t.Fatal("selection exceeds 64 procedures")
+	if _, err := catalog.Select(append(ids, MaxSelectedProcedures+1)); err == nil {
+		t.Fatal("selection exceeds 256 procedures")
 	}
-	options.Procedures = append(options.Procedures, SelectedProcedure{ID: 65, RVA: 0x2000, Size: 6, Name: "TooMany"})
+	options.Procedures = append(options.Procedures, SelectedProcedure{ID: MaxSelectedProcedures + 1, RVA: 0x3000, Size: 6, Name: "TooMany"})
 	if err := options.validate(); err == nil {
 		t.Fatal("native launch exceeds capacity")
 	}
@@ -134,5 +134,33 @@ func TestCatalogIdentityDetectsChangedExternalSymbolsForSameExecutable(t *testin
 	}
 	if before.ImageID != after.ImageID || before.CatalogID == after.CatalogID || before.Procedures[0].ID != after.Procedures[0].ID {
 		t.Fatal("catalog cannot detect stale IDs from a changed TDS")
+	}
+}
+
+func TestUnitSelectionUsesCompleteCatalogAndPhysicalAliases(t *testing.T) {
+	catalog := Catalog{Procedures: []SelectedProcedure{{ID: 1, Name: "A.One", Unit: "A"}, {ID: 2, Name: "B.Two", Unit: "B"}, {ID: 3, Name: "A.Three", Unit: "A"}}, Aliases: []ProcedureAlias{{ID: 1, Name: "B.OneAlias", Unit: "B"}, {ID: 1, Name: "Other", Unit: "B"}}}
+	selected, err := catalog.SelectUnits([]string{"b", "A"})
+	if err != nil || len(selected) != 3 || selected[0].ID != 1 || selected[1].ID != 2 || selected[2].ID != 3 {
+		t.Fatal(selected, err)
+	}
+	selected[0].Name = "changed"
+	if catalog.Procedures[0].Name == "changed" {
+		t.Fatal("selection aliases catalog")
+	}
+	for _, units := range [][]string{nil, {""}, {" "}, {"A", "a"}, {"A", "missing"}, {"A\n"}, {string([]byte{255})}} {
+		if _, err := catalog.SelectUnits(units); err == nil {
+			t.Fatal("invalid unit selection", units)
+		}
+	}
+	catalog = Catalog{}
+	for i := uint32(1); i <= MaxSelectedProcedures+1; i++ {
+		catalog.Procedures = append(catalog.Procedures, SelectedProcedure{ID: i, Unit: "Large"})
+	}
+	if _, err := catalog.SelectUnits([]string{"Large"}); err == nil {
+		t.Fatal("unit selection silently truncated")
+	}
+	catalog.Procedures = catalog.Procedures[:MaxSelectedProcedures]
+	if selected, err := catalog.SelectUnits([]string{"Large"}); err != nil || len(selected) != MaxSelectedProcedures {
+		t.Fatal("full unit omitted procedures", len(selected), err)
 	}
 }

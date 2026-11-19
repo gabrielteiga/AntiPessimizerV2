@@ -67,14 +67,21 @@ func TestInstrumentedProcedureIDsRejectAmbiguousSelection(t *testing.T) {
 		}
 	}
 	var names []string
-	for i := 1; i <= 64; i++ {
+	for i := 1; i <= 256; i++ {
 		names = append(names, fmt.Sprint(i))
 	}
 	ids, err = parseProcedureIDs(strings.Join(names, ","))
-	if err != nil || len(ids) != 64 || ids[63] != 64 {
+	if err != nil || len(ids) != 256 || ids[255] != 256 {
 		t.Fatal("full supported selection rejected", ids, err)
 	}
-	if _, err := parseProcedureIDs(strings.Join(names, ",") + ",65"); err == nil {
+	if _, err := parseProcedureIDs(strings.Join(names, ",") + ",257"); err == nil {
 		t.Fatal("selection beyond native capacity accepted")
+	}
+}
+
+func TestInstrumentStartRejectsMixedIDsAndUnitBeforeConnecting(t *testing.T) {
+	err := run([]string{"--op", "instrument-start", "--unit", "Lab", "--procedure-ids", "1"}, strings.NewReader(""), io.Discard, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "exclusively") {
+		t.Fatal("mixed selection reached transport", err)
 	}
 }

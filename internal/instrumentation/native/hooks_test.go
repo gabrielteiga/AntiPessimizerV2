@@ -21,11 +21,11 @@ func TestOriginalCleanupRequiresForwardingCapableAdapter(t *testing.T) {
 	put(image[0x308:], 0x5140)
 	copy(image[0x340:], []byte{17, 0, 0, 0})
 	put(image[0x344:], 0x5180)
-	for _, version := range []string{"APHOOK2\x00", "APHOOK3\x00", "APHOOK4\x00", "APHOOK5\x00", "APHOOK6\x00", "APHOOK7\x00", "APHOOK8\x00"} {
+	for _, version := range []string{"APHOOK2\x00", "APHOOK3\x00", "APHOOK4\x00", "APHOOK5\x00", "APHOOK6\x00", "APHOOK7\x00", "APHOOK8\x00", "APHOOK9\x00"} {
 		offer := make([]byte, 61)
 		copy(offer, hookOffer()[:48])
 		copy(offer, version)
-		if version[6] == '8' {
+		if version[6] == '8' || version[6] == '9' {
 			binary.LittleEndian.PutUint32(offer[24:], largeHookStride+36)
 		}
 		binary.LittleEndian.PutUint64(offer[48:], 0x200200)
@@ -263,11 +263,11 @@ func exceptionHookImage() []byte {
 	return b
 }
 func TestExceptionScopesRequireResumptionCapableAdapter(t *testing.T) {
-	for _, version := range []string{"APHOOK2\x00", "APHOOK3\x00", "APHOOK4\x00", "APHOOK5\x00", "APHOOK6\x00", "APHOOK7\x00", "APHOOK8\x00"} {
+	for _, version := range []string{"APHOOK2\x00", "APHOOK3\x00", "APHOOK4\x00", "APHOOK5\x00", "APHOOK6\x00", "APHOOK7\x00", "APHOOK8\x00", "APHOOK9\x00"} {
 		offer := make([]byte, 61)
 		copy(offer, hookOffer()[:48])
 		copy(offer, version)
-		if version[6] == '8' {
+		if version[6] == '8' || version[6] == '9' {
 			binary.LittleEndian.PutUint32(offer[24:], largeHookStride+36)
 		}
 		binary.LittleEndian.PutUint64(offer[48:], 0x200200)
@@ -275,7 +275,7 @@ func TestExceptionScopesRequireResumptionCapableAdapter(t *testing.T) {
 		offer[60] = 1
 		stream := &hookStream{in: bytes.NewReader(offer)}
 		err := installHooks(stream, exceptionHookImage(), []Procedure{{1, 0x5020}})
-		if version[6] != '5' && version[6] != '6' && version[6] != '7' && version[6] != '8' {
+		if version[6] != '5' && version[6] != '6' && version[6] != '7' && version[6] != '8' && version[6] != '9' {
 			if err == nil || !strings.Contains(err.Error(), "require APHOOK5") || stream.out.Len() != 1 {
 				t.Fatal("older adapter received translated scopes", err, stream.out.Len())
 			}
@@ -285,35 +285,42 @@ func TestExceptionScopesRequireResumptionCapableAdapter(t *testing.T) {
 	}
 }
 
-func TestLargeAdapterKeepsIndependentStridesForAll64Methods(t *testing.T) {
-	const count = 64
+func TestLargeAdapterKeepsIndependentStridesForAll256Methods(t *testing.T) {
+	const count = 256
 	image := hookImage()
-	image = append(image, make([]byte, 0x3000-len(image))...)
+	image = append(image, make([]byte, 0x4000-len(image))...)
 	const section = 128 + 24 + 240
-	binary.LittleEndian.PutUint32(image[section+8:], 0x2e00)
-	binary.LittleEndian.PutUint32(image[section+16:], 0x2e00)
+	binary.LittleEndian.PutUint32(image[section+8:], 0x3e00)
+	binary.LittleEndian.PutUint32(image[section+16:], 0x3e00)
 	binary.LittleEndian.PutUint32(image[128+24+56:], 0x9000)
 	offer := make([]byte, 56+count*4+1)
-	copy(offer, "APHOOK8\x00")
+	copy(offer, "APHOOK9\x00")
 	binary.LittleEndian.PutUint64(offer[8:], 0x100000)
 	binary.LittleEndian.PutUint64(offer[16:], 0x110000)
 	const capacity = count * (largeHookStride + 36)
 	binary.LittleEndian.PutUint32(offer[24:], capacity)
 	binary.LittleEndian.PutUint32(offer[28:], count)
-	binary.LittleEndian.PutUint64(offer[32:], 0x900000)
-	binary.LittleEndian.PutUint64(offer[40:], 0x900100)
-	binary.LittleEndian.PutUint64(offer[48:], 0x900200)
+	binary.LittleEndian.PutUint64(offer[32:], 0xb00000)
+	binary.LittleEndian.PutUint64(offer[40:], 0xb00100)
+	binary.LittleEndian.PutUint64(offer[48:], 0xb00200)
 	var procs []Procedure
 	for i := 0; i < count; i++ {
 		copy(image[0x220+i*6:], []byte{0xb8, byte(i + 1), 0, 0, 0, 0xc3})
 		binary.LittleEndian.PutUint32(offer[56+i*4:], 6)
 		procs = append(procs, Procedure{uint32(i + 1), 0x5020 + uint32(i)*6})
 	}
-	last := 0x220 + 63*6
+	last := 0x220 + (count-1)*6
 	copy(image[last:], bytes.Repeat([]byte{0x90}, 8192))
 	image[last+8191] = 0xc3
-	binary.LittleEndian.PutUint32(offer[56+63*4:], 8192)
+	binary.LittleEndian.PutUint32(offer[56+(count-1)*4:], 8192)
 	offer[len(offer)-1] = 1
+	legacyOffer := append([]byte(nil), offer...)
+	legacyOffer[6] = '8'
+	legacy := &hookStream{in: bytes.NewReader(legacyOffer)}
+	if err := installHooks(legacy, image, procs); err == nil || !strings.Contains(err.Error(), "require APHOOK9") || legacy.out.Len() != 1 {
+		t.Fatal("older adapter accepted expanded catalog", err, legacy.out.Len())
+	}
+
 	stream := &hookStream{in: bytes.NewReader(offer)}
 	if err := installHooks(stream, image, procs); err != nil {
 		t.Fatal(err)

@@ -38,7 +38,7 @@ func NewReader(in io.Reader, expectedPID uint32) (*Reader, error) {
 	u64 := binary.LittleEndian.Uint64
 	count := u32(h[28:])
 	header := Header{Version: u32(h[8:]), PID: u32(h[24:]), ImageSize: u32(h[32:]), Frequency: u64(h[16:]), StartTick: u64(h[40:])}
-	if string(h[:8]) != "APNAT01\x00" || (u32(h[8:]) < 1 || u32(h[8:]) > 4) || u32(h[12:]) != 24 || expectedPID == 0 || header.PID != expectedPID || count == 0 || count > 64 || u32(h[36:]) != 0 || header.Frequency == 0 || header.Frequency > 1e12 || header.StartTick == 0 || header.ImageSize == 0 {
+	if string(h[:8]) != "APNAT01\x00" || (u32(h[8:]) < 1 || u32(h[8:]) > 5) || u32(h[12:]) != 24 || expectedPID == 0 || header.PID != expectedPID || count == 0 || count > MaxSelectedProcedures || header.Version < 5 && count > 64 || u32(h[36:]) != 0 || header.Frequency == 0 || header.Frequency > 1e12 || header.StartTick == 0 || header.ImageSize == 0 {
 		return nil, errors.New("invalid native identity, clock or wire layout")
 	}
 	r := &Reader{Header: header, in: in, selected: map[uint32]bool{}, latest: header.StartTick}

@@ -77,8 +77,8 @@ try {
     $catalog = & (Join-Path $dir 'viewer.exe') --address $servicePipe --op instrument-catalog --image $launchTarget --check | ConvertFrom-Json
     if ($LASTEXITCODE -ne 0 -or $catalog.catalog.total -ne 1 -or @($catalog.catalog.checks).Count -ne 1 -or !$catalog.catalog.checks[0].plan_supported) { throw 'Service TD32 catalog failed' }
     $procedureID = $catalog.catalog.procedures[0].id
-    $null = & (Join-Path $dir 'viewer.exe') --address $servicePipe --op instrument-start --image $launchTarget --image-id $catalog.catalog.image_id --catalog-id $catalog.catalog.catalog_id --procedure-ids $procedureID --arg=--threads --arg=3 --arg=--iterations --arg=10
-    if ($LASTEXITCODE -ne 0) { throw 'Service instrumented launch failed' }
+    $null = & (Join-Path $dir 'viewer.exe') --address $servicePipe --op instrument-start --image $launchTarget --image-id $catalog.catalog.image_id --catalog-id $catalog.catalog.catalog_id --unit LabWorkload --arg=--threads --arg=3 --arg=--iterations --arg=10
+    if ($LASTEXITCODE -ne 0) { throw 'Service exact-unit instrumented launch failed' }
     $finished = $false
     for ($attempt = 0; $attempt -lt 100; $attempt++) {
         $state = & (Join-Path $dir 'viewer.exe') --address $servicePipe --op latest | ConvertFrom-Json

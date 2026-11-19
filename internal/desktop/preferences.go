@@ -17,6 +17,7 @@ const maxPreferencesBytes = 128 << 10
 // Preferences mirrors the original viewer's executable path, result/unit
 // filters and time unit. Collection data and active target state live elsewhere.
 type Preferences struct {
+	WholeUnit    bool           `json:"whole_unit,omitempty"`
 	Version      int            `json:"version"`
 	ImagePath    string         `json:"image_path"`
 	ResultFilter string         `json:"result_filter"`

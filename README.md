@@ -23,7 +23,7 @@ Revisado em 18 de novembro de 2026.
 | Métodos maiores | Até 8 KiB de código por procedimento, com alocação limitada de 32 KiB para código/metadados; integração Windows exige retornos e unwind reais |
 | Estado SSE | Probes preservam controle/status MXCSR dos callbacks; setter/getter instrumentados conferem os quatro modos de arredondamento |
 | Preferências da janela | Restaura EXE, filtro de resultados, busca de símbolos e unidade de tempo por usuário ao reabrir |
-| Controle pela interface | Catálogo pesquisável, seleção de até 64 procedimentos, argumentos, prazo, iniciar/parar pelo coletor e métricas ao vivo na janela |
+| Controle pela interface | Catálogo pesquisável, seleção de até 256 procedimentos ou uma unidade Pascal inteira, argumentos, prazo, iniciar/parar pelo coletor e métricas ao vivo na janela |
 | Pré-validação | Imagem/tabela PE preparadas uma vez por lote, seleção por intervalo e snapshot independente; catálogo identifica funções fora do subconjunto aceito; serviço e launcher recusam a seleção antes de abrir o programa |
 | Independência do viewer | Fechar a janela/desconectar observador não encerra a captura; Parar cancela explicitamente o novo processo instrumentado |
 | Diagnóstico de perda nativa | Quantidade observada preservada em métricas v3, histórico/replay e viewer; perda encerra a captura como incompleta |
@@ -68,7 +68,11 @@ Amostras ETW são atividade de CPU observada; não são contagens de chamadas.
 
 Na janela, use **Chamadas**, informe o caminho completo do EXE e clique em
 **Ler símbolos**. A busca reduz o catálogo por unidade ou procedimento; apresenta
-até 200 resultados por consulta. Selecione de 1 a 64 procedimentos com Ctrl/Shift,
+até 200 resultados por busca de procedimentos. Para selecionar uma unidade inteira,
+marque **Unidade inteira**, informe seu nome exato na busca e use **Ler símbolos**.
+Esse modo mostra e seleciona todos os seus procedimentos, até 256, incluindo aliases
+sem duplicar código. Se algum método não for suportado, o início informa o motivo;
+unidades maiores precisam de seleção por IDs e nunca são truncadas silenciosamente. Selecione de 1 a 256 procedimentos com Ctrl/Shift,
 informe argumentos e prazo em segundos, e use **Iniciar EXE**. Também pode abrir
 esse modo diretamente:
 
@@ -152,6 +156,7 @@ retornados para iniciar no coletor:
 
 ```bat
 viewer.exe --op instrument-start --image C:\app\app.exe --image-id SHA_DO_EXE --catalog-id SHA_DO_CATALOGO --procedure-ids 7,12 --timeout 5m
+viewer.exe --op instrument-start --image C:\app\app.exe --image-id SHA_DO_EXE --catalog-id SHA_DO_CATALOGO --unit MinhaUnidade --timeout 5m
 viewer.exe --op latest
 viewer.exe --op instrument-history
 viewer.exe --op instrument-clear
@@ -159,6 +164,8 @@ viewer.exe --op instrument-subscribe > chamadas.ndjson
 viewer.exe --op stop
 ```
 
+`--unit` no início seleciona a unidade exata inteira, em alternativa a `--procedure-ids`.
+O serviço resolve o catálogo completo e refaz a pré-validação antes de lançar.
 `--arg` é repetível. Catálogo aceita `--unit` e `--catalog-offset`; `--address`
 seleciona outro Named Pipe local. Assinaturas são observadores: desconectá-las não
 cancela a captura. Um novo lançamento cria outra sessão. `latest` distingue

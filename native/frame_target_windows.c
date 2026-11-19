@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <wchar.h>
 #include <xmmintrin.h>
+#include <psapi.h>
+#include <stdio.h>
 
 enum { AP_FRAME_EXCEPTION=0xe0424242u };
 extern uint64_t APFrameLarge(uint64_t),APFrameLargeCatch(void);
@@ -101,8 +103,8 @@ __asm__(
  ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
  ".rva .Lcleanup_outer_begin,.Lcleanup_outer_end,APUnwindFilter,.Lcleanup_catch\n .text\n .seh_endproc\n"
 );
-/* Sixty-four separate six-byte methods exercise the complete bounded installer. */
-#define AP_BATCH_METHODS(X) X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7) X(8) X(9) X(10) X(11) X(12) X(13) X(14) X(15) X(16) X(17) X(18) X(19) X(20) X(21) X(22) X(23) X(24) X(25) X(26) X(27) X(28) X(29) X(30) X(31) X(32) X(33) X(34) X(35) X(36) X(37) X(38) X(39) X(40) X(41) X(42) X(43) X(44) X(45) X(46) X(47) X(48) X(49) X(50) X(51) X(52) X(53) X(54) X(55) X(56) X(57) X(58) X(59) X(60) X(61) X(62) X(63)
+/* Separate six-byte methods exercise complete bounded installer selections. */
+#define AP_BATCH_METHODS(X) X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7) X(8) X(9) X(10) X(11) X(12) X(13) X(14) X(15) X(16) X(17) X(18) X(19) X(20) X(21) X(22) X(23) X(24) X(25) X(26) X(27) X(28) X(29) X(30) X(31) X(32) X(33) X(34) X(35) X(36) X(37) X(38) X(39) X(40) X(41) X(42) X(43) X(44) X(45) X(46) X(47) X(48) X(49) X(50) X(51) X(52) X(53) X(54) X(55) X(56) X(57) X(58) X(59) X(60) X(61) X(62) X(63) X(64) X(65) X(66) X(67) X(68) X(69) X(70) X(71) X(72) X(73) X(74) X(75) X(76) X(77) X(78) X(79) X(80) X(81) X(82) X(83) X(84) X(85) X(86) X(87) X(88) X(89) X(90) X(91) X(92) X(93) X(94) X(95) X(96) X(97) X(98) X(99) X(100) X(101) X(102) X(103) X(104) X(105) X(106) X(107) X(108) X(109) X(110) X(111) X(112) X(113) X(114) X(115) X(116) X(117) X(118) X(119) X(120) X(121) X(122) X(123) X(124) X(125) X(126) X(127) X(128) X(129) X(130) X(131) X(132) X(133) X(134) X(135) X(136) X(137) X(138) X(139) X(140) X(141) X(142) X(143) X(144) X(145) X(146) X(147) X(148) X(149) X(150) X(151) X(152) X(153) X(154) X(155) X(156) X(157) X(158) X(159) X(160) X(161) X(162) X(163) X(164) X(165) X(166) X(167) X(168) X(169) X(170) X(171) X(172) X(173) X(174) X(175) X(176) X(177) X(178) X(179) X(180) X(181) X(182) X(183) X(184) X(185) X(186) X(187) X(188) X(189) X(190) X(191) X(192) X(193) X(194) X(195) X(196) X(197) X(198) X(199) X(200) X(201) X(202) X(203) X(204) X(205) X(206) X(207) X(208) X(209) X(210) X(211) X(212) X(213) X(214) X(215) X(216) X(217) X(218) X(219) X(220) X(221) X(222) X(223) X(224) X(225) X(226) X(227) X(228) X(229) X(230) X(231) X(232) X(233) X(234) X(235) X(236) X(237) X(238) X(239) X(240) X(241) X(242) X(243) X(244) X(245) X(246) X(247) X(248) X(249) X(250) X(251) X(252) X(253) X(254) X(255)
 #define AP_BATCH_DECLARE(n) extern uint64_t APBatch##n(void);
 AP_BATCH_METHODS(AP_BATCH_DECLARE)
 #define AP_BATCH_ASSEMBLY(n) __asm__( \
@@ -112,6 +114,8 @@ AP_BATCH_METHODS(AP_BATCH_DECLARE)
 AP_BATCH_METHODS(AP_BATCH_ASSEMBLY)
 #define AP_BATCH_ADDRESS(n) APBatch##n,
 static uint64_t (*const batch_methods[])(void)={AP_BATCH_METHODS(AP_BATCH_ADDRESS)};
+static uint32_t batch_limit=64;
+static BOOL batch_once;
 /* Aligned 128-bit counter/complement. Every successful CAS updates both halves;
    the native tests require exact totals after simultaneous workers have joined. */
 static _Alignas(16) uint64_t atomic128_total[2]={0,UINT64_MAX};
@@ -153,7 +157,7 @@ METHOD uint64_t APFrameParent(uint64_t n){
  }
  _mm_setcsr(original_control);
  if(!control_ok)return 0;
- for(uint32_t i=0;i<64;i++)if(batch_methods[i]()!=(uint64_t)i+1)return 0;
+ if(!batch_once)for(uint32_t i=0;i<batch_limit;i++)if(batch_methods[i]()!=(uint64_t)i+1)return 0;
  uint64_t source[16],copied[16],filled[16];
  for(uint32_t i=0;i<16;i++){source[i]=n+i+1;copied[i]=0;filled[i]=99;}
  uint64_t bytes=n%16,words=n%8;
@@ -249,6 +253,7 @@ static uint32_t iterations=10;
 static DWORD WINAPI worker(void *unused){
  (void)unused;
  if(WaitForSingleObject(barrier,5000)!=WAIT_OBJECT_0)return 1;
+ if(batch_once)for(uint32_t i=0;i<batch_limit;i++)if(batch_methods[i]()!=(uint64_t)i+1)return 9;
  for(uint32_t i=0;i<iterations;i++)if(APFrameParent(i+1)!=17+2*i)return 2;
  if(APFrameCatch()!=777)return 3;
  if(APFrameMemoryCatch()!=888)return 4;
@@ -260,18 +265,23 @@ static DWORD WINAPI worker(void *unused){
  return 0;
 }
 int wmain(int argc,wchar_t **argv){
- uint32_t threads=3,rounds=1;
+ uint32_t threads=3,rounds=1;const wchar_t *report=NULL;
  for(int i=1;i<argc;i+=2){
   if(i+1>=argc)return 2;
   if(!wcscmp(argv[i],L"--threads"))threads=(uint32_t)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--iterations"))iterations=(uint32_t)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--rounds"))rounds=(uint32_t)wcstoul(argv[i+1],NULL,10);
+  else if(!wcscmp(argv[i],L"--report"))report=argv[i+1];
+  else if(!wcscmp(argv[i],L"--batch-count"))batch_limit=(uint32_t)wcstoul(argv[i+1],NULL,10);
+  else if(!wcscmp(argv[i],L"--batch-once"))batch_once=(BOOL)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--delay-ms"))child_delay_ms=(DWORD)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--cleanup-throws"))cleanup_throws=(BOOL)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--normal-cleanup-throws"))normal_cleanup_throws=(BOOL)wcstoul(argv[i+1],NULL,10);
   else return 2;
  }
- if(!threads||threads>16||!rounds||rounds>1000||!iterations||iterations>1000||child_delay_ms>5000)return 2;
+ if(!batch_limit||batch_limit>256||!threads||threads>16||!rounds||rounds>1000||!iterations||iterations>1000||child_delay_ms>5000)return 2;
+ LARGE_INTEGER start,finish,frequency;
+ if(!QueryPerformanceCounter(&start)||!QueryPerformanceFrequency(&frequency))return 10;
  barrier=CreateEventW(NULL,TRUE,FALSE,NULL);if(!barrier)return 3;
  HANDLE handles[16];DWORD result=0;
  for(uint32_t round=0;round<rounds;round++){
@@ -282,5 +292,13 @@ int wmain(int argc,wchar_t **argv){
   GetExitCodeThread(handles[i],&code);CloseHandle(handles[i]);result|=code;
  }
  }
- CloseHandle(barrier);return result||atomic128_total[0]!=(uint64_t)threads*rounds*(iterations+1)||atomic128_total[1]!=~atomic128_total[0]||atomic_total!=(uint64_t)threads*rounds*(iterations+1)||cleanup_count!=(LONG)(threads*rounds*2)||collision_seen<(LONG)(threads*rounds*(!!cleanup_throws+!!normal_cleanup_throws))?5:0;
+ CloseHandle(barrier);
+ if(report){
+  PROCESS_MEMORY_COUNTERS_EX memory={0};memory.cb=sizeof(memory);DWORD handles=0;
+  if(!QueryPerformanceCounter(&finish)||!GetProcessMemoryInfo(GetCurrentProcess(),(PROCESS_MEMORY_COUNTERS *)&memory,sizeof(memory))||!GetProcessHandleCount(GetCurrentProcess(),&handles))return 10;
+  FILE *file=_wfopen(report,L"wx");if(!file)return 10;
+  int written=fprintf(file,"{\"version\":1,\"threads\":%u,\"batch_count\":%u,\"private_bytes\":%llu,\"handles\":%lu,\"frequency\":%llu,\"ticks\":%llu}\n",(unsigned)threads,(unsigned)batch_limit,(unsigned long long)memory.PrivateUsage,(unsigned long)handles,(unsigned long long)frequency.QuadPart,(unsigned long long)(finish.QuadPart-start.QuadPart));
+  if(fclose(file)||written<=0)return 10;
+ }
+ return result||atomic128_total[0]!=(uint64_t)threads*rounds*(iterations+1)||atomic128_total[1]!=~atomic128_total[0]||atomic_total!=(uint64_t)threads*rounds*(iterations+1)||cleanup_count!=(LONG)(threads*rounds*2)||collision_seen<(LONG)(threads*rounds*(!!cleanup_throws+!!normal_cleanup_throws))?5:0;
 }

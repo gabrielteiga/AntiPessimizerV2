@@ -22,7 +22,7 @@ func TestViewerPreferencesRoundTripAndReplacement(t *testing.T) {
 	if err != nil || got != p {
 		t.Fatal("Unicode preferences changed", got, err)
 	}
-	p.ResultFilter, p.TimeUnit = "outro", ClockTicks
+	p.ResultFilter, p.TimeUnit, p.WholeUnit = "outro", ClockTicks, true
 	if err := savePreferences(path, p); err != nil {
 		t.Fatal("replacement failed", err)
 	}

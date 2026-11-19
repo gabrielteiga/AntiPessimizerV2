@@ -304,3 +304,15 @@ HLE, CMPXCHG8B, endereços de 32 bits e o caminho legado continuam recusados.
 O planejador estático agora aceita 8.645 das 8.777 entradas (523 scopes Delphi).
 Essa análise também pode rodar em Linux com AP_REFERENCE_DELPHI_DLL; somente
 os testes de execução dos corpos requerem Windows. Não mede paridade funcional.
+
+
+## Seleção de unidades na adaptação Go
+
+gui_selection_window e antipessimizer_start do original transformam unidades
+selecionadas na lista de procedimentos. O serviço Go agora aceita units como
+alternativa aos IDs: nome exato, catálogo completo, aliases coalescidos e
+pré-validação antes do lançamento. A janela oferece Unidade inteira e mantém
+sua preferência; o terminal do serviço usa --unit. A adaptação mantém limite
+explícito de 256 métodos físicos e recusa uma unidade que o exceda, sem truncá-la
+à página visível ou omitir métodos não suportados. Isso aproxima o fluxo de
+seleção do original, mantendo os limites e o subconjunto de código documentados.
