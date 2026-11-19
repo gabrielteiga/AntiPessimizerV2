@@ -9,7 +9,7 @@ este documento organiza as entregas e os critérios que ainda faltam.
 | Área | Comportamento atual | Evidência |
 |---|---|---|
 | Núcleo de sampling | Janelas, correlação PID/TID, perda explícita, histórico limitado e snapshots imutáveis | Testes Go/race e ETW real sobre carga própria no Windows |
-| Símbolos | TD32/TDS FB09/FB0A, procedimentos, unidades Pascal, diretórios encadeados, nomes Delphi suportados e conversão por BaseOfCode | Casos derivados da JCL da revisão fixada, testes de corrupção/fuzz e TDS sintético ligado ao EXE de laboratório |
+| Símbolos | TD32/TDS FB09/FB0A, procedimentos, unidades Pascal por contribuição de código/diretórios globais, diretórios encadeados, nomes Delphi suportados e conversão por BaseOfCode | Casos derivados da JCL da revisão fixada, testes de corrupção/fuzz e TDS sintético ligado ao EXE de laboratório |
 | Aliases de símbolos | Intervalos exatamente iguais compartilham nome primário/ID; nomes e unidades alternativos preservados na busca | Ordem de FindProc da JCL, testes de TD32/ASLR/catálogo/CLI, limites de metadados e janela Windows |
 | Preferências do viewer | Caminho do EXE, filtros de resultados/símbolos e unidade de tempo persistidos por usuário | Roundtrip/limites/corrupção e janela Windows reaberta; arquivo desconhecido preservado ao usar padrões |
 | Coletor/viewer | Processos independentes, Named Pipe local, seleção/start/stop, filtros, tabela virtual, histórico, salvar/replay e comparação de sampling | Executáveis Windows, integração ETW e smoke da janela |

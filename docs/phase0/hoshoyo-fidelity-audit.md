@@ -1,5 +1,13 @@
 # Validação de fidelidade ao AntiPessimizer do Hoshoyo
 
+> Auditoria histórica da base indicada abaixo. O estado atual está no README e
+> em docs/plan.md. Desde essa base foram implementados instrumentação com
+> chamadas/tempos/médias, lançamento/seleção, Clear, handlers conferidos,
+> tail calls selecionadas e classificação por contribuições para símbolos
+> globais. Os achados originais permanecem registrados; não são uma descrição
+> do código atual. Paridade completa e Delphi 10.4 continuam sem certificação.
+
+
 Data: 2026-11-16. Base Go auditada: `fee0a18603c9f2618256bc2644ccbd03f40cdfaf`.
 Referência original: `ab67a710f152a25deef7593b8b18e59fa7827979`.
 
