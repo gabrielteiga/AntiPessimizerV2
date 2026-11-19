@@ -41,7 +41,7 @@ func (p *PEImage) BuildFunction(rva, size uint32, loadedBase, base, enter, exit,
 	return p.buildSelectedFunction(rva, size, loadedBase, base, enter, exit, unwind, id, nil)
 }
 
-// BuildSelectedFunction additionally permits direct, frameless tail jumps to
+// BuildSelectedFunction additionally permits direct tail jumps with verified stack restoration to
 // exact entries in this selection. The owner must install every selected target
 // and use an adapter with shared-physical-frame completion semantics.
 func (p *PEImage) BuildSelectedFunction(rva, size uint32, loadedBase, base, enter, exit, unwind uint64, id uint32, selected []uint32) (FunctionPlan, error) {
@@ -82,7 +82,11 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 	if metadata.handlerRVA != 0 {
 		selected = nil
 	}
-	flow, err := rewriteSelectedFunction(code, source, base, framed, int(originalInfo[1]), len(entry), true, selected)
+	var restored map[int]bool
+	if len(selected) > 0 && (framed || originalInfo[1] != 0) {
+		restored = verifiedTailEpilogues(code, originalInfo)
+	}
+	flow, err := rewriteSelectedFunction(code, source, base, framed, int(originalInfo[1]), len(entry), true, selected, restored)
 	if err != nil {
 		return FunctionPlan{}, err
 	}

@@ -37,7 +37,7 @@ func TestSelectedTailJumpKeepsOriginalStackAndExactEntry(t *testing.T) {
 		}
 	}
 }
-func TestSelectedTailJumpDoesNotAllowFramedIndirectOrConditionalTransfers(t *testing.T) {
+func TestSelectedTailJumpRejectsUnrestoredFramedIndirectOrConditionalTransfers(t *testing.T) {
 	for _, code := range [][]byte{
 		{0x48, 0x83, 0xec, 0x28, 0xe9, 0x57, 0, 0, 0}, // stack modification with empty metadata
 		{0x0f, 0x85, 0x5a, 0, 0, 0},                   // conditional external branch
