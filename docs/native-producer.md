@@ -488,3 +488,21 @@ A escolha por unidade resolve nomes exatos contra o catálogo completo, incluind
 aliases, e passa pela pré-validação habitual. Nenhum procedimento é omitido para
 caber no limite. A janela exige nova leitura quando o texto da unidade muda;
 o serviço confere novamente a identidade do EXE/TDS antes de lançar.
+
+
+## Handles do runtime Go durante o teste repetido
+
+Uma execução após o merge de #48 observou duas novas threads do runtime entre
+as capturas 6 e 7: Thread(self) +2, Event +4, IRTimer +4 e WaitCompletionPacket
++2, total +12; DebugObject e todos os demais tipos permaneceram iguais. Os
+contadores de threads Go criadas e threads OS também aumentaram exatamente dois.
+Esse vetor corresponde a mpreinit/minit de runtime/os_windows.go no Go 1.27.
+O antigo limite bruto de oito handles tratava esse caso como vazamento.
+
+O teste mantém os limites anteriores de handles, goroutines e heap. Acima do
+limite bruto, permite somente o vetor completo e exato de seis handles por nova
+thread Go, com os dois contadores de threads concordando e no máximo oito novas
+threads. Qualquer handle de outro tipo, vetor incompleto, objeto de depuração ou
+crescimento adicional continua falhando. Casos negativos portáveis reproduzem
+vazamentos de File/Process/Thread(other)/DebugObject e handles excedentes. A
+verificação independente de zero DebugObjects e as 320 capturas continuam ativas.
