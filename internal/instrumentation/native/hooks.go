@@ -26,7 +26,8 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 	if _, err := io.ReadFull(conn, offer[:]); err != nil {
 		return fmt.Errorf("hook allocation offer: %w", err)
 	}
-	expandedSelection := string(offer[:8]) == "APHOOK9\x00"
+	tailPlans := string(offer[:8]) == "APHOOKA\x00"
+	expandedSelection := tailPlans || string(offer[:8]) == "APHOOK9\x00"
 	largePlans := expandedSelection || string(offer[:8]) == "APHOOK8\x00"
 	typedScopes := largePlans || string(offer[:8]) == "APHOOK7\x00"
 	delphiScopes := typedScopes || string(offer[:8]) == "APHOOK6\x00"
@@ -83,6 +84,10 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 	// A whole stride per procedure keeps its relative RVAs independent. The
 	// final runtime table follows code and is relative to allocation.
 	tableOffset := capacity - uint32(int(count)*per*12)
+	targets := make([]uint32, 0, len(procedures))
+	for _, p := range procedures {
+		targets = append(targets, p.RVA)
+	}
 	payload := make([]byte, capacity)
 	for i, proc := range procedures {
 		size := u32(sizes[i*4:])
@@ -90,9 +95,12 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 		var source, patch, code []byte
 		var functions []x64.RuntimeFunction
 		if general {
-			plan, err := prepared.BuildFunction(proc.RVA, size, loaded, allocation+uint64(offset), enter, exit, cleanup, proc.ID)
+			plan, err := prepared.BuildSelectedFunction(proc.RVA, size, loaded, allocation+uint64(offset), enter, exit, cleanup, proc.ID, targets)
 			if err != nil {
 				return fmt.Errorf("procedure %d frame plan: %w", proc.ID, err)
+			}
+			if len(plan.TailTargets) != 0 && !tailPlans {
+				return errors.New("update the native adapter DLL: selected tail calls require APHOOKA")
 			}
 			if !largePlans && (size > 4096 || len(plan.Image) > hookStride) {
 				return errors.New("update the native adapter DLL: larger function plans require APHOOK8")

@@ -24,6 +24,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Controlled hook workload build failed' }
 if ($LASTEXITCODE -ne 0) { throw 'Unmodified launch target build failed' }
 & $gcc -m64 -std=c11 -O1 -Wall -Wextra -Werror -municode -fno-optimize-sibling-calls -static-libgcc -o (Join-Path $Output 'APFrameTarget.exe') ./native/frame_target_windows.c
 if ($LASTEXITCODE -ne 0) { throw 'Framed SEH target build failed' }
+& $gcc -m64 -std=c11 -O1 -Wall -Wextra -Werror -municode -fno-optimize-sibling-calls -static-libgcc -o (Join-Path $Output 'APTailTarget.exe') ./native/tail_target_windows.c
+if ($LASTEXITCODE -ne 0) { throw 'Selected tail call target build failed' }
+
 & $gcc -m64 -std=c11 -O1 -Wall -Wextra -Werror -municode -fno-optimize-sibling-calls -static-libgcc -o (Join-Path $Output 'APScopeTarget.exe') ./native/scope_target_windows.c
 if ($LASTEXITCODE -ne 0) { throw 'Catch/resume SEH target build failed' }
 & $gcc -m64 -std=c11 -O2 -Wall -Wextra -Werror -shared -static-libgcc -o (Join-Path $Output 'APReferenceAdapter.dll') ./native/reference_adapter_windows.c

@@ -70,12 +70,18 @@ func CheckImageProcedures(data []byte, procedures []SelectedProcedure) ([]Proced
 	const loadedBase uint64 = 0x100000000
 	probe := loadedBase + ((uint64(image.ImageSize()) + 0xffff) &^ 0xffff) + 0x10000
 	helper := probe + 0x1000000
+	targets := make([]uint32, 0, len(procedures))
+	for _, p := range procedures {
+		if p.RVA != 0 {
+			targets = append(targets, p.RVA)
+		}
+	}
 	checks := make([]ProcedureCheck, 0, len(procedures))
 	for _, p := range procedures {
 		check := ProcedureCheck{ID: p.ID}
 		if p.ID == 0 || p.RVA == 0 || p.Size < 5 || p.Size > MaxProcedureBytes {
 			check.Reason = "procedure requires a nonzero ID/RVA and a size of 5..8192 bytes"
-		} else if _, err := image.BuildFunction(p.RVA, p.Size, loadedBase, probe, helper, helper+0x100, helper+0x200, p.ID); err != nil {
+		} else if _, err := image.BuildSelectedFunction(p.RVA, p.Size, loadedBase, probe, helper, helper+0x100, helper+0x200, p.ID, targets); err != nil {
 			check.Reason = err.Error()
 		} else {
 			check.PlanSupported = true

@@ -12,7 +12,7 @@ type leafInstruction struct {
 
 	offset, relocated, length int
 	inst                      x86asm.Inst
-	kind                      byte // 0=ordinary, 1=return, 2=jump, 3=conditional, 4=call
+	kind                      byte // 0=ordinary, 1=return, 2=jump, 3=conditional, 4=call, 5=selected tail jump
 	condition                 byte
 	target                    int
 }
@@ -21,6 +21,7 @@ type leafBody struct {
 	overwrite   int
 	exitRVA     uint32
 	dataTargets []uint64
+	tailTargets []uint64
 	pcMap       []pcMapping
 }
 
@@ -37,6 +38,9 @@ func rewriteFunctionBody(code []byte, source, base uint64, framed bool, prologue
 	return rewriteFunctionWithPatch(code, source, base, framed, prologue, JumpSize, false)
 }
 func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, prologue, patchSize int, nativeFunction bool) (leafBody, error) {
+	return rewriteSelectedFunction(code, source, base, framed, prologue, patchSize, nativeFunction, nil)
+}
+func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prologue, patchSize int, nativeFunction bool, selected map[uint64]bool) (leafBody, error) {
 	fail := func(reason string) (leafBody, error) {
 		return leafBody{}, fmt.Errorf("%w: leaf: %s", ErrUnsupported, reason)
 	}
@@ -46,6 +50,7 @@ func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, pro
 	var instructions []leafInstruction
 	offsets := map[int]int{}
 	total, overwrite := 0, 0
+	var tailTargets []uint64
 	for offset := 0; offset < len(code); {
 		inst, err := x86asm.Decode(code[offset:], 64)
 		if err != nil || inst.Op == 0 || inst.Len == 0 || inst.Len > len(code)-offset {
@@ -104,9 +109,15 @@ func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, pro
 			}
 			target, ok := address(source+uint64(offset+inst.Len), int64(rel))
 			if !ok || target < source || target >= source+uint64(len(code)) {
-				return fail("branch leaves the procedure")
+				if !ok || d.kind != 2 || !nativeFunction || framed || prologue != 0 || !selected[target] {
+					return fail("branch leaves the procedure; direct frameless tail calls require selecting their exact target")
+				}
+				d.kind = 5
+				d.absolute = target
+				tailTargets = append(tailTargets, target)
+			} else {
+				d.target = int(target - source)
 			}
-			d.target = int(target - source)
 		}
 		if offset < prologue && d.length != inst.Len {
 			return fail("relocation changes original prologue offsets")
@@ -130,7 +141,7 @@ func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, pro
 		return fail("missing final RET")
 	}
 	last := instructions[len(instructions)-1].kind
-	if last != 1 && !(framed && last == 2) {
+	if last != 1 && last != 5 && !(framed && last == 2) {
 		return fail("body falls through its declared extent")
 	}
 	for _, d := range instructions {
@@ -140,7 +151,7 @@ func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, pro
 			}
 		}
 	}
-	out := leafBody{code: make([]byte, total), overwrite: overwrite, exitRVA: uint32((512 + total + 15) &^ 15)}
+	out := leafBody{tailTargets: tailTargets, code: make([]byte, total), overwrite: overwrite, exitRVA: uint32((512 + total + 15) &^ 15)}
 	for _, d := range instructions {
 		dst := out.code[d.relocated : d.relocated+d.length]
 		if d.kind == 1 {
@@ -161,12 +172,15 @@ func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, pro
 			binary.LittleEndian.PutUint32(dst[at:], uint32(delta))
 			continue
 		}
-		if d.kind == 4 {
+		if d.kind == 4 || d.kind == 5 {
 			delta := int64(d.absolute) - int64(base+512+uint64(d.relocated+5))
 			if delta < -1<<31 || delta > 1<<31-1 {
 				return fail("call target too far from clone")
 			}
 			dst[0] = 0xe8
+			if d.kind == 5 {
+				dst[0] = 0xe9
+			}
 			binary.LittleEndian.PutUint32(dst[1:], uint32(int32(delta)))
 			continue
 		}

@@ -13,7 +13,7 @@ enum { AP_START = 1, AP_ENTER = 2, AP_EXIT = 3, AP_END = 4, AP_UNWIND = 5, AP_UN
 typedef struct { uint32_t type, tid, procedure, depth; uint64_t tick; } Event;
 _Static_assert(sizeof(void *) == 8, "Windows x64 is required");
 _Static_assert(sizeof(Event) == 24, "event layout changed");
-typedef struct {uintptr_t entry_sp;uint32_t procedure;} PhysicalFrame;
+typedef struct {uintptr_t entry_sp;uint32_t procedure;BOOL tail;} PhysicalFrame;
 typedef struct {
     _Alignas(64) volatile LONG64 head;
     _Alignas(64) volatile LONG64 tail;
@@ -311,12 +311,26 @@ static void record_frame(uint32_t type,uint32_t procedure,uint32_t depth,uintptr
                         if(entry_sp&7){lost();publish=FALSE;}
                         else if(type==AP_ENTER){
                             if(r->frame_count>=AP_FRAMES){lost();publish=FALSE;}
-                            else r->frames[r->frame_count++]=(PhysicalFrame){entry_sp,procedure};
+                            else {
+                                /* A verified frameless tail caller and its selected
+                                   callee share the original return slot. No return
+                                   address or CET shadow-stack entry is replaced. */
+                                if(r->frame_count && r->frames[r->frame_count-1].entry_sp==entry_sp)r->frames[r->frame_count-1].tail=TRUE;
+                                r->frames[r->frame_count++]=(PhysicalFrame){entry_sp,procedure,FALSE};
+                            }
                         } else if(type==AP_EXIT || type==AP_UNWIND_EXIT){
                             if(!r->frame_count || r->frames[r->frame_count-1].entry_sp!=entry_sp || r->frames[r->frame_count-1].procedure!=procedure){
                                 if(!allow_repeated)lost();
                                 publish=FALSE;
-                            } else r->frame_count--;
+                            } else {
+                                r->frame_count--;
+                                enqueue(r,type,procedure,depth);
+                                while(r->frame_count && r->frames[r->frame_count-1].tail && r->frames[r->frame_count-1].entry_sp==entry_sp){
+                                    PhysicalFrame parent=r->frames[--r->frame_count];
+                                    enqueue(r,type,parent.procedure,0);
+                                }
+                                publish=FALSE;
+                            }
                         }
                     }
                     if(publish)enqueue(r,type,procedure,depth);

@@ -11,6 +11,7 @@ const MaxFunctionBytes = 8192
 const MaxFunctionImageBytes = 32768
 
 type FunctionPlan struct {
+	TailTargets                    []uint32 // exact selected source RVAs; native adapter must close shared physical frames
 	Original, Source, Patch, Image []byte
 	BodyRVA, ExitRVA               uint32
 	Functions                      [3]RuntimeFunction
@@ -37,6 +38,26 @@ func BuildPEFunction(image []byte, rva, size uint32, loadedBase, base, enter, ex
 // BuildFunction plans against this prepared image. Every call still validates
 // the selected code/prologue, native unwind actions and actual relocation range.
 func (p *PEImage) BuildFunction(rva, size uint32, loadedBase, base, enter, exit, unwind uint64, id uint32) (FunctionPlan, error) {
+	return p.buildSelectedFunction(rva, size, loadedBase, base, enter, exit, unwind, id, nil)
+}
+
+// BuildSelectedFunction additionally permits direct, frameless tail jumps to
+// exact entries in this selection. The owner must install every selected target
+// and use an adapter with shared-physical-frame completion semantics.
+func (p *PEImage) BuildSelectedFunction(rva, size uint32, loadedBase, base, enter, exit, unwind uint64, id uint32, selected []uint32) (FunctionPlan, error) {
+	targets := make(map[uint64]bool, len(selected))
+	for _, target := range selected {
+		if p == nil {
+			return FunctionPlan{}, fmt.Errorf("%w: uninitialized selected image", ErrUnsupported)
+		}
+		if _, ok := p.mapped(target, 1, true); !ok {
+			return FunctionPlan{}, fmt.Errorf("%w: selected tail target is outside executable image", ErrUnsupported)
+		}
+		targets[loadedBase+uint64(target)] = true
+	}
+	return p.buildSelectedFunction(rva, size, loadedBase, base, enter, exit, unwind, id, targets)
+}
+func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, enter, exit, unwind uint64, id uint32, selected map[uint64]bool) (FunctionPlan, error) {
 	fail := func(reason string) (FunctionPlan, error) {
 		return FunctionPlan{}, fmt.Errorf("%w: function: %s", ErrUnsupported, reason)
 	}
@@ -58,7 +79,10 @@ func (p *PEImage) BuildFunction(rva, size uint32, loadedBase, base, enter, exit,
 	}
 	framed := originalInfo[2] != 0
 	entry := entryJump(source, base)
-	flow, err := rewriteFunctionWithPatch(code, source, base, framed, int(originalInfo[1]), len(entry), true)
+	if metadata.handlerRVA != 0 {
+		selected = nil
+	}
+	flow, err := rewriteSelectedFunction(code, source, base, framed, int(originalInfo[1]), len(entry), true, selected)
 	if err != nil {
 		return FunctionPlan{}, err
 	}
@@ -174,7 +198,11 @@ func (p *PEImage) BuildFunction(rva, size uint32, loadedBase, base, enter, exit,
 	for i := len(entry); i < len(patch); i++ {
 		patch[i] = 0x90
 	}
-	return FunctionPlan{Original: append([]byte(nil), code[:flow.overwrite]...), Source: append([]byte(nil), code...), Patch: patch, Image: data, BodyRVA: 512, ExitRVA: flow.exitRVA, OriginalHandlerRVA: metadata.handlerRVA, RelocatedHandler: len(scopes) != 0, HandlerScopeStyle: metadata.scopeStyle, Functions: [3]RuntimeFunction{{0, in.CodeSize, in.UnwindRVA}, {512, 512 + uint32(len(flow.code)), infoRVA}, {flow.exitRVA, flow.exitRVA + out.CodeSize, flow.exitRVA + out.UnwindRVA}}}, nil
+	tails := make([]uint32, 0, len(flow.tailTargets))
+	for _, target := range flow.tailTargets {
+		tails = append(tails, uint32(target-loadedBase))
+	}
+	return FunctionPlan{TailTargets: tails, Original: append([]byte(nil), code[:flow.overwrite]...), Source: append([]byte(nil), code...), Patch: patch, Image: data, BodyRVA: 512, ExitRVA: flow.exitRVA, OriginalHandlerRVA: metadata.handlerRVA, RelocatedHandler: len(scopes) != 0, HandlerScopeStyle: metadata.scopeStyle, Functions: [3]RuntimeFunction{{0, in.CodeSize, in.UnwindRVA}, {512, 512 + uint32(len(flow.code)), infoRVA}, {flow.exitRVA, flow.exitRVA + out.CodeSize, flow.exitRVA + out.UnwindRVA}}}, nil
 }
 
 func validateUnwindCodes(info []byte) error {

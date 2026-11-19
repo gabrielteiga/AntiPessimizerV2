@@ -809,3 +809,32 @@ mesmo com poucas threads simultâneas. O limite é reportado como falha/incomple
 sem descartar linhas silenciosamente. Clear inicia outra época de contabilidade.
 O teste Windows de 16 threads cobre exatamente 4.096 chamadas/linhas e registra
 memória, handles, QPC e bytes emitidos contra baseline do mesmo EXE.
+
+
+## Tail calls diretas entre métodos selecionados
+
+BuildSelectedFunction permite JMP direto, curto ou rel32, para o início exato
+de outro procedimento da seleção completa. O chamador precisa ter unwind vazio,
+sem prólogo, frame ou handler. Transferências condicionais externas, indiretas,
+com frame/handler ou para destinos não selecionados/interiores continuam recusadas.
+BuildFunction sem seleção e o caminho legado conservam a rejeição anterior.
+A pré-validação usa somente os RVAs da seleção consultada; um método isolado
+pode aparecer recusado até que seu destino seja incluído na mesma seleção.
+
+O salto relocado continua apontando para a entrada original, instrumentada na
+mesma barreira. Não se cria CALL/RET intermediário nem se substitui o slot de
+retorno. Chamador e callee têm o mesmo RSP de entrada; o produtor marca essa
+relação física e fecha os frames lógicos em ordem quando o último callee retorna
+ou é realmente abandonado pelo unwind do Windows. O núcleo recebe os eventos
+normais/unwound habituais, com contagens e médias independentes. O limite de
+1.024 frames lógicos por thread também vale para cadeias e recursão por tail call;
+excedê-lo provoca perda explícita, sem crescimento ilimitado.
+
+APHOOKA (revisão hexadecimal 10 do contrato privado) anuncia esse comportamento;
+DLLs anteriores recusam planos com tail calls antes de receber código. O teste
+Windows compara execução sem instrumentação e cópia instalada, preserva seis
+argumentos Win64 (incluindo dois na pilha), exige 11 chamadas em cada método da
+cadeia, seis/cinco em uma recursão mútua, e uma saída excepcional em cada um dos
+três métodos encadeados. O catch CRT original precisa retomar e retornar seu
+resultado. Não é evidência de todas as tail calls emitidas pelo Delphi ou CET
+habilitado no hardware do runner.

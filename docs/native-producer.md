@@ -506,3 +506,21 @@ threads. Qualquer handle de outro tipo, vetor incompleto, objeto de depuração 
 crescimento adicional continua falhando. Casos negativos portáveis reproduzem
 vazamentos de File/Process/Thread(other)/DebugObject e handles excedentes. A
 verificação independente de zero DebugObjects e as 320 capturas continuam ativas.
+
+
+## Retorno de cadeias de tail calls selecionadas
+
+APTailTarget.exe é uma fixture sem SDK, distinta do alvo de frames anterior.
+Start e Middle não criam frame e saltam ao método Work selecionado; dois outros
+métodos fazem recursão mútua na mesma pilha. O alvo confere seis argumentos,
+resultado do laço recursivo e retomada CRT após uma exceção real no Work.
+
+O produtor mantém o RSP de entrada e marca o pai lógico quando o novo método
+entra com o mesmo slot de retorno. Retorno/unwind fecha esse método e seus pais
+marcados, em ordem, preservando a distinção normal/excepcional. Não há alteração
+do endereço de retorno nem uso de heurística por IP. O planejador exige seleção
+do destino exato, chamador sem frame/handler e deslocamento rel32 alcançável.
+O protocolo privado APHOOKA exige uma DLL com essa semântica; APNAT v5/eventos,
+buffers e limites de recursos permanecem iguais. Os testes portáveis recusam
+alvo omitido/interior, salto indireto/condicional e chamador com frame, além de
+provar que um adapter antigo não recebe o payload do plano.

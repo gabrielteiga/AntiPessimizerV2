@@ -316,3 +316,16 @@ sua preferência; o terminal do serviço usa --unit. A adaptação mantém limit
 explícito de 256 métodos físicos e recusa uma unidade que o exceda, sem truncá-la
 à página visível ou omitir métodos não suportados. Isso aproxima o fluxo de
 seleção do original, mantendo os limites e o subconjunto de código documentados.
+
+
+## Tail calls na adaptação
+
+CoreProfiler contabiliza blocos aninhados até sua saída. A adaptação conserva
+essa semântica para um subconjunto de tail calls sem copiar a substituição do
+retorno de ExeLoader: JMP direto de chamador sem frame/handler para um destino
+selecionado mantém o slot original. A igualdade física do RSP de entrada liga
+os frames lógicos, fechados juntos no retorno/unwind do callee. A fixture própria
+cobre argumentos, recursão e exceção; o corpus estático Delphi continua usando o
+planejador sem seleção e não recebe uma porcentagem nova por esse recurso.
+Tail calls indiretas, com frame/handler ou sem destino selecionado continuam
+fora do suporte. Não se certifica uma versão do compilador por esses testes.
