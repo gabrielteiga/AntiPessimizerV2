@@ -524,3 +524,9 @@ O protocolo privado APHOOKA exige uma DLL com essa semântica; APNAT v5/eventos,
 buffers e limites de recursos permanecem iguais. Os testes portáveis recusam
 alvo omitido/interior, salto indireto/condicional e chamador com frame, além de
 provar que um adapter antigo não recebe o payload do plano.
+
+Um segundo ensaio mantém seis frames lógicos abertos sobre duas pilhas físicas,
+executa duas barreiras de Clear e exige reinício zerado sem abandonar a cadeia.
+Depois confere retorno normal e uma exceção posterior, com duas chamadas e uma
+saída por unwind por método/thread. O estado físico e a marca de tail call
+permanecem válidos entre épocas; o histórico anterior continua retido.

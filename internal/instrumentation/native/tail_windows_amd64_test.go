@@ -62,3 +62,47 @@ func TestNativeProducerSelectedTailCallsPreserveArgumentsRecursionAndUnwind(t *t
 	}
 	t.Log("selected direct tail chain: six Win64 arguments and original return slot preserved; same-stack mutual recursion counted; one real exception closes all three tail frames per worker and resumes CRT catch")
 }
+
+func TestNativeProducerSelectedTailCallsClearKeepsOpenLogicalChain(t *testing.T) {
+	o := selectedFixture(t, "APTailTarget.exe", map[string]uint32{"APTailStart": 1, "APTailMiddle": 2, "APTailWork": 3})
+	o.Args = []string{"--threads", "2", "--iterations", "1", "--delay-ms", "700"}
+	o.Control = NewControl()
+	out := clearWhileOpenWriter{control: o.Control, result: make(chan error, 1)}
+	if err := Launch(context.Background(), o, &out); err != nil {
+		t.Fatal(err, out.String())
+	}
+	if !out.requested {
+		t.Fatal("tail chain never published six open logical frames")
+	}
+	if err := <-out.result; err != nil {
+		t.Fatal("tail Clear failed", err)
+	}
+	records, err := instrumentation.ReadMetrics(&out.Buffer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var epoch uint64
+	for _, r := range records {
+		if r.Metrics.Epoch > epoch {
+			epoch = r.Metrics.Epoch
+			if r.Metrics.Incomplete || r.Metrics.OpenCalls != 6 {
+				t.Fatal("Clear lost shared physical ownership", r.Metrics)
+			}
+			for _, row := range r.Metrics.Rows {
+				if row.Calls != 0 || row.InclusiveTicks != 0 || row.ExclusiveTicks != 0 {
+					t.Fatal("Clear retained completed tail times", row)
+				}
+			}
+		}
+	}
+	s := records[len(records)-1].Metrics
+	if epoch != 2 || s.Incomplete || s.OpenCalls != 0 || s.AbandonedCalls != 0 || len(s.Rows) != 6 {
+		t.Fatal("tail Clear incomplete", s)
+	}
+	for _, row := range s.Rows {
+		if row.Calls != 2 || row.UnwoundCalls != 1 {
+			t.Fatal("Clear lost normal or unwound tail completion", row)
+		}
+	}
+	t.Log("two synchronized Clears keep six logical tail frames open on two physical stacks; normal return and later exception both close each frame exactly once")
+}

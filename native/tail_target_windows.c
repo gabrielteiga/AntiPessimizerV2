@@ -6,11 +6,13 @@
 #include <stdlib.h>
 #include <wchar.h>
 enum { AP_TAIL_EXCEPTION=0xe0424243u };
+static DWORD tail_delay_ms;
 extern uint64_t APTailStart(uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
 extern uint64_t APTailRecursive(uint64_t,uint64_t),APTailRecursiveStep(uint64_t,uint64_t),APTailCatch(void);
 __attribute__((noinline)) uint64_t APTailWork(uint64_t n,uint64_t a,uint64_t b,uint64_t c,uint64_t d,uint64_t e){
  volatile uint64_t value=n;
  if(value==1002)RaiseException(AP_TAIL_EXCEPTION,0,0,NULL);
+ if(tail_delay_ms)Sleep(tail_delay_ms);
  return value+a+b+c+d+e;
 }
 LONG APTailFilter(EXCEPTION_POINTERS *p,void *frame){
@@ -48,10 +50,11 @@ int wmain(int argc,wchar_t **argv){
  for(int i=1;i<argc;i+=2){
   if(i+1>=argc)return 2;
   if(!wcscmp(argv[i],L"--threads"))threads=(uint32_t)wcstoul(argv[i+1],NULL,10);
+  else if(!wcscmp(argv[i],L"--delay-ms"))tail_delay_ms=(DWORD)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--iterations"))iterations=(uint32_t)wcstoul(argv[i+1],NULL,10);
   else return 2;
  }
- if(!threads||threads>16||!iterations||iterations>100)return 2;
+ if(tail_delay_ms>5000||!threads||threads>16||!iterations||iterations>100)return 2;
  barrier=CreateEventW(NULL,TRUE,FALSE,NULL);if(!barrier)return 3;
  HANDLE handles[16];DWORD result=0;
  for(uint32_t i=0;i<threads;i++){handles[i]=CreateThread(NULL,0,worker,NULL,0,NULL);if(!handles[i])return 3;}
