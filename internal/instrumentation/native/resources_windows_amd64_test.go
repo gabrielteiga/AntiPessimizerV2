@@ -138,6 +138,13 @@ func TestNativeStressRepeatedOwnedCapturesReleaseResources(t *testing.T) {
 		}
 		if i > 4 && (point.Handles > warm.Handles+8 || point.Goroutines > warm.Goroutines+8 || point.Heap > warm.Heap+(16<<20)) {
 			types, typeErr := collectorHandleTypes()
+			// Keep the original bounds. Only a complete, independently
+			// observed runtime M bundle can account for extra handles.
+			runtimeOnly := typeErr == nil && exactRuntimeHandleBundle(warmTypes, types, point.CreatedThreads-warm.CreatedThreads, point.OSThreads-warm.OSThreads, int(point.Handles)-int(warm.Handles))
+			if runtimeOnly && point.Goroutines <= warm.Goroutines+8 && point.Heap <= warm.Heap+(16<<20) {
+				t.Logf("additional Go runtime threads=%d, exact native handle bundle=%d; owned handle baseline unchanged", point.CreatedThreads-warm.CreatedThreads, int(point.Handles)-int(warm.Handles))
+				continue
+			}
 			t.Logf("handle types warm=%v current=%v error=%v", warmTypes, types, typeErr)
 			t.Logf("resource samples: %+v", e.Samples)
 			t.Fatal("collector resources grew after session warmup", warm, point)
