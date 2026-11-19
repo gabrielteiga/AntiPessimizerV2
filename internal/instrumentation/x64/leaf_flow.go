@@ -38,9 +38,9 @@ func rewriteFunctionBody(code []byte, source, base uint64, framed bool, prologue
 	return rewriteFunctionWithPatch(code, source, base, framed, prologue, JumpSize, false)
 }
 func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, prologue, patchSize int, nativeFunction bool) (leafBody, error) {
-	return rewriteSelectedFunction(code, source, base, framed, prologue, patchSize, nativeFunction, nil)
+	return rewriteSelectedFunction(code, source, base, framed, prologue, patchSize, nativeFunction, nil, nil)
 }
-func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prologue, patchSize int, nativeFunction bool, selected map[uint64]bool) (leafBody, error) {
+func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prologue, patchSize int, nativeFunction bool, selected map[uint64]bool, restored map[int]bool) (leafBody, error) {
 	fail := func(reason string) (leafBody, error) {
 		return leafBody{}, fmt.Errorf("%w: leaf: %s", ErrUnsupported, reason)
 	}
@@ -109,8 +109,8 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 			}
 			target, ok := address(source+uint64(offset+inst.Len), int64(rel))
 			if !ok || target < source || target >= source+uint64(len(code)) {
-				if !ok || d.kind != 2 || !nativeFunction || framed || prologue != 0 || !selected[target] {
-					return fail("branch leaves the procedure; direct frameless tail calls require selecting their exact target")
+				if !ok || d.kind != 2 || !nativeFunction || (framed || prologue != 0) && !restored[offset] || !selected[target] {
+					return fail("branch leaves the procedure; direct tail calls require selecting their exact target and verified stack restoration")
 				}
 				d.kind = 5
 				d.absolute = target

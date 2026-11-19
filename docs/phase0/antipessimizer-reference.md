@@ -329,3 +329,11 @@ cobre argumentos, recursão e exceção; o corpus estático Delphi continua usan
 planejador sem seleção e não recebe uma porcentagem nova por esse recurso.
 Tail calls indiretas, com frame/handler ou sem destino selecionado continuam
 fora do suporte. Não se certifica uma versão do compilador por esses testes.
+
+
+A ampliação seguinte permite também o epílogo simples de frame sem handler:
+ADD RSP/LEA com bias e POPs conferidos contra unwind v1. Isso mantém a mesma
+pilha física da transferência direta, sem portar a substituição do retorno do
+original. O corpus Delphi sem seleção continua com 8.645 planos estáticos; os
+novos wrappers e VirtualUnwind são evidência C/assembly do subconjunto, sem
+certificação de compilador e sem atribuição de nomes ao binário Delphi.

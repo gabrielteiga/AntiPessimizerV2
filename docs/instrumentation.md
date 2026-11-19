@@ -838,3 +838,21 @@ cadeia, seis/cinco em uma recursão mútua, e uma saída excepcional em cada um 
 três métodos encadeados. O catch CRT original precisa retomar e retornar seu
 resultado. Não é evidência de todas as tail calls emitidas pelo Delphi ou CET
 habilitado no hardware do runner.
+
+
+## Tail calls após restauração de frames
+
+O subconjunto direto também aceita epílogos conferidos contra os códigos de
+unwind v1: ADD RSP com a soma exata das alocações, ou LEA RSP a partir do frame
+register com seu bias, seguido dos POPs na ordem exata dos PUSHs. Os PUSHs devem
+preceder as alocações; nenhum branch pode entrar no meio da restauração ou
+saltar diretamente à transferência. Scopes/handlers, saves por MOV/SSE, LEAVE,
+restauração incorreta e demais padrões continuam rejeitados. O salto permanece
+para o início exato de um método selecionado e exige APHOOKA.
+
+A fixture Windows acrescenta dois wrappers: PUSH RBX/alocação e frame RBP com
+bias. Ambos restauram a pilha antes de encaminhar os seis argumentos. Em três
+threads, cada wrapper precisa completar onze chamadas, uma por unwind, e seus
+tempos devem conservar a hierarquia. Um teste separado de RtlVirtualUnwind usa
+somente CONTEXT/pilha nativos privados e exige RSP, RIP e RBX/RBP originais antes
+da restauração, no ADD/LEA, no POP e no JMP. Não executa nem desenrola pilha Go.

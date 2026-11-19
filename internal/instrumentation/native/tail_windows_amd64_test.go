@@ -10,7 +10,17 @@ import (
 )
 
 func TestNativeProducerSelectedTailCallsPreserveArgumentsRecursionAndUnwind(t *testing.T) {
-	o := selectedFixture(t, "APTailTarget.exe", map[string]uint32{"APTailStart": 1, "APTailMiddle": 2, "APTailWork": 3, "APTailRecursive": 4, "APTailRecursiveStep": 5, "APTailCatch": 6})
+	testTailCalls(t, false)
+}
+func TestNativeProducerVerifiedStackAndBiasedFrameTailCalls(t *testing.T) { testTailCalls(t, true) }
+func testTailCalls(t *testing.T, framed bool) {
+	t.Helper()
+	names := map[string]uint32{"APTailStart": 1, "APTailMiddle": 2, "APTailWork": 3, "APTailRecursive": 4, "APTailRecursiveStep": 5, "APTailCatch": 6}
+	if framed {
+		names["APTailFramedStack"] = 7
+		names["APTailFramedRBP"] = 8
+	}
+	o := selectedFixture(t, "APTailTarget.exe", names)
 	o.Args = []string{"--threads", "3", "--iterations", "10"}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -26,7 +36,7 @@ func TestNativeProducerSelectedTailCallsPreserveArgumentsRecursionAndUnwind(t *t
 		t.Fatal(err)
 	}
 	s := records[len(records)-1].Metrics
-	if s.Incomplete || s.OpenCalls != 0 || s.AbandonedCalls != 0 || len(s.Rows) != 18 {
+	if s.Incomplete || s.OpenCalls != 0 || s.AbandonedCalls != 0 || len(s.Rows) != 3*len(names) {
 		t.Fatal("tail calls left unmatched frames", s)
 	}
 	threads := map[uint32]map[uint32]instrumentation.Row{}
@@ -40,10 +50,15 @@ func TestNativeProducerSelectedTailCallsPreserveArgumentsRecursionAndUnwind(t *t
 		t.Fatal("tail workers merged", threads)
 	}
 	for _, r := range threads {
-		for id, want := range map[uint32]uint64{1: 11, 2: 11, 3: 11, 4: 6, 5: 5, 6: 1} {
+		counts := map[uint32]uint64{1: 11, 2: 11, 3: 11, 4: 6, 5: 5, 6: 1}
+		if framed {
+			counts[7] = 11
+			counts[8] = 11
+		}
+		for id, want := range counts {
 			row := r[id]
 			unwound := uint64(0)
-			if id <= 3 {
+			if id <= 3 || id >= 7 {
 				unwound = 1
 			}
 			if row.Calls != want || row.UnwoundCalls != unwound {
@@ -55,6 +70,9 @@ func TestNativeProducerSelectedTailCallsPreserveArgumentsRecursionAndUnwind(t *t
 		}
 		if r[1].InclusiveTicks != r[1].ExclusiveTicks+r[2].InclusiveTicks || r[2].InclusiveTicks != r[2].ExclusiveTicks+r[3].InclusiveTicks || r[3].InclusiveTicks != r[3].ExclusiveTicks {
 			t.Fatal("tail child times do not balance", r)
+		}
+		if framed && (r[7].InclusiveTicks != r[7].ExclusiveTicks+r[8].InclusiveTicks || r[8].InclusiveTicks != r[8].ExclusiveTicks+r[1].InclusiveTicks) {
+			t.Fatal("restored frame tail times do not balance", r)
 		}
 		if r[4].InclusiveTicks != r[4].ExclusiveTicks+r[5].ExclusiveTicks {
 			t.Fatal("mutually recursive tail time double counted", r)

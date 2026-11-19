@@ -530,3 +530,18 @@ executa duas barreiras de Clear e exige reinício zerado sem abandonar a cadeia.
 Depois confere retorno normal e uma exceção posterior, com duas chamadas e uma
 saída por unwind por método/thread. O estado físico e a marca de tail call
 permanecem válidos entre épocas; o histórico anterior continua retido.
+
+
+## Epílogos verificados antes de tail calls
+
+O planejador selecionado aceita o epílogo simples de frame quando os códigos
+originais conferem com a soma de alocações, o bias do frame register e a ordem
+dos POPs. Recusa branches que possam pular uma parte dessa restauração. A marca
+nativa de pilha compartilhada continua a mesma: o callee entra com o RSP original
+somente depois de a sequência original restaurar o frame.
+
+APTailFramedStack e APTailFramedRBP antecedem a cadeia anterior, preservando
+argumentos, chamadas e uma saída excepcional por wrapper. Há teste Windows de
+VirtualUnwind nas quatro fases de cada epílogo, sobre memória própria, exigindo
+a restauração do endereço de retorno e do registrador não volátil. Nenhuma
+outra variante de epílogo/handler é anunciada como suportada.
