@@ -36,8 +36,9 @@ AP_API BOOL APReferenceStartCapture(uintptr_t image,uint32_t source_rva){
     Ring *rings=VirtualAlloc(NULL,sizeof(Ring)*AP_THREADS,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);
     if(!rings){TlsFree(tls);return FALSE;}
     const IMAGE_NT_HEADERS64 *nt=(const IMAGE_NT_HEADERS64 *)(image+((const IMAGE_DOS_HEADER *)image)->e_lfanew);
-    state.rings=rings;state.tls=tls;state.count=1;state.capacity=AP_CAPACITY;state.hook_mode=2;
-    state.procedures[0]=(APProcedure){17,source_rva};state.image_size=nt->OptionalHeader.SizeOfImage;
+    state.rings=rings;state.tls=tls;state.capacity=AP_CAPACITY;state.hook_mode=2;
+    APProcedure procedure={17,source_rva};
+    set_procedures(&procedure,1);state.image_size=nt->OptionalHeader.SizeOfImage;
     state.frequency=(uint64_t)frequency.QuadPart;state.start=(uint64_t)start.QuadPart;
     InterlockedExchange(&state.running,1);return TRUE;
 }

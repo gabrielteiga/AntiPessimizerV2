@@ -3,11 +3,13 @@
 #define AP_BUILD_DLL
 #define WIN32_LEAN_AND_MEAN
 #include "producer.h"
+#include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
 #include "hooks_windows.h"
 
 enum { AP_THREADS = 64, AP_CAPACITY = 1024, AP_BATCH = 256, AP_SELECTION = 256, AP_FRAMES = 1024 };
+enum { AP_BINARY_SELECTION_MIN = 32 };
 _Static_assert((int)AP_HOOK_LIMIT==(int)AP_SELECTION,"native installer and event catalogs must have the same bound");
 enum { AP_START = 1, AP_ENTER = 2, AP_EXIT = 3, AP_END = 4, AP_UNWIND = 5, AP_UNWIND_EXIT = 6, AP_HEARTBEAT = 7, AP_CLEAR = 8 };
 typedef struct { uint32_t type, tid, procedure, depth; uint64_t tick; } Event;
@@ -31,6 +33,7 @@ static struct {
     HANDLE pipe, worker, ready, wake;
     Ring *rings;
     APProcedure procedures[AP_SELECTION];
+    uint32_t procedure_ids[AP_SELECTION];
     uint32_t count, capacity, image_size;
     uint64_t frequency, start;
 } state;
@@ -295,12 +298,44 @@ static Ring *thread_ring(void) {
     }
     return NULL;
 }
+static int compare_procedure_ids(const void *left, const void *right) {
+    uint32_t a = *(const uint32_t *)left, b = *(const uint32_t *)right;
+    return (a > b) - (a < b);
+}
+
+/* Build the membership index before publishing running. The wire catalog and
+ * the installer continue to use the supplied order. */
+static void set_procedures(const APProcedure *procedures, uint32_t count) {
+    memcpy(state.procedures, procedures, count * sizeof(*procedures));
+    state.count = count;
+    if (count < AP_BINARY_SELECTION_MIN) return;
+    for (uint32_t i = 0; i < count; i++) state.procedure_ids[i] = procedures[i].id;
+    qsort(state.procedure_ids, count, sizeof(state.procedure_ids[0]), compare_procedure_ids);
+}
+
+static BOOL procedure_selected(uint32_t procedure) {
+    if (!procedure) return TRUE;
+    if (state.count < AP_BINARY_SELECTION_MIN) {
+        for (uint32_t i = 0; i < state.count; i++) {
+            if (state.procedures[i].id == procedure) return TRUE;
+        }
+        return FALSE;
+    }
+    uint32_t first = 0, last = state.count;
+    while (first < last) {
+        uint32_t middle = first + (last - first) / 2;
+        uint32_t candidate = state.procedure_ids[middle];
+        if (candidate == procedure) return TRUE;
+        if (candidate < procedure) first = middle + 1;
+        else last = middle;
+    }
+    return FALSE;
+}
+
 static void record_frame(uint32_t type,uint32_t procedure,uint32_t depth,uintptr_t entry_sp,BOOL allow_repeated){
     DWORD error=GetLastError();
     if(load32(&state.running)){
-        BOOL selected=!procedure;
-        for(uint32_t i=0;i<state.count && !selected;i++)selected=state.procedures[i].id==procedure;
-        if(!selected)lost();
+        if(!procedure_selected(procedure))lost();
         else{
             Ring *r=thread_ring();
             if(r && writer_gate(TRUE)){
@@ -478,8 +513,8 @@ static BOOL init_producer(const wchar_t *name, const APProcedure *procedures, ui
     }
     state.rings = (Ring *)VirtualAlloc(NULL, sizeof(Ring)*AP_THREADS, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
     if (!state.rings) { TlsFree(state.tls); CloseHandle(state.pipe); return FALSE; }
-    state.count=count; state.capacity=capacity; state.frequency=(uint64_t)frequency.QuadPart; state.start=(uint64_t)start.QuadPart; state.hook_mode=hook_mode;
-    state.image_size=nt->OptionalHeader.SizeOfImage; memcpy(state.procedures, procedures, count*sizeof(APProcedure));
+    state.capacity=capacity; state.frequency=(uint64_t)frequency.QuadPart; state.start=(uint64_t)start.QuadPart; state.hook_mode=hook_mode;
+    state.image_size=nt->OptionalHeader.SizeOfImage; set_procedures(procedures, count);
     state.ready=CreateEventW(NULL, TRUE, FALSE, NULL);
     if (!state.ready) { VirtualFree(state.rings, 0, MEM_RELEASE); state.rings=NULL; TlsFree(state.tls); CloseHandle(state.pipe); return FALSE; }
     state.wake=CreateEventW(NULL, FALSE, FALSE, NULL);

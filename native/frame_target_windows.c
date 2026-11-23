@@ -265,7 +265,7 @@ static DWORD WINAPI worker(void *unused){
  return 0;
 }
 int wmain(int argc,wchar_t **argv){
- uint32_t threads=3,rounds=1;const wchar_t *report=NULL;
+ uint32_t threads=3,rounds=1,unselected_id=0;const wchar_t *report=NULL;
  for(int i=1;i<argc;i+=2){
   if(i+1>=argc)return 2;
   if(!wcscmp(argv[i],L"--threads"))threads=(uint32_t)wcstoul(argv[i+1],NULL,10);
@@ -277,6 +277,7 @@ int wmain(int argc,wchar_t **argv){
   else if(!wcscmp(argv[i],L"--delay-ms"))child_delay_ms=(DWORD)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--cleanup-throws"))cleanup_throws=(BOOL)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--normal-cleanup-throws"))normal_cleanup_throws=(BOOL)wcstoul(argv[i+1],NULL,10);
+  else if(!wcscmp(argv[i],L"--unselected-id"))unselected_id=(uint32_t)wcstoul(argv[i+1],NULL,10);
   else return 2;
  }
  if(!batch_limit||batch_limit>256||!threads||threads>16||!rounds||rounds>1000||!iterations||iterations>1000||child_delay_ms>5000)return 2;
@@ -293,6 +294,13 @@ int wmain(int argc,wchar_t **argv){
  }
  }
  CloseHandle(barrier);
+ if(unselected_id){
+  HMODULE adapter=GetModuleHandleW(L"AntiPessimizerNative.dll");
+  if(!adapter)return 11;
+  void (*enter)(uint32_t)=(void (*)(uint32_t))(void *)GetProcAddress(adapter,"APNativeEnter");
+  if(!enter)return 11;
+  enter(unselected_id);
+ }
  if(report){
   PROCESS_MEMORY_COUNTERS_EX memory={0};memory.cb=sizeof(memory);DWORD handles=0;
   if(!QueryPerformanceCounter(&finish)||!GetProcessMemoryInfo(GetCurrentProcess(),(PROCESS_MEMORY_COUNTERS *)&memory,sizeof(memory))||!GetProcessHandleCount(GetCurrentProcess(),&handles))return 10;
