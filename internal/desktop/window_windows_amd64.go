@@ -106,6 +106,8 @@ type window struct {
 	metricUnits                                                                    uintptr
 	clearButton                                                                    uintptr
 	instrumentMode                                                                 bool
+	browseExecutable                                                               uintptr
+	executablePicker                                                               func(uintptr) (string, error)
 	imagePath, symbolSearch, programArgs, launchTimeout, procedureList, modeButton uintptr
 	catalog                                                                        *service.CatalogPage
 	catalogPath                                                                    string
@@ -278,7 +280,7 @@ func runViewerWithPreferences(address, path, follow string, instrumentMode bool,
 	defer runtime.UnlockOSThread()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	a := &window{instrumentMode: instrumentMode, followPath: follow, metricUpdates: make(chan metricFollowUpdate, 1), inspect: inspect, initialPath: path, address: address, ctx: ctx, cancel: cancel, updates: make(chan update, 8), width: 1180, height: 760}
+	a := &window{instrumentMode: instrumentMode, followPath: follow, metricUpdates: make(chan metricFollowUpdate, 1), inspect: inspect, initialPath: path, address: address, ctx: ctx, cancel: cancel, updates: make(chan update, 8), width: 1180, height: 760, executablePicker: pickExecutable}
 	a.preferences, a.preferencesPath = defaultPreferences(), settingsPath
 	if settingsPath != "" {
 		if p, err := loadPreferences(settingsPath); err != nil {
@@ -343,6 +345,7 @@ func (a *window) open() error {
 	a.imagePath = child(a.hwnd, "EDIT", "", 0x00810080, 19)
 	a.symbolSearch = child(a.hwnd, "EDIT", "", 0x00810080, 20)
 	a.wholeUnit = child(a.hwnd, "BUTTON", "Unidade inteira", 0x10003, 26)
+	a.browseExecutable = child(a.hwnd, "BUTTON", "Procurar EXE", 0x10000, 27)
 	a.programArgs = child(a.hwnd, "EDIT", "", 0x00810080, 21)
 	a.launchTimeout = child(a.hwnd, "EDIT", "60", 0x00810080, 22)
 	a.procedureList = child(a.hwnd, "LISTBOX", "", 0x00a10801, 23)
@@ -360,7 +363,7 @@ func (a *window) open() error {
 		a.followCancel = cancel
 		a.wg.Add(1)
 		go func() { defer a.wg.Done(); followMetrics(ctx, a.followPath, a.metricUpdates) }()
-		for _, h := range []uintptr{a.processes, a.refresh, a.start, a.demo, a.replay, a.modeButton} {
+		for _, h := range []uintptr{a.processes, a.refresh, a.start, a.demo, a.replay, a.modeButton, a.browseExecutable} {
 			user.NewProc("EnableWindow").Call(h, 0)
 		}
 		text(a.stop, "Desconectar")
@@ -456,6 +459,7 @@ func (a *window) layout() {
 	pos(a.start, w-305, 12, 90, 28)
 	pos(a.stop, w-205, 12, 90, 28)
 	pos(a.demo, w-105, 12, 90, 28)
+	pos(a.browseExecutable, w-105, 12, 90, 28)
 	pos(a.filter, 12, 52, w-300, 28)
 	pos(a.thread, w-275, 52, 120, 28)
 	pos(a.seconds, w-140, 52, 125, 28)
@@ -555,7 +559,7 @@ func (a *window) poll() {
 }
 func (a *window) command(id int) {
 	if a.followPath != "" {
-		if id == 2 || id == 3 || id == 5 {
+		if id == 2 || id == 3 || id == 5 || id == 27 {
 			return
 		}
 		if id == 4 {
@@ -586,6 +590,22 @@ func (a *window) command(id int) {
 		return
 	}
 	switch id {
+	case 27:
+		if !a.instrumentMode {
+			return
+		}
+		path, err := a.executablePicker(a.hwnd)
+		if err != nil {
+			text(a.status, err.Error())
+			return
+		}
+		if path != "" && path != value(a.imagePath) {
+			text(a.imagePath, path)
+			a.catalog = nil
+			a.catalogPath, a.catalogUnit = "", ""
+			send.Call(a.procedureList, 0x184, 0, 0) // LB_RESETCONTENT
+			text(a.details, "Leia os símbolos do executável escolhido.")
+		}
 	case 2:
 		a.request(service.Request{Op: "processes"})
 	case 3:
@@ -1072,7 +1092,7 @@ func (a *window) configureMode() {
 		visible = 5
 		sampling = 0
 	}
-	for _, h := range []uintptr{a.imagePath, a.symbolSearch, a.wholeUnit, a.programArgs, a.launchTimeout, a.procedureList, a.clearButton} {
+	for _, h := range []uintptr{a.imagePath, a.symbolSearch, a.wholeUnit, a.programArgs, a.launchTimeout, a.procedureList, a.clearButton, a.browseExecutable} {
 		user.NewProc("ShowWindow").Call(h, visible)
 	}
 	for _, h := range []uintptr{a.processes, a.demo} {

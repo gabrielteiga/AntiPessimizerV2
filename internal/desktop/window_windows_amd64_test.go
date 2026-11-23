@@ -281,7 +281,17 @@ func TestNativeInstrumentedControlWindowSmoke(t *testing.T) {
 	}()
 	if err := runViewer(address, "", "", true, func(w *window) error {
 		// Exercise the same controls/commands as the user; the collector owns launch.
-		text(w.imagePath, `C:\lab\owned.exe`)
+		const initial = `C:\laboratório\aplicação.exe`
+		w.executablePicker = func(owner uintptr) (string, error) {
+			if owner != w.hwnd {
+				return "", fmt.Errorf("executable picker has the wrong owner")
+			}
+			return initial, nil
+		}
+		send.Call(w.browseExecutable, 0xf5, 0, 0) // BM_CLICK
+		if got := value(w.imagePath); got != initial {
+			return fmt.Errorf("executable picker did not fill the Unicode path: %q", got)
+		}
 		text(w.symbolSearch, "Lab")
 		w.command(2)
 		deadline := time.Now().Add(2 * time.Second)
@@ -291,6 +301,11 @@ func TestNativeInstrumentedControlWindowSmoke(t *testing.T) {
 		}
 		if w.catalog == nil || len(w.catalog.Procedures) != 2 || len(w.catalog.Checks) != 2 {
 			return fmt.Errorf("symbol selection did not reach the native list")
+		}
+		w.executablePicker = func(uintptr) (string, error) { return "", nil }
+		send.Call(w.browseExecutable, 0xf5, 0, 0)
+		if value(w.imagePath) != initial || w.catalog == nil {
+			return fmt.Errorf("canceling the picker changed the loaded image")
 		}
 		var label [256]uint16
 		send.Call(w.procedureList, 0x189, 0, uintptr(unsafe.Pointer(&label[0])))
@@ -388,6 +403,13 @@ func TestNativeInstrumentedControlWindowSmoke(t *testing.T) {
 		}
 		if c.Status().State != "stopped" {
 			return fmt.Errorf("whole-unit Stop did not join owner")
+		}
+		const other = `D:\teste\outra aplicação.exe`
+		w.executablePicker = func(uintptr) (string, error) { return other, nil }
+		send.Call(w.browseExecutable, 0xf5, 0, 0)
+		remaining, _, _ := send.Call(w.procedureList, 0x18b, 0, 0) // LB_GETCOUNT
+		if value(w.imagePath) != other || w.catalog != nil || w.catalogPath != "" || w.catalogUnit != "" || remaining != 0 {
+			return fmt.Errorf("changing executable kept the previous catalog or list")
 		}
 		return nil
 	}); err != nil {
