@@ -62,7 +62,10 @@ sem converter esse valor em chamadas ou duração por chamada.
 4. **Custo e operação prolongada.** Medir baseline e instrumentado, chamadas/s,
    perda, latência, memória e crescimento em seleções/threads representativas.
    O CI mede pares em loop C e 20 rodadas de reutilização com memória/handles e
-   saturação deliberada. Isso não mede overhead Delphi nem uma execução de horas. Não subtrair overhead presumido. Sampling e instrumentação mantêm metodologias
+   saturação deliberada. O workflow Native endurance permite pares no mesmo alvo
+   C com até duas horas por modo, com memória, handles, perdas e cadência de
+   publicação. A evidência de overhead e operação prolongada em Delphi
+   continua pendente. Não subtrair overhead presumido. Sampling e instrumentação mantêm metodologias
    próprias. Limites atuais de seleção/buffer só aumentam junto dessas medições.
 5. **Complementos do fluxo principal.** Demais preferências/diagnósticos do
    original, conforme a auditoria de fidelidade. Attach a processo arbitrário e

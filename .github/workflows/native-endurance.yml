@@ -1,0 +1,35 @@
+name: Native endurance
+on:
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds per mode (6–7200)
+        type: number
+        default: 3600
+        required: true
+permissions:
+  contents: read
+jobs:
+  windows-endurance:
+    runs-on: windows-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.4'
+          cache: false
+      - name: Build the controlled native workload
+        run: |
+          ./scripts/build-native.ps1 -Output "$env:RUNNER_TEMP/ap-native"
+          "AP_NATIVE_LAB=$env:RUNNER_TEMP/ap-native/APNativeLab.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Compare sustained baseline and instrumented captures
+        env:
+          AP_NATIVE_ENDURANCE_SECONDS: ${{ inputs.seconds }}
+          AP_NATIVE_ENDURANCE_REPORT: ${{ runner.temp }}/native-endurance.json
+        run: go test -v -count=1 -timeout=5h ./internal/instrumentation/native -run '^TestNativeEnduranceBaselineAndInstrumented$'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Native-endurance-${{ github.run_id }}
+          path: ${{ runner.temp }}/native-endurance.json
+          if-no-files-found: error
