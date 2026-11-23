@@ -347,14 +347,14 @@ func (a *window) open() error {
 	a.modeButton = child(a.hwnd, "BUTTON", "Chamadas", 0x10000, 18)
 	a.imagePath = child(a.hwnd, "EDIT", "", 0x00810080, 19)
 	a.symbolSearch = child(a.hwnd, "EDIT", "", 0x00810080, 20)
-	a.wholeUnit = child(a.hwnd, "BUTTON", "Unidade inteira", 0x10003, 26)
+	a.wholeUnit = child(a.hwnd, "BUTTON", "Unidades inteiras", 0x10003, 26)
 	a.browseExecutable = child(a.hwnd, "BUTTON", "Procurar EXE", 0x10000, 27)
 	a.selectFiltered = child(a.hwnd, "BUTTON", "Selecionar busca", 0x10000, 28)
 	a.clearSelection = child(a.hwnd, "BUTTON", "Limpar seleção", 0x10000, 29)
 	a.programArgs = child(a.hwnd, "EDIT", "", 0x00810080, 21)
 	a.launchTimeout = child(a.hwnd, "EDIT", "60", 0x00810080, 22)
 	a.procedureList = child(a.hwnd, "LISTBOX", "", 0x00a10801, 23)
-	for h, label := range map[uintptr]string{a.imagePath: "Caminho completo do EXE Delphi", a.symbolSearch: "Buscar unidade ou procedimento (depois, Ler símbolos)", a.programArgs: "Argumentos do novo programa", a.launchTimeout: "Prazo em segundos"} {
+	for h, label := range map[uintptr]string{a.imagePath: "Caminho completo do EXE Delphi", a.programArgs: "Argumentos do novo programa", a.launchTimeout: "Prazo em segundos"} {
 		send.Call(h, 0x1501, 0, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(label))))
 	}
 	a.applyPreferences()
@@ -487,9 +487,12 @@ func (a *window) layout() {
 		pos(a.programArgs, w/2, 90, w/2-300, 28)
 		pos(a.procedureList, 12, 130, w-24, 92)
 		statusWidth, show := w-314, uintptr(5)
+		searchCue := "Buscar unidade ou procedimento"
 		if whole, _, _ := send.Call(a.wholeUnit, 0xf0, 0, 0); whole == 1 {
 			statusWidth, show = w-24, 0
+			searchCue = "Nomes exatos das unidades, separados por vírgulas"
 		}
+		send.Call(a.symbolSearch, 0x1501, 0, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(searchCue)))) // EM_SETCUEBANNER
 		pos(a.status, 12, 230, statusWidth, 42)
 		pos(a.selectFiltered, w-290, 230, 135, 28)
 		pos(a.clearSelection, w-150, 230, 135, 28)
@@ -509,7 +512,7 @@ func (a *window) request(q service.Request) {
 	go func() {
 		defer a.wg.Done()
 		r, err := service.Call(a.ctx, a.address, q)
-		a.send(update{Response: r, Error: err, Live: true, CatalogPath: q.Catalog.Image, CatalogUnit: q.Catalog.Unit, CatalogText: q.Catalog.Text})
+		a.send(update{Response: r, Error: err, Live: true, CatalogPath: q.Catalog.Image, CatalogUnit: strings.Join(q.Catalog.Units, ", "), CatalogText: q.Catalog.Text})
 	}()
 }
 func (a *window) poll() {
@@ -610,7 +613,7 @@ func (a *window) command(id int) {
 			return
 		}
 		if whole, _, _ := send.Call(a.wholeUnit, 0xf0, 0, 0); whole == 1 {
-			text(a.status, "Unidade inteira seleciona todos os procedimentos da unidade.")
+			text(a.status, "Unidades inteiras seleciona todos os procedimentos dessas unidades.")
 			return
 		}
 		if id == 29 {
@@ -894,7 +897,7 @@ func (a *window) tick() {
 					text(a.status, err.Error())
 				}
 			}
-			if page := u.Response.Catalog; page != nil && a.instrumentMode && u.CatalogPath == value(a.imagePath) {
+			if page := u.Response.Catalog; page != nil && a.currentCatalogQuery(u) {
 				a.catalog = page
 				a.catalogPath = u.CatalogPath
 				a.catalogUnit = u.CatalogUnit
@@ -1146,21 +1149,47 @@ func (a *window) configureMode() {
 		text(a.start, "Iniciar")
 	}
 }
+
+func exactUnits(search string) []string {
+	units := strings.Split(search, ",")
+	for i, unit := range units {
+		units[i] = strings.TrimSpace(unit)
+		if units[i] == "" {
+			return nil
+		}
+	}
+	return units
+}
+
+func (a *window) currentCatalogQuery(u update) bool {
+	if !a.instrumentMode || u.CatalogPath != value(a.imagePath) {
+		return false
+	}
+	search := value(a.symbolSearch)
+	if whole, _, _ := send.Call(a.wholeUnit, 0xf0, 0, 0); whole == 1 {
+		return u.CatalogUnit != "" && strings.EqualFold(strings.Join(exactUnits(search), ", "), u.CatalogUnit)
+	}
+	return u.CatalogUnit == "" && u.CatalogText == search
+}
+
 func (a *window) instrumentCommand(id int) {
 	path := value(a.imagePath)
 	whole, _, _ := send.Call(a.wholeUnit, 0xf0, 0, 0)
 	unitMode := whole == 1
-	unitName := strings.TrimSpace(value(a.symbolSearch))
+	search := value(a.symbolSearch)
+	var units []string
+	if unitMode {
+		units = exactUnits(search)
+		if len(units) == 0 {
+			text(a.status, "Informe os nomes exatos das unidades Pascal, separados por vírgulas.")
+			return
+		}
+	}
 	if id == 2 {
-		q := service.CatalogQuery{Image: path, Text: value(a.symbolSearch), Limit: service.MaxInstrumentedProcedures, Check: true}
+		q := service.CatalogQuery{Image: path, Text: search, Limit: service.MaxInstrumentedProcedures, Check: true}
 		if unitMode {
-			if unitName == "" {
-				text(a.status, "Informe o nome exato da unidade Pascal e leia os símbolos.")
-				return
-			}
 			q.Text = ""
-			q.Unit = unitName
-			q.Limit = service.MaxInstrumentedProcedures
+			q.Units = units
 		}
 		a.request(service.Request{Op: "instrument-catalog", Catalog: q})
 		return
@@ -1170,24 +1199,26 @@ func (a *window) instrumentCommand(id int) {
 		return
 	}
 	var ids []uint32
-	var units []string
 	if unitMode {
-		if unitName == "" || !strings.EqualFold(unitName, a.catalogUnit) {
-			text(a.status, "Leia os símbolos da unidade exata antes de iniciar.")
+		if !strings.EqualFold(strings.Join(units, ", "), a.catalogUnit) {
+			text(a.status, "Leia os símbolos das unidades atuais antes de iniciar.")
 			return
 		}
 		if a.catalog.Total < 1 || a.catalog.Total > service.MaxInstrumentedProcedures || len(a.catalog.Procedures) != a.catalog.Total {
-			text(a.status, fmt.Sprintf("Unidade contém %d procedimentos; escolha uma unidade com 1 a %d ou IDs individuais.", a.catalog.Total, service.MaxInstrumentedProcedures))
+			text(a.status, fmt.Sprintf("As unidades contêm %d procedimentos. Escolha de 1 a %d.", a.catalog.Total, service.MaxInstrumentedProcedures))
 			return
 		}
 		for _, check := range a.catalog.Checks {
 			if !check.PlanSupported {
-				text(a.status, "Unidade contém procedimento não suportado: "+check.Reason)
+				text(a.status, "As unidades contêm um procedimento não suportado: "+check.Reason)
 				return
 			}
 		}
-		units = []string{unitName}
 	} else {
+		if a.catalogUnit != "" {
+			text(a.status, "Leia os símbolos da busca atual antes de iniciar.")
+			return
+		}
 		count, _, _ := send.Call(a.procedureList, 0x190, 0, 0)
 		if count < 1 || count > service.MaxInstrumentedProcedures {
 			text(a.status, fmt.Sprintf("Selecione de 1 a %d procedimentos (Ctrl/Shift).", service.MaxInstrumentedProcedures))

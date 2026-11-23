@@ -33,12 +33,13 @@ type InstrumentOptions struct {
 }
 
 type CatalogQuery struct {
-	Check  bool   `json:"check,omitempty"`
-	Image  string `json:"image"`
-	Text   string `json:"text,omitempty"`
-	Unit   string `json:"unit,omitempty"`
-	Offset int    `json:"offset,omitempty"`
-	Limit  int    `json:"limit,omitempty"`
+	Check  bool     `json:"check,omitempty"`
+	Image  string   `json:"image"`
+	Text   string   `json:"text,omitempty"`
+	Unit   string   `json:"unit,omitempty"`
+	Units  []string `json:"units,omitempty"`
+	Offset int      `json:"offset,omitempty"`
+	Limit  int      `json:"limit,omitempty"`
 }
 
 type CatalogPage struct {
@@ -254,12 +255,24 @@ func (c *Controller) Catalog(q CatalogQuery) (CatalogPage, error) {
 	if q.Limit == 0 {
 		q.Limit = 200
 	}
+	if len(q.Units) != 0 && (q.Unit != "" || q.Text != "") {
+		return CatalogPage{}, errors.New("choose an exact unit selection or catalog search filters, exclusively")
+	}
 	catalog, err := c.LoadCatalog(q.Image)
 	if err != nil {
 		return CatalogPage{}, err
 	}
 	page := CatalogPage{CatalogID: catalog.CatalogID, ImageID: catalog.ImageID, SymbolSource: catalog.SymbolSource, Procedures: []native.SelectedProcedure{}}
-	for _, p := range catalog.Search(q.Text, q.Unit) {
+	var procedures []native.SelectedProcedure
+	if len(q.Units) != 0 {
+		procedures, err = catalog.SelectUnits(q.Units)
+		if err != nil {
+			return CatalogPage{}, err
+		}
+	} else {
+		procedures = catalog.Search(q.Text, q.Unit)
+	}
+	for _, p := range procedures {
 		if page.Total >= q.Offset && len(page.Procedures) < q.Limit {
 			page.Procedures = append(page.Procedures, p)
 		}

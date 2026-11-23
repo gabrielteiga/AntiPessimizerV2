@@ -72,11 +72,13 @@ Na janela, use **Chamadas**, escolha o arquivo com **Procurar EXE** ou informe
 o caminho completo, e clique em
 **Ler símbolos**. A busca por unidade ou procedimento exibe até 256 resultados.
 Use **Selecionar busca** para marcar todas as correspondências quando couberem
-na seleção, ou **Limpar seleção** para desmarcá-las. Para selecionar uma unidade inteira,
-marque **Unidade inteira**, informe seu nome exato na busca e use **Ler símbolos**.
-Esse modo mostra e seleciona todos os seus procedimentos, até 256, incluindo aliases
-sem duplicar código. Se algum método não for suportado, o início informa o motivo;
-unidades maiores precisam de seleção por IDs e nunca são truncadas silenciosamente. Selecione de 1 a 256 procedimentos com Ctrl/Shift,
+na seleção, ou **Limpar seleção** para desmarcá-las. Para selecionar unidades inteiras,
+marque **Unidades inteiras**, informe os nomes exatos separados por vírgulas e use
+**Ler símbolos**. O modo seleciona até 256 procedimentos no total e conta cada
+intervalo uma vez, mesmo quando aparece em várias unidades. A prévia informa se
+alguma unidade estiver ausente ou se o conjunto ultrapassar o limite. Se algum
+método for recusado pelo planejador, o início informa o motivo. Na busca por
+procedimentos, selecione de 1 a 256 entradas com Ctrl/Shift,
 informe argumentos e prazo em segundos, e use **Iniciar EXE**. Também pode abrir
 esse modo diretamente:
 

@@ -106,6 +106,37 @@ func TestCatalogAliasSearchHasBoundedMetadataAndOneSelection(t *testing.T) {
 		t.Fatal("alias response mutation changed catalog", err)
 	}
 }
+
+func TestCatalogExactUnitsPreviewsAllPhysicalProcedures(t *testing.T) {
+	c, o := instrumentController(t)
+	load := c.LoadCatalog
+	c.LoadCatalog = func(path string) (native.Catalog, error) {
+		catalog, err := load(path)
+		catalog.Procedures[1].Unit = "Other"
+		catalog.Aliases = []native.ProcedureAlias{{ID: 1, Name: "Other.Alias", Unit: "Other"}}
+		return catalog, err
+	}
+	q := CatalogQuery{Image: o.Image, Units: []string{"other", "Lab"}, Check: true}
+	page, err := c.Catalog(q)
+	if err != nil || page.Total != 2 || len(page.Procedures) != 2 || len(page.Checks) != 2 ||
+		page.Procedures[0].ID != 1 || page.Procedures[1].ID != 2 || page.AliasTotal != 1 {
+		t.Fatal("exact units did not preview the full physical selection", page, err)
+	}
+	q.Units = []string{"Lab", "Missing"}
+	if _, err := c.Catalog(q); err == nil || !strings.Contains(err.Error(), "Missing") {
+		t.Fatal("missing unit did not reject the complete preview", err)
+	}
+	q.Units = []string{"Lab", "lab"}
+	if _, err := c.Catalog(q); err == nil {
+		t.Fatal("duplicate exact unit accepted")
+	}
+	q.Units = []string{"Lab"}
+	q.Text = "Parent"
+	if _, err := c.Catalog(q); err == nil {
+		t.Fatal("text filter narrowed an exact unit preview")
+	}
+}
+
 func instrumentController(t *testing.T) (*Controller, InstrumentOptions) {
 	t.Helper()
 	c := New()
