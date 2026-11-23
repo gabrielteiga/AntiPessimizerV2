@@ -2,12 +2,15 @@ package native
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -50,12 +53,19 @@ func TestNativeProducerInstruments64ProceduresTogether(t *testing.T) {
 	t.Log("64 six-byte procedures installed together: all return values preserved, 192 distinct rows and 384 exact calls; 2 MiB code strides plus a separate bounded runtime table")
 }
 
-func TestNativeProducerInstruments256ProceduresOn16Threads(t *testing.T) {
+func sparseBatchSelection(t *testing.T) LaunchOptions {
+	t.Helper()
 	names := map[string]uint32{}
 	for i := uint32(0); i < MaxSelectedProcedures; i++ {
-		names[fmt.Sprintf("APBatch%d", i)] = i + 1
+		names[fmt.Sprintf("APBatch%d", i)] = i<<24 | 0x00ffffff
 	}
 	o := frameSelectionFixture(t, names)
+	slices.SortFunc(o.Procedures, func(a, b SelectedProcedure) int { return cmp.Compare(b.ID, a.ID) })
+	return o
+}
+
+func TestNativeProducerInstruments256ProceduresOn16Threads(t *testing.T) {
+	o := sparseBatchSelection(t)
 	// One call per selected method gives 514 events per ring, bounded even if
 	// the drain does not run before every worker has returned. The 16 workers
 	// exercise exactly the 4096-row epoch limit without depending on delivery.
@@ -105,7 +115,7 @@ func TestNativeProducerInstruments256ProceduresOn16Threads(t *testing.T) {
 	}
 	t.Logf("same-target baseline/instrumented: private bytes %d/%d, handles %d/%d, QPC ticks %d/%d; no runner-independent speed claim", baseline.PrivateBytes, measured.PrivateBytes, baseline.Handles, measured.Handles, baseline.Ticks, measured.Ticks)
 	last := out.last
-	if last.Metrics.Incomplete || last.Metrics.OpenCalls != 0 || last.Metrics.AbandonedCalls != 0 || len(last.Selection) != 256 || len(last.Metrics.Rows) != 4096 {
+	if last.Metrics.Incomplete || last.Metrics.OpenCalls != 0 || last.Metrics.AbandonedCalls != 0 || last.NativeLostEvents != 0 || len(last.Selection) != 256 || len(last.Metrics.Rows) != 4096 {
 		t.Fatal("full selection incomplete", last.Metrics)
 	}
 	seen := map[uint32]int{}
@@ -118,10 +128,24 @@ func TestNativeProducerInstruments256ProceduresOn16Threads(t *testing.T) {
 		}
 		seen[row.ProcedureID]++
 	}
-	for id := uint32(1); id <= 256; id++ {
-		if seen[id] != 16 {
-			t.Fatal("omitted method/thread", id, seen[id])
+	for i, p := range o.Procedures {
+		if got := last.Selection[i]; got.ID != p.ID || got.Location.Procedure != p.Name {
+			t.Fatal("native catalog changed order or identity", i, got, p)
+		}
+		if seen[p.ID] != 16 {
+			t.Fatal("omitted method/thread", p.ID, seen[p.ID])
 		}
 	}
 	t.Logf("256 methods x 16 workers: 4096 distinct rows/calls, complete QPC metrics, %d snapshots / %d encoded bytes; code reservation <= %d bytes", out.snapshots, out.bytes, MaxSelectedProcedures*(largeHookStride+36))
+}
+
+func TestNativeProducerRejectsUnselectedSparseID(t *testing.T) {
+	o := sparseBatchSelection(t)
+	// This ID falls immediately before the largest selected ID, UINT32_MAX.
+	o.Args = []string{"--threads", "1", "--iterations", "1", "--batch-count", "256", "--batch-once", "1", "--unselected-id", "4294967294"}
+	var out stressObserver
+	err := Launch(context.Background(), o, &out)
+	if !errors.Is(err, ErrLoss) || out.last.NativeLostEvents != 1 || !out.last.Metrics.Incomplete {
+		t.Fatalf("unknown ID must count as exactly one lost event: %v, lost=%d, incomplete=%t", err, out.last.NativeLostEvents, out.last.Metrics.Incomplete)
+	}
 }

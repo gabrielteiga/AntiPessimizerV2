@@ -294,6 +294,18 @@ chamada normal menor que a resolução QPC, preservando contagens e o equilíbri
 exato dos tempos; não impõe nem inventa duração mínima.
 
 
+## Busca de procedimentos selecionados
+
+O adaptador usa busca linear para até 31 IDs. A partir de 32, ordena um vetor
+de IDs na inicialização e usa busca binária nos callbacks. Com 256
+IDs, cada consulta examina até nove posições. O catálogo transmitido e o
+instalador continuam usando a ordem fornecida pelo coletor.
+
+O ensaio Windows de 256 métodos em 16 threads usa IDs esparsos em ordem
+decrescente, incluindo o maior valor de uint32. Exige 4.096 chamadas, a ordem
+do catálogo preservada e zero perdas. Um ensaio separado envia um ID ausente
+e exige exatamente uma perda e uma captura marcada como incompleta.
+
 ## Identidade física de chamadas e colisões de unwind
 
 `APHOOK4\0` mantém o layout de APHOOK3 e fornece helpers
