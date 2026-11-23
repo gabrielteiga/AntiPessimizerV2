@@ -245,7 +245,7 @@ func TestNativeInstrumentedControlWindowSmoke(t *testing.T) {
 	address := listener.Addr().String()
 	c := service.New()
 	c.LoadCatalog = func(string) (native.Catalog, error) {
-		return native.Catalog{CatalogID: "catalog-token", ImageID: "smoke-build", Procedures: []native.SelectedProcedure{{ID: 7, RVA: 0x1000, Size: 32, Name: "Lab.Parent", Unit: "Lab"}, {ID: 8, RVA: 0x2000, Size: 32, Name: "Lab.Handler", Unit: "Lab"}}, Aliases: []native.ProcedureAlias{{ID: 7, Name: "Lab.ParentAlias", Unit: "Shared"}}}, nil
+		return native.Catalog{CatalogID: "catalog-token", ImageID: "smoke-build", Procedures: []native.SelectedProcedure{{ID: 7, RVA: 0x1000, Size: 32, Name: "Lab.Parent", Unit: "Lab"}, {ID: 8, RVA: 0x2000, Size: 32, Name: "Lab.Handler", Unit: "Lab"}}, Aliases: []native.ProcedureAlias{{ID: 7, Name: "Lab.ParentAlias", Unit: "Shared"}, {ID: 7, Name: "Fonte.ParentAlias", Unit: "Fonte"}}}, nil
 	}
 	c.CheckCatalog = func(_ native.Catalog, procedures []native.SelectedProcedure) ([]native.ProcedureCheck, error) {
 		var checks []native.ProcedureCheck
@@ -393,20 +393,27 @@ func TestNativeInstrumentedControlWindowSmoke(t *testing.T) {
 		if !strings.Contains(value(w.status), "language handler") || len(launch) != 0 {
 			return fmt.Errorf("unsupported member of whole unit launched")
 		}
-		text(w.symbolSearch, "Shared")
+		text(w.symbolSearch, "Shared,Fonte")
 		w.command(3)
 		if !strings.Contains(value(w.status), "Leia os símbolos") || len(launch) != 0 {
 			return fmt.Errorf("changed unit used stale preview")
 		}
 		w.command(2)
 		deadline = time.Now().Add(2 * time.Second)
-		for w.catalogUnit != "Shared" && time.Now().Before(deadline) {
+		for w.catalogUnit != "Shared, Fonte" && time.Now().Before(deadline) {
 			w.tick()
 			time.Sleep(10 * time.Millisecond)
 		}
-		if w.catalogUnit != "Shared" || len(w.catalog.Procedures) != 1 {
-			return fmt.Errorf("alias unit catalog not resolved")
+		if w.catalogUnit != "Shared, Fonte" || len(w.catalog.Procedures) != 1 {
+			return fmt.Errorf("two units sharing a procedure must resolve to one catalog entry")
 		}
+		send.Call(w.wholeUnit, 0xf1, 0, 0)
+		w.command(3)
+		if !strings.Contains(value(w.status), "Leia os símbolos") || len(launch) != 0 {
+			return fmt.Errorf("unit preview was used as a procedure search")
+		}
+		send.Call(w.wholeUnit, 0xf1, 1, 0)
+		text(w.symbolSearch, "shared,  Fonte")
 		send.Call(w.procedureList, 0x185, 0, ^uintptr(0)) // Unit mode ignores manual list selection.
 		w.command(3)
 		select {

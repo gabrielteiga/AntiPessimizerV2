@@ -13,7 +13,7 @@ func TestNativePreferencesWindowSmoke(t *testing.T) {
 		t.Skip("native preferences smoke enabled in Windows CI")
 	}
 	path := filepath.Join(t.TempDir(), "viewer.json")
-	p := Preferences{WholeUnit: true, Version: 1, ImagePath: `C:\Projetos\Cotação\app.exe`, ResultFilter: "Ação.Calcular", SymbolFilter: "Unidade.Ações", TimeUnit: ClockTicks}
+	p := Preferences{WholeUnit: true, Version: 1, ImagePath: `C:\Projetos\Cotação\app.exe`, ResultFilter: "Ação.Calcular", SymbolFilter: "Unidade.Ações, Unidade.Relatórios", TimeUnit: ClockTicks}
 	if err := savePreferences(path, p); err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestNativePreferencesWindowSmoke(t *testing.T) {
 	}
 	if err := runViewerWithPreferences(`\\.\pipe\unused-preferences`, "", "", true, func(w *window) error {
 		unit, _, _ := send.Call(w.metricUnits, 0x147, 0, 0)
-		if value(w.filter) != p.ResultFilter || unit != 1 {
+		if value(w.filter) != p.ResultFilter || value(w.symbolSearch) != p.SymbolFilter || unit != 1 {
 			return fmt.Errorf("reopening lost saved preferences")
 		}
 		return nil
