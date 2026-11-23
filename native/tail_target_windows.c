@@ -7,7 +7,9 @@
 #include <wchar.h>
 enum { AP_TAIL_EXCEPTION=0xe0424243u };
 static DWORD tail_delay_ms;
+static BOOL tail_indirect_mode;
 extern uint64_t APTailStart(uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
+extern uint64_t APTailIndirectStart(uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
 extern uint64_t APTailFramedStack(uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
 extern uint64_t APTailRecursive(uint64_t,uint64_t),APTailRecursiveStep(uint64_t,uint64_t),APTailCatch(void);
 __attribute__((noinline)) uint64_t APTailWork(uint64_t n,uint64_t a,uint64_t b,uint64_t c,uint64_t d,uint64_t e){
@@ -28,6 +30,9 @@ __asm__(
  "movq %rcx,-16(%rbp)\n movq -16(%rbp),%rcx\n leaq 32(%rbp),%rsp\n popq %rbp\n jmp APTailStart\n .seh_endproc\n"
  ".text\n .globl APTailStart\n .def APTailStart; .scl 2; .type 32; .endef\n"
  ".seh_proc APTailStart\n APTailStart:\n .seh_endprologue\n addq $1,%rcx\n jmp APTailMiddle\n .seh_endproc\n"
+ ".globl APTailIndirectStart\n .def APTailIndirectStart; .scl 2; .type 32; .endef\n"
+ ".seh_proc APTailIndirectStart\n APTailIndirectStart:\n .seh_endprologue\n"
+ "addq $1,%rcx\n leaq APTailMiddle(%rip),%r11\n jmp *%r11\n .seh_endproc\n"
  ".globl APTailMiddle\n .def APTailMiddle; .scl 2; .type 32; .endef\n"
  ".seh_proc APTailMiddle\n APTailMiddle:\n .seh_endprologue\n addq $2,%rcx\n jmp APTailWork\n .seh_endproc\n"
  ".globl APTailRecursive\n .def APTailRecursive; .scl 2; .type 32; .endef\n"
@@ -37,7 +42,9 @@ __asm__(
  ".seh_proc APTailRecursiveStep\n APTailRecursiveStep:\n .seh_endprologue\n addq $1,%rdx\n jmp APTailRecursive\n .seh_endproc\n"
  ".globl APTailCatch\n .def APTailCatch; .scl 2; .type 32; .endef\n"
  ".seh_proc APTailCatch\n APTailCatch:\n subq $56,%rsp\n .seh_stackalloc 56\n .seh_endprologue\n"
- ".Ltail_try:\n movl $999,%ecx\n movl $2,%edx\n movl $3,%r8d\n movl $5,%r9d\n movq $7,32(%rsp)\n movq $11,40(%rsp)\n call APTailFramedStack\n nop\n"
+ ".Ltail_try:\n movl $999,%ecx\n movl $2,%edx\n movl $3,%r8d\n movl $5,%r9d\n movq $7,32(%rsp)\n movq $11,40(%rsp)\n"
+ "cmpl $0,tail_indirect_mode(%rip)\n je .Ltail_direct_call\n call APTailIndirectStart\n jmp .Ltail_after_call\n"
+ ".Ltail_direct_call:\n call APTailFramedStack\n .Ltail_after_call:\n nop\n"
  ".Ltail_end:\n xorl %eax,%eax\n addq $56,%rsp\n ret\n"
  ".Ltail_catch:\n movl $903,%eax\n addq $56,%rsp\n ret\n"
  ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
@@ -47,7 +54,10 @@ static HANDLE barrier;
 static uint32_t iterations=10;
 static DWORD WINAPI worker(void *unused){
  (void)unused;if(WaitForSingleObject(barrier,5000)!=WAIT_OBJECT_0)return 1;
- for(uint32_t i=0;i<iterations;i++)if(APTailFramedStack(i+10,2,3,5,7,11)!=i+41)return 2;
+ for(uint32_t i=0;i<iterations;i++){
+  uint64_t result=tail_indirect_mode?APTailIndirectStart(i+10,2,3,5,7,11):APTailFramedStack(i+10,2,3,5,7,11);
+  if(result!=i+41)return 2;
+ }
  if(APTailRecursive(5,0)!=128)return 3;
  if(APTailCatch()!=903)return 4;
  return 0;
@@ -59,6 +69,7 @@ int wmain(int argc,wchar_t **argv){
   if(!wcscmp(argv[i],L"--threads"))threads=(uint32_t)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--delay-ms"))tail_delay_ms=(DWORD)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--iterations"))iterations=(uint32_t)wcstoul(argv[i+1],NULL,10);
+  else if(!wcscmp(argv[i],L"--indirect"))tail_indirect_mode=(BOOL)wcstoul(argv[i+1],NULL,10);
   else return 2;
  }
  if(tail_delay_ms>5000||!threads||threads>16||!iterations||iterations>100)return 2;
