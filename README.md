@@ -67,7 +67,8 @@ Amostras ETW são atividade de CPU observada; não são contagens de chamadas.
 
 ## Medir chamadas pela interface
 
-Na janela, use **Chamadas**, informe o caminho completo do EXE e clique em
+Na janela, use **Chamadas**, escolha o arquivo com **Procurar EXE** ou informe
+o caminho completo, e clique em
 **Ler símbolos**. A busca reduz o catálogo por unidade ou procedimento; apresenta
 até 200 resultados por busca de procedimentos. Para selecionar uma unidade inteira,
 marque **Unidade inteira**, informe seu nome exato na busca e use **Ler símbolos**.
