@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os/exec"
 	"testing"
 
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/instrumentation"
@@ -84,6 +85,40 @@ func TestNativeProducerFrameRegisterUnwindMatchesOriginalStack(t *testing.T) {
 	for _, row := range s.Rows {
 		if row.Calls != 1 || row.UnwoundCalls != 1 || row.InclusiveTicks == 0 || row.InclusiveTicks != row.ExclusiveTicks {
 			t.Fatal("biased RBP frame did not close exactly once", row)
+		}
+	}
+}
+
+func TestNativeProducerUnwindsInheritedChainedFrame(t *testing.T) {
+	o := frameSelectionFixture(t, map[string]uint32{"APFrameChain": 1, "APFrameChainCold": 2})
+	primary, secondary := o.Procedures[0], o.Procedures[1]
+	if primary.ID == 2 {
+		primary, secondary = secondary, primary
+	}
+	if primary.RVA+primary.Size != secondary.RVA {
+		t.Fatal("expected contiguous runtime ranges", primary, secondary)
+	}
+	primary.Size += secondary.Size
+	o.Procedures = []SelectedProcedure{primary}
+	o.Args = []string{"--threads", "3", "--iterations", "1", "--delay-ms", "0", "--check-chain", "1"}
+
+	ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
+	defer cancel()
+	if data, err := exec.CommandContext(ctx, o.Image, o.Args...).CombinedOutput(); err != nil {
+		t.Fatal("Windows failed to unwind the original chained frame", err, string(data))
+	}
+	var output stressObserver
+	if err := Launch(context.Background(), o, &output); err != nil {
+		t.Fatal("Windows failed to unwind the instrumented chained frame", err)
+	}
+	record := output.last
+	s := record.Metrics
+	if s.Incomplete || s.OpenCalls != 0 || s.AbandonedCalls != 0 || record.NativeLostEvents != 0 || len(s.Rows) != 3 {
+		t.Fatal("chained unwind left incomplete or missing frames", s)
+	}
+	for _, row := range s.Rows {
+		if row.ProcedureID != primary.ID || row.Calls != 2 || row.UnwoundCalls != 1 || row.InclusiveTicks == 0 || row.InclusiveTicks != row.ExclusiveTicks {
+			t.Fatal("chained procedure did not record one return and one unwind per thread", row)
 		}
 	}
 }

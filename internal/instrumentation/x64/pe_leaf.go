@@ -41,6 +41,7 @@ type functionUnwind struct {
 	scopeStyle                      uint32
 	scopes                          []byte
 	typeTables                      []delphiTypeTable
+	chainBoundaries                 []int
 }
 
 // readPELeaf deliberately reads only bounded headers, sections and .pdata.
@@ -226,9 +227,20 @@ func (p *PEImage) readCode(rva, size uint32, collectedUnwind *functionUnwind) ([
 		offset := index * 12
 		begin, end, unwind := u32(table[offset:]), u32(table[offset+4:]), u32(table[offset+8:])
 		info, _ := p.mapped(unwind, 4, false) // validated for every entry during preparation
-		if uint64(begin) < uint64(rva)+uint64(size) && rva < end {
-			if begin != rva || uint64(end) != uint64(rva)+uint64(size) {
+		procedureEnd := rva + size            // mapped above, so the sum fits in imageSize
+		if begin < procedureEnd && rva < end {
+			if begin != rva || end > procedureEnd {
 				return fail("partial runtime-function overlap")
+			}
+			var chainBoundaries []int
+			if end != procedureEnd {
+				if collectedUnwind == nil || info[0] != 1 || uint32(info[1]) > end-begin {
+					return fail("partial runtime-function overlap")
+				}
+				chainBoundaries = p.inheritedUnwindBoundaries(offset, procedureEnd, info[3])
+				if len(chainBoundaries) == 0 {
+					return fail("procedure extent is not covered by an inherited unwind chain")
+				}
 			}
 			// Empty version-1 metadata has no prologue, codes, frame or handler.
 			// The legacy leaf path requires empty metadata. Full plans also allow
@@ -251,7 +263,7 @@ func (p *PEImage) readCode(rva, size uint32, collectedUnwind *functionUnwind) ([
 				if err := validateUnwindCodes(original); err != nil {
 					return nil, 0, err
 				}
-				*collectedUnwind = functionUnwind{info: original, runtimeRVA: p.directoryRVA + uint32(offset), infoRVA: unwind}
+				*collectedUnwind = functionUnwind{info: original, runtimeRVA: p.directoryRVA + uint32(offset), infoRVA: unwind, chainBoundaries: chainBoundaries}
 				if info[0] != 1 {
 					if uint64(unwind)+uint64(length)+4 > uint64(p.imageSize) {
 						return fail("truncated original unwind handler")
@@ -312,4 +324,36 @@ func (p *PEImage) readCode(rva, size uint32, collectedUnwind *functionUnwind) ([
 		}
 	}
 	return bytes.Clone(code), p.imageSize, nil
+}
+
+// A secondary may inherit the already-established frame without adding any
+// unwind actions. In this case one copied record with the primary's actions
+// describes all of the relocated code. Match the complete embedded runtime
+// entry to the primary or the previous (already checked) fragment.
+func (p *PEImage) inheritedUnwindBoundaries(primaryAt int, procedureEnd uint32, frame byte) []int {
+	u32 := binary.LittleEndian.Uint32
+	primary := p.table[primaryAt : primaryAt+12]
+	previous, end := primary, u32(primary[4:])
+	start := u32(primary)
+	var boundaries []int
+	for at := primaryAt + 12; end < procedureEnd; at += 12 {
+		if at >= len(p.table) {
+			return nil
+		}
+		entry := p.table[at : at+12]
+		nextEnd := u32(entry[4:])
+		if u32(entry) != end || nextEnd > procedureEnd {
+			return nil
+		}
+		info, ok := p.mapped(u32(entry[8:]), 16, false)
+		if !ok || info[0] != 33 || info[1] != 0 || info[2] != 0 || info[3] != frame {
+			return nil
+		}
+		if !bytes.Equal(info[4:], primary) && !bytes.Equal(info[4:], previous) {
+			return nil
+		}
+		boundaries = append(boundaries, int(end-start))
+		previous, end = entry, nextEnd
+	}
+	return boundaries
 }
