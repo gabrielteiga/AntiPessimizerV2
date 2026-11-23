@@ -105,6 +105,9 @@ func TestLoadTDS(t *testing.T) {
 func FuzzParse(f *testing.F) {
 	f.Add(fixture("Hot"))
 	f.Add(moduleFixture())
+	global := moduleFixture()
+	put16(global, 26, 0xffff)
+	f.Add(global)
 	f.Add([]byte{})
 	f.Add(fixture(strings.Repeat("a", 300)))
 	f.Fuzz(func(t *testing.T, b []byte) { Parse(b) })

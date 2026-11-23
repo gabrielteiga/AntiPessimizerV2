@@ -337,3 +337,22 @@ pilha física da transferência direta, sem portar a substituição do retorno d
 original. O corpus Delphi sem seleção continua com 8.645 planos estáticos; os
 novos wrappers e VirtualUnwind são evidência C/assembly do subconjunto, sem
 certificação de compilador e sem atribuição de nomes ao binário Delphi.
+
+
+## ClassifyProcByModule e diretórios globais
+
+ExeLoader.pas, ClassifyProcByModule, percorre as contribuições dos módulos e
+classifica os procedimentos por Offset anterior a SearchEnd, sem exigir o
+ModuleIndex do diretório de símbolos nem a contenção de todo o tamanho. A
+adaptação Go conserva segmento/flags de código e início dentro da faixa, mas
+agora permite que o procedimento cruze seu fim e usa as contribuições para
+símbolos de diretórios globais/ausentes/incompatíveis. Não reproduz a pesquisa
+binária permissiva do original nem sua busca/patch do exception handler como
+efeito colateral da classificação.
+
+O diretório correspondente tem prioridade; o fallback usa cobertura disjunta
+construída sob demanda e consultada por busca binária. Nomes conflitantes em
+componentes sobrepostos ficam desconhecidos. A fixture TD32 do CI Windows usa
+0xffff em sstAlignSym e mantém sstModule separado, exigindo unidade resolvida
+até sampling, seleção do EXE, contagens e viewer. Não se altera a validação dos
+bytes/extents/unwind do código por relaxar a associação de um nome de unidade.

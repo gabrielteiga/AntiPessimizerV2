@@ -172,9 +172,7 @@ func Parse(data []byte) ([]Procedure, error) {
 				if len(result) >= 1<<20 {
 					return nil, ErrInvalid
 				}
-				if m, ok := modules[e.module]; ok {
-					p.Unit = m.unitFor(p)
-				}
+				p.Unit = modules.unitFor(e.module, p)
 				result = append(result, p)
 			}
 		}

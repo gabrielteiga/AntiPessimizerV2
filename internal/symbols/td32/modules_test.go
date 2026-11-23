@@ -47,7 +47,7 @@ func TestModuleUnitAssociation(t *testing.T) {
 		t.Fatal(ps, err)
 	}
 	// Wrong segment/range must not lend its unit name to this procedure.
-	for _, change := range []func([]byte){func(b []byte) { put16(b, 84, 2) }, func(b []byte) { put32(b, 80, 31) }, func(b []byte) { put32(b, 68, 17) }, func(b []byte) { put16(b, 26, 99) }} {
+	for _, change := range []func([]byte){func(b []byte) { put16(b, 84, 2) }, func(b []byte) { put32(b, 80, 31) }, func(b []byte) { put32(b, 80, 48) }} {
 		b := moduleFixture()
 		change(b)
 		ps, err := Parse(b)
@@ -71,5 +71,58 @@ func TestMalformedModules(t *testing.T) {
 				t.Fatal(ps, err)
 			}
 		})
+	}
+}
+
+func TestModuleContributionsMatchOriginalClassificationByProcedureStart(t *testing.T) {
+	// ClassifyProcByModule uses procedure starts, independent of the align-symbol
+	// directory index. The complete procedure extent is checked by PE mapping and
+	// instrumentation, not by this unit-name association.
+	for _, change := range []func([]byte){
+		func(b []byte) { put16(b, 26, 99) },
+		func(b []byte) { put16(b, 26, 0xffff) },
+		func(b []byte) { put16(b, 26, 0) },
+		func(b []byte) { put32(b, 68, 17) },
+		func(b []byte) { put32(b, 80, 47); put32(b, 68, 2) },
+	} {
+		b := moduleFixture()
+		change(b)
+		ps, err := Parse(b)
+		if err != nil || len(ps) != 1 || ps[0].Unit != "LabUnit" {
+			t.Fatal("lost original unit association", ps, err)
+		}
+	}
+}
+func TestGlobalUnitContributionsRespectSegmentsBoundariesAndAmbiguity(t *testing.T) {
+	modules := map[uint16]unitInfo{
+		7: {name: "A", ranges: []unitRange{{1, 0, 50}, {2, 100, 150}}},
+		8: {name: "B", ranges: []unitRange{{1, 50, 100}}},
+	}
+	lookup := moduleUnits{directory: modules, coverage: unitCoverage(modules)}
+	for _, c := range []struct {
+		dir, seg     uint16
+		offset, size uint32
+		want         string
+	}{
+		{0xffff, 1, 0, 100, "A"}, {99, 1, 49, 20, "A"}, {99, 1, 50, 1, "B"},
+		{7, 1, 60, 1, "B"}, {0, 1, 100, 1, ""}, {0, 2, 100, 1, "A"}, {0, 3, 100, 1, ""},
+	} {
+		if got := lookup.unitFor(c.dir, Procedure{Segment: c.seg, Offset: c.offset, Size: c.size}); got != c.want {
+			t.Fatal(c, got)
+		}
+	}
+	modules[9] = unitInfo{name: "C", ranges: []unitRange{{1, 25, 75}}}
+	lookup = moduleUnits{directory: modules, coverage: unitCoverage(modules)}
+	if lookup.unitFor(0, Procedure{Segment: 1, Offset: 40, Size: 1}) != "" {
+		t.Fatal("ambiguous global contribution invented a unit")
+	}
+	if lookup.unitFor(7, Procedure{Segment: 1, Offset: 40, Size: 1}) != "A" || lookup.unitFor(9, Procedure{Segment: 1, Offset: 40, Size: 1}) != "C" {
+		t.Fatal("matching module contribution lost to fallback ambiguity")
+	}
+	// Duplicate names describe the same unit even across directory entries.
+	modules = map[uint16]unitInfo{1: {name: "Same", ranges: []unitRange{{1, 0, 100}}}, 2: {name: "Same", ranges: []unitRange{{1, 20, 60}}}}
+	lookup = moduleUnits{directory: modules, coverage: unitCoverage(modules)}
+	if lookup.unitFor(0xffff, Procedure{Segment: 1, Offset: 40, Size: 1}) != "Same" {
+		t.Fatal("same-name contribution treated as ambiguous")
 	}
 }

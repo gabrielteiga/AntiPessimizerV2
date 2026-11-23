@@ -13,7 +13,17 @@ type unitInfo struct {
 	ranges []unitRange
 }
 
-func parseModules(entries []entry, names []string) (map[uint16]unitInfo, error) {
+type unitContribution struct {
+	unitRange
+	name string
+}
+type moduleUnits struct {
+	directory map[uint16]unitInfo
+	coverage  []unitContribution
+	indexed   bool
+}
+
+func parseModules(entries []entry, names []string) (*moduleUnits, error) {
 	result := map[uint16]unitInfo{}
 	total := 0
 	for _, e := range entries {
@@ -65,7 +75,7 @@ func parseModules(entries []entry, names []string) (map[uint16]unitInfo, error) 
 		}
 		result[e.module] = m
 	}
-	return result, nil
+	return &moduleUnits{directory: result}, nil
 }
 func (m unitInfo) unitFor(p Procedure) string {
 	i := sort.Search(len(m.ranges), func(i int) bool {
@@ -74,8 +84,67 @@ func (m unitInfo) unitFor(p Procedure) string {
 	}) - 1
 	if i >= 0 {
 		r := m.ranges[i]
-		if r.segment == p.Segment && uint64(p.Offset) >= r.start && uint64(p.Offset)+uint64(p.Size) <= r.end {
+		if r.segment == p.Segment && uint64(p.Offset) >= r.start && uint64(p.Offset) < r.end {
 			return m.name
+		}
+	}
+	return ""
+}
+
+// Build disjoint coverage once, rather than scanning all modules for every
+// procedure. Overlapping contributions from different unit names are unknown;
+// a matching directory's own contribution still takes precedence.
+func unitCoverage(modules map[uint16]unitInfo) []unitContribution {
+	var ranges []unitContribution
+	for _, m := range modules {
+		for _, r := range m.ranges {
+			ranges = append(ranges, unitContribution{r, m.name})
+		}
+	}
+	sort.Slice(ranges, func(i, j int) bool {
+		a, b := ranges[i], ranges[j]
+		if a.segment != b.segment {
+			return a.segment < b.segment
+		}
+		if a.start != b.start {
+			return a.start < b.start
+		}
+		return a.end < b.end
+	})
+	result := ranges[:0]
+	for _, r := range ranges {
+		if len(result) > 0 {
+			previous := &result[len(result)-1]
+			if previous.segment == r.segment && r.start < previous.end {
+				if r.end > previous.end {
+					previous.end = r.end
+				}
+				if previous.name != r.name {
+					previous.name = ""
+				}
+				continue
+			}
+		}
+		result = append(result, r)
+	}
+	return result
+}
+func (m *moduleUnits) unitFor(directory uint16, p Procedure) string {
+	if unit := m.directory[directory].unitFor(p); unit != "" {
+		return unit
+	}
+	if !m.indexed {
+		m.coverage = unitCoverage(m.directory)
+		m.indexed = true
+	}
+	i := sort.Search(len(m.coverage), func(i int) bool {
+		r := m.coverage[i]
+		return r.segment > p.Segment || r.segment == p.Segment && r.start > uint64(p.Offset)
+	}) - 1
+	if i >= 0 {
+		r := m.coverage[i]
+		if r.segment == p.Segment && uint64(p.Offset) >= r.start && uint64(p.Offset) < r.end {
+			return r.name
 		}
 	}
 	return ""

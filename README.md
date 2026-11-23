@@ -13,7 +13,7 @@ Revisado em 18 de novembro de 2026.
 | Capacidade | Implementação e evidência |
 |---|---|
 | Sampling ao vivo | ETW Windows, identidade de processo/thread, perdas e encerramento; integração automatizada em carga própria |
-| Símbolos Delphi | TD32/TDS FB09/FB0A, procedimentos, unidades Pascal, aliases exatos e diretórios encadeados; símbolos embutidos ou `.tds` adjacente |
+| Símbolos Delphi | TD32/TDS FB09/FB0A, procedimentos, unidades Pascal por contribuições de código (inclusive diretórios globais), aliases exatos e diretórios encadeados; símbolos embutidos ou `.tds` adjacente |
 | Métricas instrumentadas | Chamadas, tempos inclusivos/exclusivos, médias, recursão, threads, unwind, Clear e perdas no núcleo Go |
 | Lançamento instrumentado | Novo processo próprio sem SDK do profiler; DLL instalada antes do ponto de entrada, seleção TD32/TDS e finalizadores preservados |
 | Funções com pilha/chamadas | Prólogos/unwind v1 verificados; calls, recursão, condições, loops, múltiplas saídas e encaminhamento de cleanup UHANDLER original |

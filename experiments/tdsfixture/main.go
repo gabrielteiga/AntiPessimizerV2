@@ -99,7 +99,8 @@ func fixture(nm io.Reader, base uint64, code uint32) ([]byte, error) {
 	p16(directory+28, 0x130)
 	p32(directory+32, uint32(namesOffset))
 	p32(directory+36, uint32(6+len(unit)))
-	p16(26, 1)
+	// Global aligned symbols are classified by code contribution, as in ExeLoader.
+	p16(26, 0xffff)
 	p32(16, uint32(directory))
 	b = append(b, make([]byte, 8)...)
 	copy(b[len(b)-8:], "FB09")

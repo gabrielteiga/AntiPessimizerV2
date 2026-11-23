@@ -2,6 +2,7 @@ package native
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -162,5 +163,34 @@ func TestUnitSelectionUsesCompleteCatalogAndPhysicalAliases(t *testing.T) {
 	catalog.Procedures = catalog.Procedures[:MaxSelectedProcedures]
 	if selected, err := catalog.SelectUnits([]string{"Large"}); err != nil || len(selected) != MaxSelectedProcedures {
 		t.Fatal("full unit omitted procedures", len(selected), err)
+	}
+}
+
+func TestCatalogUnitContributionKeepsGlobalSymbolsSelectable(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "global.exe")
+	image := testfixture.Image(false)
+	binary.LittleEndian.PutUint32(image[128+24+60:], 0x200)
+	code := testfixture.PlannableImage()
+	copy(image[0x220:0x230], code[0x220:0x230])
+	if err := os.WriteFile(path, image, 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, module := range []uint16{7, 99, 0, 0xffff} {
+		if err := os.WriteFile(filepath.Join(directory, "global.tds"), testfixture.TDSWithUnit("LabWorkload", module), 0600); err != nil {
+			t.Fatal(err)
+		}
+		catalog, err := ReadCatalog(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		selected, err := catalog.SelectUnits([]string{"labworkload"})
+		if err != nil || len(selected) != 1 || selected[0].Unit != "LabWorkload" || selected[0].RVA != 0x5020 {
+			t.Fatal("global symbol lost unit selection", module, selected, err)
+		}
+		checks, err := catalog.Check(selected)
+		if err != nil || RequireSupported(checks) != nil {
+			t.Fatal("unit fallback changed code eligibility", module, checks, err)
+		}
 	}
 }

@@ -114,3 +114,40 @@ func TDSWithAlias(name string) []byte {
 	binary.LittleEndian.PutUint32(b[len(b)-4:], uint32(len(b)))
 	return b
 }
+
+// TDSWithUnit keeps sstModule in directory 7 while allowing align symbols in a
+// global or different directory. This is synthetic reference-format data.
+func TDSWithUnit(unit string, symbolModule uint16) []byte {
+	b := append([]byte(nil), TDS()[:109]...)
+	put16 := func(at int, n uint16) { binary.LittleEndian.PutUint16(b[at:], n) }
+	put32 := func(at int, n uint32) { binary.LittleEndian.PutUint32(b[at:], n) }
+	module := len(b)
+	b = append(b, make([]byte, 40)...)
+	put16(module+4, 1)
+	put32(module+8, 2)
+	put16(module+28, 1)
+	put16(module+30, 1)
+	put32(module+32, 32)
+	put32(module+36, 16)
+	names := len(b)
+	b = append(b, 1, 0, 0, 0, byte(len(unit)))
+	b = append(b, unit...)
+	b = append(b, 0)
+	directory := len(b)
+	b = append(b, make([]byte, 40)...)
+	put16(directory, 16)
+	put16(directory+2, 12)
+	put32(directory+4, 2)
+	put16(directory+16, 0x120)
+	put16(directory+18, 7)
+	put32(directory+20, uint32(module))
+	put32(directory+24, 40)
+	put16(directory+28, 0x130)
+	put32(directory+32, uint32(names))
+	put32(directory+36, uint32(6+len(unit)))
+	put16(26, symbolModule)
+	put32(16, uint32(directory))
+	b = append(b, 'F', 'B', '0', '9', 0, 0, 0, 0)
+	put32(len(b)-4, uint32(len(b)))
+	return b
+}
