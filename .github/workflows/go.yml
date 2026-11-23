@@ -118,6 +118,12 @@ jobs:
         name: Windows executable end-to-end
         run: ./scripts/test-windows-e2e.ps1
 
+      - if: runner.os == 'Windows'
+        name: Native endurance smoke
+        env:
+          AP_NATIVE_ENDURANCE_SECONDS: '6'
+        run: go test -v -count=1 -timeout=45s ./internal/instrumentation/native -run '^TestNativeEnduranceBaselineAndInstrumented$'
+
   package:
     needs: test
     runs-on: windows-latest

@@ -557,3 +557,19 @@ argumentos, chamadas e uma saída excepcional por wrapper. Há teste Windows de
 VirtualUnwind nas quatro fases de cada epílogo, sobre memória própria, exigindo
 a restauração do endereço de retorno e do registrador não volátil. Nenhuma
 outra variante de epílogo/handler é anunciada como suportada.
+
+## Ensaio de operação prolongada
+
+O workflow **Native endurance** executa o mesmo EXE C no mesmo runner Windows
+em dois modos sequenciais, baseline e instrumentado. Cada modo roda por pelo
+menos o número solicitado de segundos, com três workers e prazos QPC para
+manter o ritmo de chamadas em cada rodada. O CI usa seis segundos por modo
+para validar o caminho. O workflow manual aceita até 7.200 segundos por modo
+e tem padrão de 3.600.
+
+O artefato registra os hashes do EXE e da DLL, intervalos QPC, checksums,
+contagens, perdas, intervalo máximo entre publicações e pontos de memória
+e handles do alvo. O teste exige todas as chamadas, incluindo o finalizador,
+publicação durante a captura e recursos limitados após aquecimento. A taxa
+usa as chamadas dos workers e o intervalo QPC que cobre as rodadas, antes do
+finalizador. As medidas descrevem o alvo C e a máquina daquela execução.

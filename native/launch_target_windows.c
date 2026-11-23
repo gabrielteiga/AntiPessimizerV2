@@ -15,6 +15,7 @@ static HANDLE barrier;
 static const wchar_t *marker;
 static const wchar_t *report_path;
 static DWORD delay_ms=1;
+static uint64_t pace_frequency;
 typedef struct {uint64_t ticks,checksum;} WorkerCost;
 enum { MAX_ROUNDS=64,MAX_WORKERS=16 };
 static WorkerCost costs[MAX_WORKERS*MAX_ROUNDS];
@@ -34,14 +35,26 @@ static DWORD WINAPI worker(void *unused){
  uint32_t index=(uint32_t)(uintptr_t)unused;
  if(WaitForSingleObject(barrier,5000)!=WAIT_OBJECT_0) return 1;
  LARGE_INTEGER begin={0},end={0};
- if(report_path && !QueryPerformanceCounter(&begin))return 6;
+ if((report_path||pace_frequency) && !QueryPerformanceCounter(&begin))return 6;
  uint64_t checksum=0;
  for(uint32_t i=0;i<iterations;i++){
   SetLastError(0x12345678);
   uint64_t value=APHookSum(i%2?0:7+i,11,13,17,19,23);
   if(value!=(i%2?777:125+i)||GetLastError()!=0x12345678)return 2;
   checksum+=value;
-  if(delay_ms)Sleep(delay_ms);
+  if(pace_frequency){
+   /* Sleep can round to the timer tick. Use a QPC deadline so each round
+      spans its requested duration without accumulating scheduling drift. */
+   uint64_t ms=(uint64_t)(i+1)*delay_ms;
+   uint64_t deadline=(uint64_t)begin.QuadPart+(ms/1000)*pace_frequency+(ms%1000)*pace_frequency/1000;
+   LARGE_INTEGER now;
+   for(;;){
+    if(!QueryPerformanceCounter(&now))return 6;
+    if((uint64_t)now.QuadPart>=deadline)break;
+    DWORD wait=(DWORD)((deadline-(uint64_t)now.QuadPart)*1000/pace_frequency);
+    Sleep(wait?wait:1);
+   }
+  }else if(delay_ms)Sleep(delay_ms);
  }
  if(report_path){
   if(!QueryPerformanceCounter(&end)||end.QuadPart<=begin.QuadPart)return 6;
@@ -64,6 +77,7 @@ static BOOL report_cost(uint32_t threads,uint32_t rounds,uint64_t elapsed){
 int wmain(int argc,wchar_t **argv){
  uint32_t threads=3,rounds=1;
  DWORD round_delay_ms=0;
+ BOOL pace=FALSE;
  for(int i=1;i<argc;i+=2){
   if(i+1>=argc)return 2;
   if(!wcscmp(argv[i],L"--iterations"))iterations=(uint32_t)wcstoul(argv[i+1],NULL,10);
@@ -73,12 +87,20 @@ int wmain(int argc,wchar_t **argv){
   else if(!wcscmp(argv[i],L"--report"))report_path=argv[i+1];
   else if(!wcscmp(argv[i],L"--rounds"))rounds=(uint32_t)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--round-delay-ms"))round_delay_ms=(DWORD)wcstoul(argv[i+1],NULL,10);
+  else if(!wcscmp(argv[i],L"--pace"))pace=(BOOL)wcstoul(argv[i+1],NULL,10);
   else return 2;
  }
  if(!iterations||iterations>100000||!threads||threads>MAX_WORKERS||!rounds||rounds>MAX_ROUNDS||delay_ms>1000||round_delay_ms>1000)return 2;
+ if(pace){
+  LARGE_INTEGER frequency;
+  if(!delay_ms || !QueryPerformanceFrequency(&frequency) || frequency.QuadPart<=0)return 2;
+  pace_frequency=(uint64_t)frequency.QuadPart;
+ }
  if(atexit(finalize))return 3;
  barrier=CreateEventW(NULL,TRUE,FALSE,NULL);if(!barrier)return 3;
  HANDLE handles[16];DWORD result=0;
+ uint32_t expected_worker_ms=iterations*delay_ms;
+ DWORD worker_timeout=20000+expected_worker_ms+expected_worker_ms/2;
  if(report_path && !measure_memory(&memory_points[0]))return 6;
  LARGE_INTEGER begin={0},end={0};
  for(uint32_t round=0;round<rounds;round++){
@@ -87,7 +109,7 @@ int wmain(int argc,wchar_t **argv){
  if(report_path && !round && !QueryPerformanceCounter(&begin))return 6;
  SetEvent(barrier);
  for(uint32_t i=0;i<threads;i++){
-  DWORD code=1;if(WaitForSingleObject(handles[i],20000)!=WAIT_OBJECT_0)return 4;
+  DWORD code=1;if(WaitForSingleObject(handles[i],worker_timeout)!=WAIT_OBJECT_0)return 4;
   GetExitCodeThread(handles[i],&code);CloseHandle(handles[i]);result|=code;
  }
  if(report_path && round+1==rounds && !QueryPerformanceCounter(&end))return 6;
