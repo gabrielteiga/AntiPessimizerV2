@@ -69,8 +69,9 @@ Amostras ETW são atividade de CPU observada; não são contagens de chamadas.
 
 Na janela, use **Chamadas**, escolha o arquivo com **Procurar EXE** ou informe
 o caminho completo, e clique em
-**Ler símbolos**. A busca reduz o catálogo por unidade ou procedimento; apresenta
-até 200 resultados por busca de procedimentos. Para selecionar uma unidade inteira,
+**Ler símbolos**. A busca por unidade ou procedimento exibe até 256 resultados.
+Use **Selecionar busca** para marcar todas as correspondências quando couberem
+na seleção, ou **Limpar seleção** para desmarcá-las. Para selecionar uma unidade inteira,
 marque **Unidade inteira**, informe seu nome exato na busca e use **Ler símbolos**.
 Esse modo mostra e seleciona todos os seus procedimentos, até 256, incluindo aliases
 sem duplicar código. Se algum método não for suportado, o início informa o motivo;

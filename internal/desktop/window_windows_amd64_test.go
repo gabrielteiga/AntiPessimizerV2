@@ -316,13 +316,35 @@ func TestNativeInstrumentedControlWindowSmoke(t *testing.T) {
 		if !strings.Contains(windows.UTF16ToString(label[:]), "não suportado: language handler") {
 			return fmt.Errorf("unsupported procedure label missing")
 		}
-		send.Call(w.procedureList, 0x185, 1, 1) // Select unsupported procedure.
+		text(w.symbolSearch, "New filter")
+		send.Call(w.selectFiltered, 0xf5, 0, 0)
+		count, _, _ := send.Call(w.procedureList, 0x190, 0, 0) // LB_GETSELCOUNT
+		if count != 0 || !strings.Contains(value(w.status), "busca atual") {
+			return fmt.Errorf("bulk selection used results for a stale filter")
+		}
+		text(w.symbolSearch, "Lab")
+		w.catalog.Total = service.MaxInstrumentedProcedures + 1
+		send.Call(w.selectFiltered, 0xf5, 0, 0)
+		count, _, _ = send.Call(w.procedureList, 0x190, 0, 0)
+		if count != 0 || !strings.Contains(value(w.status), fmt.Sprint(service.MaxInstrumentedProcedures+1)) {
+			return fmt.Errorf("bulk selection truncated an oversized result")
+		}
+		w.catalog.Total = len(w.catalog.Procedures)
+		send.Call(w.selectFiltered, 0xf5, 0, 0)
+		count, _, _ = send.Call(w.procedureList, 0x190, 0, 0)
+		if count != 2 {
+			return fmt.Errorf("bulk selection omitted a matching procedure")
+		}
 		w.command(3)
 		if !strings.Contains(value(w.status), "language handler") || c.Status().State != "idle" || len(launch) != 0 {
 			return fmt.Errorf("unsupported procedure reached collector launch")
 		}
-		send.Call(w.procedureList, 0x185, 0, ^uintptr(0)) // Clear all selections.
-		send.Call(w.procedureList, 0x185, 1, 0)           // LB_SETSEL: choose the first procedure.
+		send.Call(w.clearSelection, 0xf5, 0, 0)
+		count, _, _ = send.Call(w.procedureList, 0x190, 0, 0)
+		if count != 0 {
+			return fmt.Errorf("clear selection kept a matching procedure")
+		}
+		send.Call(w.procedureList, 0x185, 1, 0) // LB_SETSEL: choose the first procedure.
 		text(w.programArgs, `--name "valor com espaços"`)
 		text(w.launchTimeout, "120")
 		w.command(3)
