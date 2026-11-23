@@ -61,3 +61,41 @@ func TestSelectedTailJumpRejectsUnrestoredFramedIndirectOrConditionalTransfers(t
 		t.Fatal("framed tail caller accepted", err)
 	}
 }
+
+func TestSelectedIndirectTailRequiresAnUnskippableExactAddress(t *testing.T) {
+	const loaded, clone = uint64(0x100000), uint64(0x180000)
+	code := []byte{0x4c, 0x8d, 0x1d, 0, 0, 0, 0, 0x41, 0xff, 0xe3}
+	binary.LittleEndian.PutUint32(code[3:], 0x1080-(peLeafRVA+7))
+	build := func(code []byte, selection []uint32) (FunctionPlan, error) {
+		p, err := NewPEImage(scalarImage(code))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p.BuildSelectedFunction(peLeafRVA, uint32(len(code)), loaded, clone, 0x300000, 0x400000, 0x500000, 1, selection)
+	}
+	selected := []uint32{0x1080}
+	plan, err := build(code, selected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := plan.Image[plan.BodyRVA:plan.Functions[1].End]
+	leaTarget := int64(clone+uint64(plan.BodyRVA)+7) + int64(int32(binary.LittleEndian.Uint32(body[3:])))
+	jumpTarget := int64(clone+uint64(plan.BodyRVA)+12) + int64(int32(binary.LittleEndian.Uint32(body[8:])))
+	if body[7] != 0xe9 || leaTarget != 0x101080 || jumpTarget != leaTarget || len(plan.TailTargets) != 1 || plan.TailTargets[0] != 0x1080 {
+		t.Fatal("indirect tail changed the register or transfer destination", body, plan.TailTargets)
+	}
+	for _, unsupported := range [][]uint32{nil, {0x1081}, {peLeafRVA}} {
+		if _, err := build(code, unsupported); !errors.Is(err, ErrUnsupported) {
+			t.Fatal("indirect tail accepted without exact selection", unsupported, err)
+		}
+	}
+	bypass := append([]byte{0x75, 7}, code...)
+	binary.LittleEndian.PutUint32(bypass[5:], 0x1080-(peLeafRVA+9))
+	changedRegister := bytes.Clone(code)
+	changedRegister[2] = 0x15 // LEA R10 followed by JMP R11
+	for _, bad := range [][]byte{bypass, changedRegister, append([]byte{0x90, 0x90}, code[7:]...)} {
+		if _, err := build(bad, selected); !errors.Is(err, ErrUnsupported) {
+			t.Fatal("unproven indirect destination accepted", bad, err)
+		}
+	}
+}

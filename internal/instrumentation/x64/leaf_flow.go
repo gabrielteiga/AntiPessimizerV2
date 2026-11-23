@@ -15,6 +15,7 @@ type leafInstruction struct {
 	kind                      byte // 0=ordinary, 1=return, 2=jump, 3=conditional, 4=call, 5=selected tail jump
 	condition                 byte
 	target                    int
+	requiresPrevious          bool
 }
 type leafBody struct {
 	code        []byte
@@ -75,6 +76,20 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 		case inst.Op == x86asm.JMP && (code[offset] == 0xeb && inst.Len == 2 || code[offset] == 0xe9 && inst.Len == 5):
 			d.kind = 2
 			d.length = 5
+		case nativeFunction && !framed && prologue == 0 && inst.Op == x86asm.JMP &&
+			inst.Len == 3 && code[offset] == 0x41 && code[offset+1] == 0xff && code[offset+2] == 0xe3:
+			// JMP R11 can share the selected callee's frame only when the
+			// immediately preceding LEA proves the exact destination.
+			if len(instructions) == 0 {
+				return fail("indirect tail jump has no known destination")
+			}
+			previous := instructions[len(instructions)-1]
+			target, ok := ripTailAddress(code, source, previous)
+			if !ok || target >= source && target < source+uint64(len(code)) || !selected[target] {
+				return fail("indirect tail jump requires an exact selected destination")
+			}
+			d.kind, d.length, d.absolute, d.requiresPrevious = 5, 5, target, true
+			tailTargets = append(tailTargets, target)
 		case inst.Len == 2 && code[offset] >= 0x70 && code[offset] <= 0x7f:
 			d.kind = 3
 			d.condition = code[offset] & 15
@@ -152,8 +167,12 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 	}
 	for _, d := range instructions {
 		if d.kind == 2 || d.kind == 3 {
-			if _, ok := offsets[d.target]; !ok {
+			i, ok := offsets[d.target]
+			if !ok {
 				return fail("branch targets the middle of an instruction")
+			}
+			if instructions[i].requiresPrevious {
+				return fail("branch bypasses the indirect tail destination assignment")
 			}
 		}
 	}
@@ -263,6 +282,18 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 		}
 	}
 	return out, nil
+}
+
+func ripTailAddress(code []byte, source uint64, previous leafInstruction) (uint64, bool) {
+	inst := previous.inst
+	mem, ok := inst.Args[1].(x86asm.Mem)
+	if inst.Op != x86asm.LEA || inst.Args[0] != x86asm.R11 || !ok || mem.Base != x86asm.RIP ||
+		mem.Index != 0 || mem.Segment != 0 || inst.PCRel != 4 || inst.PCRelOff < 0 || inst.PCRelOff+4 > inst.Len {
+		return 0, false
+	}
+	at := previous.offset + inst.PCRelOff
+	displacement := int64(int32(binary.LittleEndian.Uint32(code[at:])))
+	return address(source+uint64(previous.offset+inst.Len), displacement)
 }
 
 var frameOperations = map[string]bool{"PUSH": true, "POP": true, "LEAVE": true, "CALL": true}

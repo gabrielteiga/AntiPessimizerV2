@@ -49,8 +49,8 @@ sem converter esse valor em chamadas ou duração por chamada.
    preservar a busca do handler, seu cleanup e a retomada de execução, incluindo
    exceções aninhadas/recursivas, sem falsificar métricas nem quebrar o programa.
 2. **Cobertura de código e metadados.** Ampliar somente com casos conferidos:
-   unwind encadeado com ações adicionais, handlers ou fragmentos não contíguos e versões adicionais, tail calls indiretas/com epílogos não reconhecidos e instruções não suportadas;
-   saltos diretos para outro método selecionado já aceitam epílogos ADD/LEA e POPs conferidos;
+   unwind encadeado com ações adicionais, handlers ou fragmentos não contíguos e versões adicionais, tail calls com destinos dinâmicos ou epílogos não reconhecidos e instruções não suportadas;
+   saltos diretos para outro método selecionado já aceitam epílogos ADD/LEA e POPs conferidos, e LEA seguido de JMP R11 cobre o destino estático sem frame;
    funções menores que cinco bytes e formatos TD32 adicionais continuam rejeitados.
 3. **Compatibilidade Delphi demonstrada.** As fixtures de integração atuais são
    C/GCC para o fluxo completo. Um ensaio separado compara treze rotinas conferidas

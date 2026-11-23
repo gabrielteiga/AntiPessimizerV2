@@ -876,3 +876,17 @@ o alvo confere o valor de retorno e captura uma falha real no secundário.
 A captura exige duas chamadas e um unwind por thread, zero perdas e zero
 frames abertos. Chains com ações locais, handlers, versões alternativas
 ou extensões descontínuas continuam fora do subconjunto conferido.
+
+## Tail calls indiretas com destino estático
+
+Em métodos sem frame ou handler, o planejador aceita `JMP R11` quando a
+instrução imediatamente anterior é `LEA R11, [RIP+disp32]` e o endereço
+calculado é a entrada exata de outro método selecionado. Ramos que pulam o
+LEA são rejeitados. A cópia conserva o valor de R11 e emite salto direto ao
+mesmo endereço. O slot de retorno original e a contabilidade da cadeia
+seguem as mesmas regras das tail calls diretas.
+
+O teste Windows executa o EXE baseline e a captura instrumentada em três
+threads, com seis argumentos, onze chamadas externas por worker e uma
+saída excepcional por cadeia. Saltos indiretos com destino dinâmico, frames
+ou handlers continuam fora desse subconjunto.

@@ -10,18 +10,26 @@ import (
 )
 
 func TestNativeProducerSelectedTailCallsPreserveArgumentsRecursionAndUnwind(t *testing.T) {
-	testTailCalls(t, false)
+	testTailCalls(t, "APTailStart", false)
 }
-func TestNativeProducerVerifiedStackAndBiasedFrameTailCalls(t *testing.T) { testTailCalls(t, true) }
-func testTailCalls(t *testing.T, framed bool) {
+func TestNativeProducerVerifiedStackAndBiasedFrameTailCalls(t *testing.T) {
+	testTailCalls(t, "APTailStart", true)
+}
+func TestNativeProducerVerifiedIndirectTailPreservesArgumentsAndUnwind(t *testing.T) {
+	testTailCalls(t, "APTailIndirectStart", false)
+}
+func testTailCalls(t *testing.T, start string, framed bool) {
 	t.Helper()
-	names := map[string]uint32{"APTailStart": 1, "APTailMiddle": 2, "APTailWork": 3, "APTailRecursive": 4, "APTailRecursiveStep": 5, "APTailCatch": 6}
+	names := map[string]uint32{start: 1, "APTailMiddle": 2, "APTailWork": 3, "APTailRecursive": 4, "APTailRecursiveStep": 5, "APTailCatch": 6}
 	if framed {
 		names["APTailFramedStack"] = 7
 		names["APTailFramedRBP"] = 8
 	}
 	o := selectedFixture(t, "APTailTarget.exe", names)
 	o.Args = []string{"--threads", "3", "--iterations", "10"}
+	if start == "APTailIndirectStart" {
+		o.Args = append(o.Args, "--indirect", "1")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	if data, err := exec.CommandContext(ctx, o.Image, o.Args...).CombinedOutput(); err != nil {
@@ -78,7 +86,7 @@ func testTailCalls(t *testing.T, framed bool) {
 			t.Fatal("mutually recursive tail time double counted", r)
 		}
 	}
-	t.Log("selected direct tail chain: six Win64 arguments and original return slot preserved; same-stack mutual recursion counted; one real exception closes all three tail frames per worker and resumes CRT catch")
+	t.Logf("%s selected tail chain: six Win64 arguments and original return slot preserved; same-stack mutual recursion counted; one real exception closes each tail frame and resumes CRT catch", start)
 }
 
 func TestNativeProducerSelectedTailCallsClearKeepsOpenLogicalChain(t *testing.T) {
