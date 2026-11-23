@@ -16,7 +16,7 @@ Revisado em 18 de novembro de 2026.
 | Símbolos Delphi | TD32/TDS FB09/FB0A, procedimentos, unidades Pascal por contribuições de código (inclusive diretórios globais), aliases exatos e diretórios encadeados; símbolos embutidos ou `.tds` adjacente |
 | Métricas instrumentadas | Chamadas, tempos inclusivos/exclusivos, médias, recursão, threads, unwind, Clear e perdas no núcleo Go |
 | Lançamento instrumentado | Novo processo próprio sem SDK do profiler; DLL instalada antes do ponto de entrada, seleção TD32/TDS e finalizadores preservados |
-| Funções com pilha/chamadas | Prólogos/unwind v1 verificados; calls, recursão, condições, loops, múltiplas saídas e encaminhamento de cleanup UHANDLER original |
+| Funções com pilha/chamadas | Prólogos/unwind v1 verificados, incluindo fragmentos encadeados que herdam o mesmo frame; calls, recursão, condições, loops, múltiplas saídas e encaminhamento de cleanup UHANDLER original |
 | Subconjunto escalar | Aritmética/condições/conversões SSE sem frame e home slots Win64 limitados; prólogo ADD RSP negativo verificado contra unwind |
 | Memória e sincronização | MOVS/STOS com frame/unwind verificado e operações LOCK de memória; testes de cópia/preenchimento, compare/exchange de 64/128 bits e contador compartilhado |
 | Captura/retomada SEH | Tabelas CRT reconhecidas e scopes Delphi catch-all/finally e capturas tipadas com handler/resolvedor conferidos são traduzidos para a cópia; testes Windows de captura, recursão, continuação e cleanup com exceção |
@@ -38,7 +38,7 @@ Revisado em 18 de novembro de 2026.
 | Medição de custo | Pares baseline/instrumentado no mesmo alvo C, com checksums e contagens exatas; relatório QPC bruto nos artefatos do CI |
 
 **Ainda não há paridade completa com o original.** Variantes de handlers Delphi
-não reconhecidas, tabelas de unwind encadeadas, tail calls indiretas ou com restauração/handlers não reconhecidos e outros formatos/instruções
+não reconhecidas, unwind encadeado com ações adicionais ou lacunas entre fragmentos, tail calls indiretas ou com restauração/handlers não reconhecidos e outros formatos/instruções
 continuam fora do subconjunto aceito. A limpeza de métricas já usa uma barreira sincronizada na captura nativa,
 preservando as chamadas em andamento e o histórico das épocas anteriores. A compatibilidade com todas as
 variantes do Delphi 10.4 e o overhead nesse ambiente ainda não foram comprovados.

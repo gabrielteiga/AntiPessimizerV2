@@ -23,8 +23,8 @@ type FunctionPlan struct {
 // BuildPEFunction preserves a verified version-1 native prologue and its unwind
 // codes while relocating the full procedure. An original UHANDLER-only cleanup
 // is forwarded with its source metadata and PCs. Recognized CRT and reviewed
-// Delphi scopes are translated for catch/resume. Unknown formats and chains
-// are rejected.
+// Delphi scopes are translated for catch/resume. Adjacent v1 fragments can
+// share the primary's copied unwind record when they only inherit its frame.
 // A native cleanup handler records exceptional exits;
 // it must have the Windows EXCEPTION_DISPOSITION handler ABI, not a Go callback.
 func BuildPEFunction(image []byte, rva, size uint32, loadedBase, base, enter, exit, unwind uint64, id uint32) (FunctionPlan, error) {
@@ -77,6 +77,16 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 	if err := validatePrologueActions(code, originalInfo); err != nil {
 		return FunctionPlan{}, err
 	}
+	for start, i := 0, 0; i < len(metadata.chainBoundaries); i++ {
+		end := metadata.chainBoundaries[i]
+		for start < end {
+			inst, err := x86asm.Decode(code[start:end], 64)
+			if err != nil || inst.Op == 0 || inst.Len == 0 || inst.Len > end-start {
+				return fail("unwind chain boundary splits an instruction")
+			}
+			start += inst.Len
+		}
+	}
 	framed := originalInfo[2] != 0
 	entry := entryJump(source, base)
 	if metadata.handlerRVA != 0 {
@@ -89,6 +99,9 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 	flow, err := rewriteSelectedFunction(code, source, base, framed, int(originalInfo[1]), len(entry), true, selected, restored)
 	if err != nil {
 		return FunctionPlan{}, err
+	}
+	if len(metadata.chainBoundaries) != 0 && flow.overwrite > metadata.chainBoundaries[0] {
+		return fail("entry patch crosses an unwind chain boundary")
 	}
 	in, err := BuildEntryProbe(base, enter, base+512, id)
 	if err != nil {

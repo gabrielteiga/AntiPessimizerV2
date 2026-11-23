@@ -11,6 +11,32 @@
 #include <stdio.h>
 
 enum { AP_FRAME_EXCEPTION=0xe0424242u };
+static BOOL check_chain;
+extern uint64_t APFrameChain(const uint64_t *),APFrameChainCatch(void);
+
+/* GAS has no chain-info directive. Emit both ordinary .pdata entries and the
+ * embedded primary entry for an empty secondary using image-relative fixups. */
+__asm__(
+ ".text\n .globl APFrameChain\n .def APFrameChain; .scl 2; .type 32; .endef\n"
+ "APFrameChain:\n pushq %rbx\n subq $32,%rsp\n movq %rcx,%rbx\n .fill 8,1,0x90\n"
+ ".globl APFrameChainCold\n .def APFrameChainCold; .scl 2; .type 32; .endef\n"
+ "APFrameChainCold:\n movq (%rbx),%rax\n addq $32,%rsp\n popq %rbx\n ret\n"
+ ".Lchain_end:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n"
+ ".Lchain_primary:\n .byte 1,5,2,0,5,0x32,1,0x30\n"
+ ".Lchain_secondary:\n .byte 33,0,0,0\n .rva APFrameChain,APFrameChainCold,.Lchain_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n"
+ ".rva APFrameChain,APFrameChainCold,.Lchain_primary\n"
+ ".rva APFrameChainCold,.Lchain_end,.Lchain_secondary\n"
+ ".text\n .globl APFrameChainCatch\n .def APFrameChainCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameChainCatch\n APFrameChainCatch:\n subq $40,%rsp\n .seh_stackalloc 40\n .seh_endprologue\n"
+ ".Lchain_try:\n xorq %rcx,%rcx\n call APFrameChain\n nop\n"
+ ".Lchain_try_end:\n xorl %eax,%eax\n addq $40,%rsp\n ret\n"
+ ".Lchain_catch:\n movl $903,%eax\n addq $40,%rsp\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Lchain_try,.Lchain_try_end,APFrameMemoryFilter,.Lchain_catch\n .text\n .seh_endproc\n"
+);
+
 extern uint64_t APFrameLarge(uint64_t),APFrameLargeCatch(void);
 __attribute__((noinline)) uint64_t APFrameLargeWork(uint64_t n){
  if(n==888)RaiseException(AP_FRAME_EXCEPTION,0,0,NULL);
@@ -259,6 +285,10 @@ static DWORD WINAPI worker(void *unused){
  if(APFrameMemoryCatch()!=888)return 4;
  if(APFrameRBPCatch()!=889 || APFrameLargeCatch()!=901)return 7;
  if(APFrameCompare128Catch(NULL)!=902 || APFrameCompare128Catch((uint64_t *)((unsigned char *)atomic128_total+1))!=902)return 8;
+ if(check_chain){
+  const uint64_t value=UINT64_C(0x1122334455667788);
+  if(APFrameChain(&value)!=value || APFrameChainCatch()!=903)return 12;
+ }
  if(normal_cleanup_throws){if(APUnwindCatch(7)!=779)return 6;}
  else if(APUnwindOuter(7)!=11)return 6;
  if(APUnwindOuter(999)!=1000 || APUnwindCatch(0)!=779 || cleanup_bad)return 6;
@@ -278,6 +308,7 @@ int wmain(int argc,wchar_t **argv){
   else if(!wcscmp(argv[i],L"--cleanup-throws"))cleanup_throws=(BOOL)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--normal-cleanup-throws"))normal_cleanup_throws=(BOOL)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--unselected-id"))unselected_id=(uint32_t)wcstoul(argv[i+1],NULL,10);
+  else if(!wcscmp(argv[i],L"--check-chain"))check_chain=(BOOL)wcstoul(argv[i+1],NULL,10);
   else return 2;
  }
  if(!batch_limit||batch_limit>256||!threads||threads>16||!rounds||rounds>1000||!iterations||iterations>1000||child_delay_ms>5000)return 2;

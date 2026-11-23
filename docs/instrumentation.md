@@ -856,3 +856,21 @@ threads, cada wrapper precisa completar onze chamadas, uma por unwind, e seus
 tempos devem conservar a hierarquia. Um teste separado de RtlVirtualUnwind usa
 somente CONTEXT/pilha nativos privados e exige RSP, RIP e RBX/RBP originais antes
 da restauração, no ADD/LEA, no POP e no JMP. Não executa nem desenrola pilha Go.
+
+## Fragmentos v1 com unwind herdado
+
+Um procedimento pode abranger entradas adjacentes de `.pdata` quando o
+registro primário tem unwind v1 sem handler e cada secundário é v1 com
+`UNW_FLAG_CHAININFO`. Cada secundário deve repetir o frame register e seu
+bias, ter prólogo e lista de ações vazios e apontar para a entrada primária
+ou para o fragmento anterior já conferido. A extensão do símbolo precisa
+cobrir todos os fragmentos selecionados. As divisas devem cair entre
+instruções e o patch de entrada deve caber no primário.
+
+O corpo relocável usa o prólogo e as ações do primário num único registro de
+unwind com o cleanup do profiler. O teste Windows executa um alvo C/assembly
+com .pdata encadeada como baseline e depois instrumentado. Em três threads,
+o alvo confere o valor de retorno e captura uma falha real no secundário.
+A captura exige duas chamadas e um unwind por thread, zero perdas e zero
+frames abertos. Chains com ações locais, handlers, versões alternativas
+ou extensões descontínuas continuam fora do subconjunto conferido.

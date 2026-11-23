@@ -117,6 +117,8 @@ func TestUnwindActionsMatchStackAndSavedRegisterOffsets(t *testing.T) {
 func FuzzNativeFunctionPlan(f *testing.F) {
 	image, code := framedPE()
 	f.Add(image, uint32(len(code)))
+	image, code = chainedPE()
+	f.Add(image, uint32(len(code)))
 	f.Fuzz(func(t *testing.T, b []byte, size uint32) {
 		if len(b) > 1<<20 {
 			t.Skip()
