@@ -40,6 +40,30 @@ var referenceCases = []referenceCase{
 	{0x18700, "554883ec10488bec48895508488b4508488d65105dc3", "argument-framed"},
 	{0x3ccc0, "555756534883ec28488bec4989c84989d1488d7d10498bf048a548a5488b45104989014c894d00488b4518488d4001488945084c8d5510498b5208498b02488b4d08488b5d00f0490fc7080f94c14989520849890284c974b8488d65285b5e5f5dc3", "atomic-push-framed"},
 	{0x3cd30, "555756534883ec28488bec4989c8488d7d10498bf048a548a5488b45104885c0750433c0eb3d488b0048894500488b4518488d4001488945084c8d4d10498b5108498b01488b4d08488b5d00f0490fc7080f94c14989510849890184c974af488b4510488d65285b5e5f5dc3", "atomic-pop-framed"},
+	{0x182090, "0f3148c1e2204809d0c3", "timestamp"},
+}
+
+func pinTimestampThread(t *testing.T) {
+	t.Helper()
+	runtime.LockOSThread()
+	t.Cleanup(runtime.UnlockOSThread)
+	kernel := windows.NewLazySystemDLL("kernel32.dll")
+	var processMask, systemMask uintptr
+	ok, _, err := kernel.NewProc("GetProcessAffinityMask").Call(uintptr(windows.CurrentProcess()), uintptr(unsafe.Pointer(&processMask)), uintptr(unsafe.Pointer(&systemMask)))
+	if ok == 0 || processMask == 0 {
+		t.Fatal("get process affinity for timestamp comparison", err)
+	}
+	setAffinity := kernel.NewProc("SetThreadAffinityMask")
+	thread := uintptr(windows.CurrentThread())
+	previous, _, err := setAffinity.Call(thread, processMask&-processMask)
+	if previous == 0 {
+		t.Fatal("pin timestamp comparison to one logical processor", err)
+	}
+	t.Cleanup(func() {
+		if ok, _, err := setAffinity.Call(thread, previous); ok == 0 {
+			t.Error("restore test thread affinity", err)
+		}
+	})
 }
 
 func referenceAllocation(t *testing.T, loaded uint64, imageSize uint32) uintptr {
@@ -178,7 +202,21 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 				t.Fatal("register original corpus table", err)
 			}
 			registered = true
+			if c.Kind == "timestamp" {
+				pinTimestampThread(t)
+			}
 			for trial := uint64(0); trial < 100; trial++ {
+				if c.Kind == "timestamp" {
+					source := uintptr(dll) + uintptr(c.RVA)
+					before, _, _ := syscall.SyscallN(source)
+					observed, _, _ := syscall.SyscallN(memory)
+					after, _, _ := syscall.SyscallN(source)
+					if before == 0 || after <= before || observed < before || observed > after {
+						t.Fatalf("relocated timestamp outside original interval: %#x <= %#x <= %#x", before, observed, after)
+					}
+					calls++
+					continue
+				}
 				input := make([]byte, 256)
 				put := binary.LittleEndian.PutUint64
 				put(input, 0x123456789abcd000+trial)

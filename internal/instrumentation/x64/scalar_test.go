@@ -50,6 +50,20 @@ func TestScalarExpansionStillRejectsImplicitNonvolatileAndVectorState(t *testing
 	}
 }
 
+func TestNativeTimestampPreservesOriginalEncoding(t *testing.T) {
+	code := []byte{0x0f, 0x31, 0x48, 0xc1, 0xe2, 0x20, 0x48, 0x09, 0xd0, 0xc3}
+	p, err := BuildPEFunction(scalarImage(code), peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 1)
+	if err != nil || !bytes.Equal(p.Image[p.BodyRVA:p.BodyRVA+9], code[:9]) {
+		t.Fatal("native timestamp instruction changed", err)
+	}
+	prefixed := append([]byte{0x66}, code...)
+	for _, bad := range [][]byte{prefixed, {0x0f, 0x01, 0xf9, 0x90, 0x90, 0xc3}} {
+		if _, err := BuildPEFunction(scalarImage(bad), peLeafRVA, uint32(len(bad)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 1); !errors.Is(err, ErrUnsupported) {
+			t.Fatal("accepted a prefixed or unverified timestamp variant", bad, err)
+		}
+	}
+}
+
 func TestSignedAddStackAllocationMatchesReferenceDelphiUnwind(t *testing.T) {
 	// Prologue/unwind shape observed at RVA 0x80460 in the original distributed
 	// Delphi DLL: PUSH RBP; ADD RSP,-128; MOV RBP,RSP, ALLOC_SMALL 128 + SET_FPREG.
