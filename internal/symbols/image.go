@@ -21,6 +21,8 @@ type Image struct {
 	ID, Name, SymbolSource string
 	Size, PreferredBase    uint64
 	ProcedureCount         int // raw TD32 procedure records, before exact-alias deduplication
+	source                 td32.SourceIndex
+	code                   Segment
 }
 
 // LoadImage supports the single-code-segment convention used by AntiPessimizer:
@@ -28,6 +30,15 @@ type Image struct {
 // than guessing a segment-to-section correspondence. A symbol-free image yields
 // a usable empty index; malformed symbols or unsupported mappings return errors.
 func LoadImage(path string) (*Image, error) {
+	return loadImageFile(path, false)
+}
+
+// LoadImageWithSource also prepares the optional TD32 source-line index.
+func LoadImageWithSource(path string) (*Image, error) {
+	return loadImageFile(path, true)
+}
+
+func loadImageFile(path string, includeSource bool) (*Image, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -40,10 +51,10 @@ func LoadImage(path string) (*Image, error) {
 	if len(data) > 256<<20 {
 		return nil, fmt.Errorf("image exceeds 256 MiB")
 	}
-	return loadImage(data, path)
+	return loadImage(data, path, includeSource)
 }
 
-func loadImage(data []byte, path string) (*Image, error) {
+func loadImage(data []byte, path string, includeSource bool) (*Image, error) {
 	f, err := pe.NewFile(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("read PE: %w", err)
@@ -74,14 +85,21 @@ func loadImage(data []byte, path string) (*Image, error) {
 	if err != nil {
 		return nil, err
 	}
-	ps, source, err := td32.LoadPE(data, strings.TrimSuffix(path, filepath.Ext(path))+".tds", path)
+	sidecar := strings.TrimSuffix(path, filepath.Ext(path)) + ".tds"
+	var ps []td32.Procedure
+	var source string
+	if includeSource {
+		ps, result.source, source, err = td32.LoadPEWithSource(data, sidecar, path)
+	} else {
+		ps, source, err = td32.LoadPE(data, sidecar, path)
+	}
 	if errors.Is(err, td32.ErrNoSymbols) {
 		return result, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	if len(ps) == 0 {
+	if len(ps) == 0 && result.source.Empty() {
 		result.SymbolSource = source
 		return result, nil
 	}
@@ -100,6 +118,7 @@ func loadImage(data []byte, path string) (*Image, error) {
 	if executable != 1 || code == 0 {
 		return nil, fmt.Errorf("unsupported TD32 layout: expected one executable code section")
 	}
+	result.code = segment
 	result.Index, err = fromProcedures(result.ID, result.Name, result.Size, ps, map[uint16]Segment{1: segment})
 	if err != nil {
 		return nil, err
@@ -107,4 +126,17 @@ func loadImage(data []byte, path string) (*Image, error) {
 	result.SymbolSource = source
 	result.ProcedureCount = len(ps)
 	return result, nil
+}
+
+// SourceAt reports the file/line for the observed address, independently of
+// the procedure start used for aggregation.
+func (image *Image) SourceAt(base, address uint64) (td32.SourceLocation, bool) {
+	if address < base || address-base >= image.Size || address-base < image.code.RVA {
+		return td32.SourceLocation{}, false
+	}
+	offset := address - base - image.code.RVA
+	if offset >= image.code.Size {
+		return td32.SourceLocation{}, false
+	}
+	return image.source.Lookup(1, uint32(offset))
 }

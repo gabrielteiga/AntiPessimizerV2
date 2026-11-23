@@ -2,12 +2,14 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/profiling"
+	"github.com/gabrielteiga/AntiPessimizerV2/internal/symbols/td32"
 	"github.com/gabrielteiga/AntiPessimizerV2/internal/testfixture"
 )
 
@@ -55,5 +57,47 @@ func TestCLIRejectsInvalidInputs(t *testing.T) {
 		if err := run(args, &out, &diag); err == nil || out.Len() != 0 {
 			t.Fatalf("%v: %v", args, err)
 		}
+	}
+}
+
+func TestCLIResolvesSourceFromEmbeddedAndSidecar(t *testing.T) {
+	for _, source := range []string{"embedded", "sidecar"} {
+		t.Run(source, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "lab.exe")
+			tds := testfixture.TDSWithSource()
+			image := testfixture.Image(source == "embedded")
+			if source == "embedded" {
+				at := binary.LittleEndian.Uint32(image[0x318:])
+				image = append(image[:at], tds...)
+				binary.LittleEndian.PutUint32(image[0x310:], uint32(len(tds)))
+			} else if err := os.WriteFile(filepath.Join(dir, "lab.tds"), tds, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, image, 0600); err != nil {
+				t.Fatal(err)
+			}
+			var out, diag bytes.Buffer
+			if err := run([]string{"--source", "--image", path, "--base", "0x7ff000000000", "0x7ff000005027", "0x7ff00000502b", "0x7ff000005030"}, &out, &diag); err != nil {
+				t.Fatal(err)
+			}
+			var report struct {
+				Resolutions []struct {
+					Location profiling.Location   `json:"location"`
+					Source   *td32.SourceLocation `json:"source"`
+				} `json:"resolutions"`
+			}
+			if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+				t.Fatal(err)
+			}
+			rows := report.Resolutions
+			first := td32.SourceLocation{File: `C:\lab\Workload.pas`, Line: 101, LineOffset: 7}
+			second := td32.SourceLocation{File: first.File, Line: 109, LineOffset: 3}
+			if len(rows) != 3 || rows[0].Source == nil || *rows[0].Source != first ||
+				rows[1].Source == nil || *rows[1].Source != second || rows[2].Source != nil ||
+				rows[0].Location.Procedure != "Lab.Hot" || rows[0].Location != rows[1].Location {
+				t.Fatal(out.String())
+			}
+		})
 	}
 }

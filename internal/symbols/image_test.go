@@ -47,7 +47,7 @@ func TestImageSymbolSources(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "lab.exe")
 	data := testfixture.Image(false)
-	first, err := loadImage(data, path)
+	first, err := loadImage(data, path, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestImageSymbolSources(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "lab.tds"), testfixture.TDS(), 0600); err != nil {
 		t.Fatal(err)
 	}
-	second, err := loadImage(data, path)
+	second, err := loadImage(data, path, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestImageSymbolSources(t *testing.T) {
 		t.Fatal(second)
 	}
 	data[0x220] = 0xcc
-	third, err := loadImage(data, path)
+	third, err := loadImage(data, path, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestRejectUnsupportedImageMappings(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			b := testfixture.Image(true)
 			mutate(b)
-			if _, err := loadImage(b, filepath.Join(t.TempDir(), "lab.exe")); err == nil {
+			if _, err := loadImage(b, filepath.Join(t.TempDir(), "lab.exe"), false); err == nil {
 				t.Fatal("accepted invalid mapping")
 			}
 		})
@@ -102,7 +102,7 @@ func TestRejectUnsupportedImageMappings(t *testing.T) {
 const peCodeRead = 0x40000020
 
 func TestPE32Mapping(t *testing.T) {
-	image, err := loadImage(testfixture.Image32(true), filepath.Join(t.TempDir(), "lab.exe"))
+	image, err := loadImage(testfixture.Image32(true), filepath.Join(t.TempDir(), "lab.exe"), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestRejectMultipleCodeSections(t *testing.T) {
 	const second = 128 + 4 + 20 + 240 + 40
 	copy(b[second:second+40], b[second-40:second])
 	binary.LittleEndian.PutUint32(b[second+12:], 0x6000)
-	if _, err := loadImage(b, filepath.Join(t.TempDir(), "lab.exe")); err == nil {
+	if _, err := loadImage(b, filepath.Join(t.TempDir(), "lab.exe"), false); err == nil {
 		t.Fatal("ambiguous code layout accepted")
 	}
 }
@@ -130,7 +130,7 @@ func FuzzLoadImage(f *testing.F) {
 	f.Add([]byte{})
 	path := filepath.Join(f.TempDir(), "lab.exe")
 	f.Fuzz(func(t *testing.T, b []byte) {
-		image, err := loadImage(b, path)
+		image, err := loadImage(b, path, false)
 		if err == nil {
 			loc, ok := image.Index.Resolve(0, 0)
 			if !ok {
