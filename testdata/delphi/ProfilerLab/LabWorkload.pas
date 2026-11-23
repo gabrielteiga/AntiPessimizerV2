@@ -27,8 +27,10 @@ type
   private
     FLock: TCriticalSection;
     FFrequency: Int64;
+    FReport: TextFile;
+    FReportOpen: Boolean;
   public
-    constructor Create;
+    constructor Create(const ReportPath: string = '');
     destructor Destroy; override;
     procedure Emit(const EventName, Phase, Worker: string;
       Units, Checksum: UInt64; const Detail: string = '');
@@ -83,20 +85,42 @@ begin
   Sleep(Milliseconds);
 end;
 
-constructor TLabLog.Create;
+constructor TLabLog.Create(const ReportPath: string);
+
+  procedure WriteHeader(var Destination: TextFile);
+  begin
+    Writeln(Destination, 'utc', #9, 'qpc', #9, 'pid', #9, 'tid', #9,
+      'event', #9, 'phase', #9, 'worker', #9, 'iterations', #9, 'checksum',
+      #9, 'detail');
+  end;
+
 begin
   inherited Create;
   FLock := TCriticalSection.Create;
   if not QueryPerformanceFrequency(FFrequency) then
     RaiseLastOSError;
-  Writeln('utc', #9, 'qpc', #9, 'pid', #9, 'tid', #9, 'event', #9,
-    'phase', #9, 'worker', #9, 'iterations', #9, 'checksum', #9, 'detail');
+  if ReportPath <> '' then
+  begin
+    if FileExists(ReportPath) then
+      raise Exception.Create('Report already exists: ' + ReportPath);
+    AssignFile(FReport, ReportPath);
+    Rewrite(FReport);
+    FReportOpen := True;
+    WriteHeader(FReport);
+  end
+  else
+    WriteHeader(Output);
 end;
 
 destructor TLabLog.Destroy;
 begin
-  FLock.Free;
-  inherited Destroy;
+  try
+    if FReportOpen then
+      CloseFile(FReport);
+  finally
+    FLock.Free;
+    inherited Destroy;
+  end;
 end;
 
 procedure TLabLog.Emit(const EventName, Phase, Worker: string;
@@ -105,6 +129,15 @@ var
   UTC: TSystemTime;
   Counter: Int64;
   Stamp: string;
+
+  procedure WriteRow(var Destination: TextFile);
+  begin
+    Writeln(Destination, Stamp, #9, Counter, #9, GetCurrentProcessId, #9,
+      GetCurrentThreadId, #9, EventName, #9, Phase, #9, Worker, #9,
+      Units, #9, Checksum, #9, Detail);
+    Flush(Destination);
+  end;
+
 begin
   // Serialize complete rows. Logging occurs only at phase boundaries.
   FLock.Acquire;
@@ -115,10 +148,10 @@ begin
     Stamp := Format('%.4d-%.2d-%.2dT%.2d:%.2d:%.2d.%.3dZ',
       [UTC.wYear, UTC.wMonth, UTC.wDay, UTC.wHour, UTC.wMinute,
        UTC.wSecond, UTC.wMilliseconds]);
-    Writeln(Stamp, #9, Counter, #9, GetCurrentProcessId, #9,
-      GetCurrentThreadId, #9, EventName, #9, Phase, #9, Worker, #9,
-      Units, #9, Checksum, #9, Detail);
-    Flush(Output);
+    if FReportOpen then
+      WriteRow(FReport)
+    else
+      WriteRow(Output);
   finally
     FLock.Release;
   end;
@@ -235,7 +268,7 @@ end;
 procedure RunLab;
 var
   Iterations, WaitMS, I, Value: Integer;
-  Option: string;
+  Option, ReportPath: string;
   Log: TLabLog;
   SingleA, SingleB, ParallelA, ParallelB, Unused: UInt64;
 begin
@@ -243,7 +276,7 @@ begin
   WaitMS := 10000;
   if (ParamCount = 1) and (ParamStr(1) = '--help') then
   begin
-    Writeln('ProfilerLab [--iterations 1..1000000000] [--wait-ms 0..120000]');
+    Writeln('ProfilerLab [--iterations 1..1000000000] [--wait-ms 0..120000] [--report path]');
     Writeln('ProfilerLab --self-test');
     Exit;
   end;
@@ -261,10 +294,19 @@ begin
   while I <= ParamCount do
   begin
     Option := ParamStr(I);
-    if (Option <> '--iterations') and (Option <> '--wait-ms') then
+    if (Option <> '--iterations') and (Option <> '--wait-ms') and
+       (Option <> '--report') then
       raise Exception.Create('Unknown option: ' + Option);
     if I = ParamCount then
       raise Exception.Create('Missing value for ' + Option);
+    if Option = '--report' then
+    begin
+      ReportPath := ParamStr(I + 1);
+      if ReportPath = '' then
+        raise Exception.Create('Empty report path');
+      Inc(I, 2);
+      Continue;
+    end;
     if not TryStrToInt(ParamStr(I + 1), Value) then
       raise Exception.Create('Invalid integer for ' + Option);
     if Option = '--iterations' then
@@ -281,7 +323,7 @@ begin
     end;
     Inc(I, 2);
   end;
-  Log := TLabLog.Create;
+  Log := TLabLog.Create(ReportPath);
   try
     Log.Emit('session_begin', 'startup', 'main', UInt64(Iterations), 0,
       'qpc_frequency=' + IntToStr(Log.Frequency) +

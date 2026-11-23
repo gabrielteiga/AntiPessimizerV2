@@ -1,0 +1,36 @@
+name: Delphi 10.4 validation
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-delphi104:
+    runs-on: [self-hosted, windows, x64, delphi-10-4]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.4'
+          cache: false
+      - name: Build and run the owned Delphi fixture
+        shell: cmd
+        run: |
+          if not defined BDS set "BDS=%ProgramFiles(x86)%\Embarcadero\Studio\21.0"
+          if not exist "%BDS%\bin\dcc64.exe" exit /b 1
+          call "%BDS%\bin\rsvars.bat" || exit /b 1
+          call testdata\delphi\ProfilerLab\build.cmd || exit /b 1
+          echo BDS=%BDS%>>"%GITHUB_ENV%"
+      - name: Verify original symbols and capture exact calls
+        shell: pwsh
+        run: ./scripts/test-delphi104.ps1 -Output "$env:RUNNER_TEMP/ap-delphi104"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Delphi-10.4-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/ap-delphi104/manifest.json
+            ${{ runner.temp }}/ap-delphi104/baseline.tsv
+            ${{ runner.temp }}/ap-delphi104/instrumented.tsv
+            ${{ runner.temp }}/ap-delphi104/metrics.ndjson
+          if-no-files-found: ignore

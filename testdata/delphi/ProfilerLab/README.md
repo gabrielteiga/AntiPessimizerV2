@@ -40,6 +40,21 @@ realmente produziu: flags de build não comprovam o formato de símbolos.
 A configuração NoSymbols ainda registra os endereços conhecidos no log para
 conferência humana; o resolver deve usar apenas o EXE e os símbolos disponíveis.
 
+## Validação automatizada da captura Delphi
+
+O workflow **Delphi 10.4 validation** usa um runner Windows x64 com RAD Studio
+10.4 licenciado, ferramentas de linha de comando e MinGW. O runner usa o
+rótulo `delphi-10-4`; o job depende de `dcc64.exe` e do ambiente do RAD Studio.
+Ele executa o build da fixture e segue com `scripts/test-delphi104.ps1`.
+
+O ensaio confere a versão do compilador informada pela própria fixture, compara
+os RVAs do catálogo com os endereços observados sob ASLR e verifica arquivo e
+linha a partir dos símbolos do build. Depois lança o mesmo EXE com dois métodos
+selecionados. `--report` permite gravar o TSV do alvo lançado pelo coletor.
+As contagens são comparadas com os TIDs e checksums dos quatro workers.
+O relatório guarda versão do Windows e hashes do compilador, EXE e fonte de
+símbolos. A aprovação desse ensaio exige sua execução nesse runner.
+
 ## Testes manuais
 
 ```bat
