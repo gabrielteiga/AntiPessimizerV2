@@ -356,3 +356,14 @@ componentes sobrepostos ficam desconhecidos. A fixture TD32 do CI Windows usa
 0xffff em sstAlignSym e mantém sstModule separado, exigindo unidade resolvida
 até sampling, seleção do EXE, contagens e viewer. Não se altera a validação dos
 bytes/extents/unwind do código por relaxar a associação de um nome de unidade.
+
+## Leitura do contador de timestamp
+
+A rotina de dez bytes em RVA `0x182090` da DLL v0.3 tem a sequência de
+`Utils.ReadTimeStamp`: RDTSC, deslocamento de RDX, combinação em RAX e RET.
+O planejador nativo copia o RDTSC sem prefixos, com os resultados voláteis
+em EDX:EAX. O Windows testa cem execuções da cópia relocalizada, cada uma
+entre duas leituras da rotina original na mesma CPU lógica. O resultado deve
+cair dentro do intervalo original. A afinidade da thread de teste é restaurada.
+O corpus agora tem 1.300 pares em treze rotinas e 8.646 planos estáticos de
+8.777 entradas. O profiler continua a medir chamadas em ticks QPC.

@@ -97,6 +97,12 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 				return fail("call into procedure interior")
 			}
 			d.absolute = target
+		case inst.Op == x86asm.RDTSC:
+			// RDTSC produces EDX:EAX without changing stack state. Preserve
+			// the precise encoding and keep it in the full native planner.
+			if !nativeFunction || inst.Len != 2 || code[offset] != 0x0f || code[offset+1] != 0x31 {
+				return fail("unsupported timestamp counter instruction")
+			}
 		default:
 			if !leafOperations[inst.Op.String()] && !scalarOperations[inst.Op.String()] && !(framed && frameOperations[inst.Op.String()]) && !(nativeFunction && (atomicOperations[inst.Op.String()] || mxcsrOperations[inst.Op.String()] || framed && (stringOperations[inst.Op.String()] || wideAtomicOperation(inst)))) {
 				return fail("unsupported operation: " + inst.Op.String())

@@ -53,7 +53,7 @@ sem converter esse valor em chamadas ou duração por chamada.
    saltos diretos para outro método selecionado já aceitam epílogos ADD/LEA e POPs conferidos;
    funções menores que cinco bytes e formatos TD32 adicionais continuam rejeitados.
 3. **Compatibilidade Delphi demonstrada.** As fixtures de integração atuais são
-   C/GCC para o fluxo completo. Um ensaio separado compara doze rotinas conferidas
+   C/GCC para o fluxo completo. Um ensaio separado compara treze rotinas conferidas
    da DLL Delphi original com seus corpos relocados; não inclui TDS. Um ensaio separado exige captura/retomada/reraise com o handler real da mesma DLL, inicializando seu RTL num filho próprio; ele cobre um construtor e a worker real com catch tipado Exception, sem certificar uma versão inteira do compilador.
    Exigir evidência reproduzível
    para prólogos, métodos, exceções e bibliotecas efetivamente suportados. A fixture
