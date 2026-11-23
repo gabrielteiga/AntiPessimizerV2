@@ -12,7 +12,7 @@ type leafInstruction struct {
 
 	offset, relocated, length int
 	inst                      x86asm.Inst
-	kind                      byte // 0=ordinary, 1=return, 2=jump, 3=conditional, 4=call, 5=selected tail jump
+	kind                      byte // 0=ordinary, 1=return, 2=jump, 3=conditional, 4=call, 5=direct tail, 6=indirect tail
 	condition                 byte
 	target                    int
 	requiresPrevious          bool
@@ -78,18 +78,23 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 			d.length = 5
 		case nativeFunction && !framed && prologue == 0 && inst.Op == x86asm.JMP &&
 			inst.Len == 3 && code[offset] == 0x41 && code[offset+1] == 0xff && code[offset+2] == 0xe3:
-			// JMP R11 can share the selected callee's frame only when the
-			// immediately preceding LEA proves the exact destination.
-			if len(instructions) == 0 {
-				return fail("indirect tail jump has no known destination")
-			}
-			previous := instructions[len(instructions)-1]
-			target, ok := ripTailAddress(code, source, previous)
-			if !ok || target >= source && target < source+uint64(len(code)) || !selected[target] {
+			targets, start := indirectTailTargets(code, source, instructions)
+			if len(targets) == 0 {
 				return fail("indirect tail jump requires an exact selected destination")
 			}
-			d.kind, d.length, d.absolute, d.requiresPrevious = 5, 5, target, true
-			tailTargets = append(tailTargets, target)
+			for _, target := range targets {
+				if target >= source && target < source+uint64(len(code)) || !selected[target] {
+					return fail("indirect tail jump requires an exact selected destination")
+				}
+			}
+			for i := start + 1; i < len(instructions); i++ {
+				instructions[i].requiresPrevious = true
+			}
+			d.kind, d.requiresPrevious = 6, true
+			if len(targets) == 1 {
+				d.kind, d.length, d.absolute = 5, 5, targets[0]
+			}
+			tailTargets = append(tailTargets, targets...)
 		case inst.Len == 2 && code[offset] >= 0x70 && code[offset] <= 0x7f:
 			d.kind = 3
 			d.condition = code[offset] & 15
@@ -162,7 +167,7 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 		return fail("missing final RET")
 	}
 	last := instructions[len(instructions)-1].kind
-	if last != 1 && last != 5 && !(framed && last == 2) {
+	if last != 1 && last != 5 && last != 6 && !(framed && last == 2) {
 		return fail("body falls through its declared extent")
 	}
 	for _, d := range instructions {
@@ -284,10 +289,37 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 	return out, nil
 }
 
-func ripTailAddress(code []byte, source uint64, previous leafInstruction) (uint64, bool) {
+// A contiguous LEA or LEA/LEA/CMOV sequence proves all values that can reach
+// JMP R11. Callers must reject branches entering the middle of that sequence.
+func indirectTailTargets(code []byte, source uint64, instructions []leafInstruction) ([]uint64, int) {
+	last := len(instructions) - 1
+	if last < 0 {
+		return nil, 0
+	}
+	previous := instructions[last]
+	if target, ok := ripTailAddress(code, source, previous, x86asm.R11); ok {
+		return []uint64{target}, last
+	}
+	if last < 2 || previous.inst.Len != 4 {
+		return nil, 0
+	}
+	cmov := code[previous.offset:][:4]
+	if cmov[0] != 0x4d || cmov[1] != 0x0f || cmov[2]&0xf0 != 0x40 || cmov[3] != 0xda ||
+		previous.inst.Args[0] != x86asm.R11 || previous.inst.Args[1] != x86asm.R10 {
+		return nil, 0
+	}
+	first, firstOK := ripTailAddress(code, source, instructions[last-2], x86asm.R11)
+	second, secondOK := ripTailAddress(code, source, instructions[last-1], x86asm.R10)
+	if !firstOK || !secondOK {
+		return nil, 0
+	}
+	return []uint64{first, second}, last - 2
+}
+
+func ripTailAddress(code []byte, source uint64, previous leafInstruction, register x86asm.Reg) (uint64, bool) {
 	inst := previous.inst
 	mem, ok := inst.Args[1].(x86asm.Mem)
-	if inst.Op != x86asm.LEA || inst.Args[0] != x86asm.R11 || !ok || mem.Base != x86asm.RIP ||
+	if inst.Op != x86asm.LEA || inst.Args[0] != register || !ok || mem.Base != x86asm.RIP ||
 		mem.Index != 0 || mem.Segment != 0 || inst.PCRel != 4 || inst.PCRelOff < 0 || inst.PCRelOff+4 > inst.Len {
 		return 0, false
 	}

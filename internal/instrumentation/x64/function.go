@@ -41,9 +41,9 @@ func (p *PEImage) BuildFunction(rva, size uint32, loadedBase, base, enter, exit,
 	return p.buildSelectedFunction(rva, size, loadedBase, base, enter, exit, unwind, id, nil)
 }
 
-// BuildSelectedFunction additionally permits direct tail jumps with verified stack restoration to
-// exact entries in this selection. The owner must install every selected target
-// and use an adapter with shared-physical-frame completion semantics.
+// BuildSelectedFunction permits verified direct and indirect tail jumps to exact
+// entries in this selection. The owner must install every selected target and
+// use an adapter with shared-physical-frame completion semantics.
 func (p *PEImage) BuildSelectedFunction(rva, size uint32, loadedBase, base, enter, exit, unwind uint64, id uint32, selected []uint32) (FunctionPlan, error) {
 	targets := make(map[uint64]bool, len(selected))
 	for _, target := range selected {

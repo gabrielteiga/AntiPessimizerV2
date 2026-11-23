@@ -18,6 +18,9 @@ func TestNativeProducerVerifiedStackAndBiasedFrameTailCalls(t *testing.T) {
 func TestNativeProducerVerifiedIndirectTailPreservesArgumentsAndUnwind(t *testing.T) {
 	testTailCalls(t, "APTailIndirectStart", false)
 }
+func TestNativeProducerConditionalIndirectTailMeasuresBothDestinations(t *testing.T) {
+	testTailCalls(t, "APTailConditionalStart", false)
+}
 func testTailCalls(t *testing.T, start string, framed bool) {
 	t.Helper()
 	names := map[string]uint32{start: 1, "APTailMiddle": 2, "APTailWork": 3, "APTailRecursive": 4, "APTailRecursiveStep": 5, "APTailCatch": 6}
@@ -25,10 +28,16 @@ func testTailCalls(t *testing.T, start string, framed bool) {
 		names["APTailFramedStack"] = 7
 		names["APTailFramedRBP"] = 8
 	}
+	conditional := start == "APTailConditionalStart"
+	if conditional {
+		names["APTailAlternative"] = 9
+	}
 	o := selectedFixture(t, "APTailTarget.exe", names)
 	o.Args = []string{"--threads", "3", "--iterations", "10"}
 	if start == "APTailIndirectStart" {
 		o.Args = append(o.Args, "--indirect", "1")
+	} else if conditional {
+		o.Args = append(o.Args, "--indirect", "2")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -63,10 +72,13 @@ func testTailCalls(t *testing.T, start string, framed bool) {
 			counts[7] = 11
 			counts[8] = 11
 		}
+		if conditional {
+			counts[2], counts[9] = 6, 5
+		}
 		for id, want := range counts {
 			row := r[id]
 			unwound := uint64(0)
-			if id <= 3 || id >= 7 {
+			if id <= 3 || id == 7 || id == 8 {
 				unwound = 1
 			}
 			if row.Calls != want || row.UnwoundCalls != unwound {
@@ -76,7 +88,9 @@ func testTailCalls(t *testing.T, start string, framed bool) {
 				t.Fatal("wrong tail mean", row)
 			}
 		}
-		if r[1].InclusiveTicks != r[1].ExclusiveTicks+r[2].InclusiveTicks || r[2].InclusiveTicks != r[2].ExclusiveTicks+r[3].InclusiveTicks || r[3].InclusiveTicks != r[3].ExclusiveTicks {
+		if r[1].InclusiveTicks != r[1].ExclusiveTicks+r[2].InclusiveTicks+r[9].InclusiveTicks ||
+			r[2].InclusiveTicks+r[9].InclusiveTicks != r[2].ExclusiveTicks+r[9].ExclusiveTicks+r[3].InclusiveTicks ||
+			r[3].InclusiveTicks != r[3].ExclusiveTicks {
 			t.Fatal("tail child times do not balance", r)
 		}
 		if framed && (r[7].InclusiveTicks != r[7].ExclusiveTicks+r[8].InclusiveTicks || r[8].InclusiveTicks != r[8].ExclusiveTicks+r[1].InclusiveTicks) {

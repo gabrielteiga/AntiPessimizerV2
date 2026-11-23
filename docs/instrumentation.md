@@ -816,9 +816,10 @@ memória, handles, QPC e bytes emitidos contra baseline do mesmo EXE.
 ## Tail calls diretas entre métodos selecionados
 
 BuildSelectedFunction permite JMP direto, curto ou rel32, para o início exato
-de outro procedimento da seleção completa. O chamador precisa ter unwind vazio,
-sem prólogo, frame ou handler. Transferências condicionais externas, indiretas,
-com frame/handler ou para destinos não selecionados/interiores continuam recusadas.
+de outro procedimento da seleção completa. O chamador pode ter unwind vazio
+ou restaurar o frame com um dos epílogos conferidos adiante. Transferências
+condicionais externas, com handler ou para destinos no interior de outro
+método ou fora da seleção continuam recusadas.
 BuildFunction sem seleção e o caminho legado conservam a rejeição anterior.
 A pré-validação usa somente os RVAs da seleção consultada; um método isolado
 pode aparecer recusado até que seu destino seja incluído na mesma seleção.
@@ -877,7 +878,7 @@ A captura exige duas chamadas e um unwind por thread, zero perdas e zero
 frames abertos. Chains com ações locais, handlers, versões alternativas
 ou extensões descontínuas continuam fora do subconjunto conferido.
 
-## Tail calls indiretas com destino estático
+## Tail calls indiretas com destinos comprovados
 
 Em métodos sem frame ou handler, o planejador aceita `JMP R11` quando a
 instrução imediatamente anterior é `LEA R11, [RIP+disp32]` e o endereço
@@ -886,7 +887,12 @@ LEA são rejeitados. A cópia conserva o valor de R11 e emite salto direto ao
 mesmo endereço. O slot de retorno original e a contabilidade da cadeia
 seguem as mesmas regras das tail calls diretas.
 
+O planejador também aceita `LEA R11`, `LEA R10`, `CMOVcc R11, R10`, `JMP R11`
+quando os dois endereços RIP-relative apontam para entradas exatas selecionadas.
+A cópia conserva o CMOV e o JMP indireto, com a mesma decisão pelas flags em
+tempo de execução. Desvios para o meio da sequência são recusados. Outros
+saltos indiretos ou chamadores com frame ou handler ficam fora desse suporte.
+
 O teste Windows executa o EXE baseline e a captura instrumentada em três
-threads, com seis argumentos, onze chamadas externas por worker e uma
-saída excepcional por cadeia. Saltos indiretos com destino dinâmico, frames
-ou handlers continuam fora desse subconjunto.
+threads, com seis argumentos, onze chamadas externas por worker e uma saída
+excepcional. Confere as chamadas por destino e a conservação do tempo inclusivo.
