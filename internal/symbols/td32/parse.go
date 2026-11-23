@@ -1,4 +1,4 @@
-// Package td32 reads the procedure subset of Borland FB09/FB0A debug data.
+// Package td32 reads procedures and source locations from Borland FB09/FB0A.
 // Format reference: AntiPessimizer ab67a710, vendored JclTD32.pas.
 // This implementation uses checked slices rather than mapped Pascal records.
 package td32
@@ -45,6 +45,10 @@ func region(b []byte, off, size uint64) ([]byte, error) {
 // Unknown subsections and record kinds are skipped after validating framing.
 // Errors return no partial symbol table. Input is limited to 256 MiB.
 func Parse(data []byte) ([]Procedure, error) {
+	return parse(data, nil)
+}
+
+func parse(data []byte, source *SourceIndex) ([]Procedure, error) {
 	if len(data) > 256<<20 {
 		return nil, fmt.Errorf("%w: input exceeds 256 MiB", ErrInvalid)
 	}
@@ -176,6 +180,13 @@ func Parse(data []byte) ([]Procedure, error) {
 				result = append(result, p)
 			}
 		}
+	}
+	if source != nil {
+		lines, err := parseSourceLines(entries, names)
+		if err != nil {
+			return nil, fmt.Errorf("%w: sstSrcModule", err)
+		}
+		*source = lines
 	}
 	return result, nil
 }

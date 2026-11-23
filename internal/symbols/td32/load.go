@@ -30,16 +30,28 @@ func Load(path string) (procedures []Procedure, source string, err error) {
 // LoadPE searches the supplied immutable PE bytes, then the specified sidecar.
 // imageSource labels embedded results; sidecar is read only if needed.
 func LoadPE(image []byte, sidecar, imageSource string) ([]Procedure, string, error) {
+	return loadPE(image, sidecar, imageSource, nil)
+}
+
+// LoadPEWithSource opts into source-line validation for the same debug payload
+// that supplies the procedures.
+func LoadPEWithSource(image []byte, sidecar, imageSource string) ([]Procedure, SourceIndex, string, error) {
+	var source SourceIndex
+	procedures, path, err := loadPE(image, sidecar, imageSource, &source)
+	return procedures, source, path, err
+}
+
+func loadPE(image []byte, sidecar, imageSource string, source *SourceIndex) ([]Procedure, string, error) {
 	if len(image) > 256<<20 {
 		return nil, "", ErrInvalid
 	}
-	ps, embeddedErr := embedded(image)
+	ps, embeddedErr := embedded(image, source)
 	if embeddedErr == nil {
 		return ps, imageSource, nil
 	}
 	data, err := readBounded(sidecar)
 	if err == nil {
-		ps, err = Parse(data)
+		ps, err = parse(data, source)
 		return ps, sidecar, err
 	}
 	if !errors.Is(err, os.ErrNotExist) {
@@ -64,7 +76,7 @@ func readBounded(path string) ([]byte, error) {
 	return b, nil
 }
 
-func embedded(image []byte) ([]Procedure, error) {
+func embedded(image []byte, source *SourceIndex) ([]Procedure, error) {
 	f, err := pe.NewFile(bytes.NewReader(image))
 	if err != nil {
 		return nil, fmt.Errorf("read PE: %w", err)
@@ -115,7 +127,7 @@ func embedded(image []byte) ([]Procedure, error) {
 		payload, err := region(image, uint64(u32(e[24:])), uint64(u32(e[16:])))
 		if err == nil {
 			var ps []Procedure
-			ps, err = Parse(payload)
+			ps, err = parse(payload, source)
 			if err == nil {
 				return ps, nil
 			}

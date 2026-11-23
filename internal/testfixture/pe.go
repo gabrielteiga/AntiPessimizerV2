@@ -92,6 +92,52 @@ func TDS() []byte {
 	return b
 }
 
+// TDSWithSource adds a single file and two lines in a chained TD32 directory.
+func TDSWithSource() []byte {
+	b := TDS()[:109]
+	put16 := func(at int, n uint16) { binary.LittleEndian.PutUint16(b[at:], n) }
+	put32 := func(at int, n uint32) { binary.LittleEndian.PutUint32(b[at:], n) }
+	const name = `C:\lab\Workload.pas`
+	b = append(b, byte(len(name)))
+	b = append(b, name...)
+	b = append(b, 0)
+	put32(96, 2)
+	put32(44, uint32(len(b)-96))
+
+	start := len(b)
+	b = append(b, make([]byte, 56)...)
+	put16(start, 1) // one file
+	put16(start+2, 1)
+	put32(start+4, 20)
+	put32(start+8, 32)
+	put32(start+12, 48)
+	put16(start+16, 1)
+	put16(start+20, 1) // source file with one segment
+	put32(start+22, 2)
+	put32(start+26, 40)
+	put32(start+30, 32)
+	put32(start+34, 48)
+	put16(start+40, 1) // segment and line pairs, offset array before line array
+	put16(start+42, 2)
+	put32(start+44, 32)
+	put32(start+48, 40)
+	put16(start+52, 101)
+	put16(start+54, 109)
+
+	directory := len(b)
+	b = append(b, make([]byte, 28)...)
+	put32(16, uint32(directory))
+	put16(directory, 16)
+	put16(directory+2, 12)
+	put32(directory+4, 1)
+	put16(directory+16, 0x127)
+	put32(directory+20, uint32(start))
+	put32(directory+24, 56)
+	b = append(b, 'F', 'B', '0', '9', 0, 0, 0, 0)
+	put32(len(b)-4, uint32(len(b)))
+	return b
+}
+
 // TDSWithAlias adds another name for Lab.Hot's exact code interval. The second
 // procedure record is kept in file order to exercise JCL's first-match policy.
 func TDSWithAlias(name string) []byte {

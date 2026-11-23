@@ -196,10 +196,12 @@ chamados. Arquivos v1 continuam abrindo, mas precisam de nova captura para compa
 
 ```bat
 td32dump.exe caminho\ProfilerLab.exe
-symresolve.exe --image caminho\ProfilerLab.exe --base 0x140000000 0x140005020
+symresolve.exe --image caminho\ProfilerLab.exe --base 0x140000000 --source 0x140005020
 ```
 
-O parser cobre sstModule e procedimentos LPROC32/GPROC32. Nomes `_ZN` suportados
+Com `--source`, o symresolve mostra arquivo e linha para cada endereço com
+informação TD32 correspondente. O parser cobre sstModule e procedimentos
+LPROC32/GPROC32. Nomes `_ZN` suportados
 são apresentados como nomes Delphi legíveis; o dump preserva nomes originais.
 A conversão automática cobre segmento TD32 1 em uma única seção executável,
 derivando RVA de BaseOfCode. Outros layouts mantêm módulo/endereço desconhecido
