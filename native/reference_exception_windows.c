@@ -20,7 +20,17 @@ static DWORD measurement_thread;
 static volatile LONG typed_exceptions;
 static HANDLE reference_server;
 static HANDLE *reference_client;
+static uintptr_t reference_image;
+static uint32_t reference_pair;
+static BOOL reference_malformed;
 static LONG CALLBACK reference_typed_exception(EXCEPTION_POINTERS *p){
+ if(p->ExceptionRecord->ExceptionCode==EXCEPTION_ACCESS_VIOLATION){
+  const EXCEPTION_RECORD *r=p->ExceptionRecord;
+  uintptr_t address=r->NumberParameters>=2?(uintptr_t)r->ExceptionInformation[1]:0;
+  fprintf(stderr,"typed reference access violation: pair=%u malformed=%d tid=%lu rip=%llx address=%llx image=%llx target=%llx rsp=%llx rbp=%llx\n",
+      reference_pair,reference_malformed,GetCurrentThreadId(),(unsigned long long)p->ContextRecord->Rip,(unsigned long long)address,
+      (unsigned long long)reference_image,(unsigned long long)reference_target,(unsigned long long)p->ContextRecord->Rsp,(unsigned long long)p->ContextRecord->Rbp);
+ }
  if(GetCurrentThreadId()!=measurement_thread || p->ExceptionRecord->ExceptionCode!=0x0eedfadeu)return EXCEPTION_CONTINUE_SEARCH;
  if(p->ExceptionRecord->NumberParameters!=7 || !p->ExceptionRecord->ExceptionInformation[1]){InterlockedExchange(&bad,1);return EXCEPTION_CONTINUE_SEARCH;}
  const uintptr_t *object=(const uintptr_t *)p->ExceptionRecord->ExceptionInformation[1];
@@ -71,6 +81,7 @@ static DWORD WINAPI send_worker_command(void *arg){
  CloseHandle(write.hEvent);return ok && transferred==sizeof(packet)?0:1;
 }
 static BOOL worker_call(BOOL malformed){
+ reference_malformed=malformed;
  if(!DisconnectNamedPipe(reference_server) && GetLastError()!=ERROR_PIPE_NOT_CONNECTED)return FALSE;
  WorkerRequest request={0};request.command=malformed?2:0;
  request.connect.hEvent=CreateEventW(NULL,TRUE,FALSE,NULL);if(!request.connect.hEvent)return FALSE;
@@ -89,7 +100,7 @@ static BOOL worker_call(BOOL malformed){
 }
 static BOOL pairs(uint32_t count){
  for(uint32_t i=0;i<count;i++){
-  if(worker_mode){if(!worker_call(FALSE)||!worker_call(TRUE))return FALSE;continue;}
+  if(worker_mode){reference_pair=i+1;if(!worker_call(FALSE)||!worker_call(TRUE))return FALSE;continue;}
   _Alignas(16) unsigned char object[128]={0};
   if(APReferenceCall(object)!=(uintptr_t)object || object[8]!=1 || *(uintptr_t *)(object+16))return FALSE;
   LONG before=caught;
@@ -144,6 +155,7 @@ int wmain(int argc,wchar_t **argv){
   reference_client=(HANDLE *)(image+source_rva+0x60+displacement);
   if(*reference_client==INVALID_HANDLE_VALUE || !CloseHandle(*reference_client))return 19;
   *reference_client=INVALID_HANDLE_VALUE;reference_server=pipe;
+  reference_image=(uintptr_t)image;
   measurement_thread=GetCurrentThreadId();
   if(!AddVectoredExceptionHandler(1,reference_typed_exception))return 19;
  }
