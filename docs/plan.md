@@ -27,7 +27,7 @@ este documento organiza as entregas e os critérios que ainda faltam.
 | Controle/status SSE | MXCSR salvo/restaurado ao redor dos helpers; LDMXCSR/STMXCSR com validação normal de memória | Helper nativo clobbera status; setter/getter em três threads preservam todos os modos de arredondamento e 44 chamadas por método/thread |
 | Tail calls selecionadas | Em métodos sem handler, salto direto ou via R11 para endereço comprovado, incluindo epílogos conferidos. Escolha entre dois alvos por CMOV em métodos sem frame. Retorno original preservado | Alvo Windows exige seis argumentos, recursão mútua, contagens por destino, fechamento normal/excepcional e conservação de QPC |
 | Métodos até 8 KiB | Strides limitados de 32 KiB no APHOOK8; versões antigas recusam planos maiores | Programa Windows de quase 8 KiB com retornos/calls/unwind e instalação conjunta de 64 strides |
-| Métodos pequenos | E9 rel32 de cinco bytes quando próximo; fallback absoluto e rejeição sem invadir o vizinho | PR #23: método Windows de seis bytes com onze chamadas por thread e testes dos limites signed rel32 |
+| Métodos pequenos | E9 rel32 de cinco bytes quando próximo. Funções folha de 1 a 4 bytes usam um único breakpoint no lançamento próprio | Alvos Windows conferem seleção, função vizinha, breakpoint da aplicação e chamadas por thread |
 | Threads nativas de longa duração | Fim real por EXIT_THREAD, proteção contra TID reutilizado e pool de 64 rings reutilizáveis | 300 instâncias Windows com contagens/tempos/SEH preservados, sem crescimento do pool |
 | Despertar da drenagem | Sinal coalescido por publicação no cooperativo; rescan antes de aguardar, mantendo polling no lançamento próprio | Cada chamada da fixture chega ao núcleo com a captura aberta, sem depender do drain final; startup/retirada repetidos no Windows |
 | Comparação instrumentada | Seleção completa no contrato v2, compatibilidade de binário/método/relógio, totais por procedimento e médias ponderadas entre snapshots | Testes de épocas/threads/overflow, GUI e executáveis diretos versus serviço |
@@ -53,8 +53,7 @@ sem converter esse valor em chamadas ou duração por chamada.
    outras versões de unwind, epílogos e instruções ainda recusados. Saltos diretos
    e saltos por R11 para destinos estáticos já aceitam epílogos ADD/LEA e POPs
    conferidos. Sem frame, dois LEAs e CMOV permitem escolher entre entradas
-   selecionadas. Outros destinos dinâmicos, funções menores que
-   cinco bytes e formatos TD32 adicionais continuam pendentes.
+   selecionadas. Outros destinos dinâmicos e formatos TD32 adicionais continuam pendentes.
 3. **Compatibilidade Delphi demonstrada.** As fixtures de integração atuais são
    C/GCC para o fluxo completo. Um ensaio separado compara treze rotinas conferidas
    da DLL Delphi original com seus corpos relocados; não inclui TDS. Um ensaio separado exige captura/retomada/reraise com o handler real da mesma DLL, inicializando seu RTL num filho próprio; ele cobre um construtor e a worker real com catch tipado Exception, sem certificar uma versão inteira do compilador.

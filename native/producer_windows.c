@@ -528,16 +528,16 @@ static BOOL init_producer(const wchar_t *name, const APProcedure *procedures, ui
 AP_API BOOL APNativeInit(const wchar_t *name,const APProcedure *procedures,uint32_t count,uint32_t capacity) {
     return init_producer(name,procedures,count,capacity,FALSE);
 }
-static BOOL init_selected_hooks(const wchar_t *name,const APHookProcedure *procedures,uint32_t count,uint32_t capacity,BOOL mode) {
-    if(state.rings || !hook_select(procedures,count)) return FALSE;
+static BOOL init_selected_hooks(const wchar_t *name,const APHookProcedure *procedures,uint32_t count,uint32_t capacity,BOOL mode,BOOL allow_tiny) {
+    if(state.rings || !hook_select(procedures,count,allow_tiny)) return FALSE;
     APProcedure selected[AP_HOOK_LIMIT];
     for(uint32_t i=0;i<count;i++) selected[i]=(APProcedure){procedures[i].id,procedures[i].rva};
     BOOL ok=init_producer(name,selected,count,capacity,mode);
     if(!ok && !state.rings) hook_retire();
     return ok;
 }
-AP_API BOOL APNativeInitHooks(const wchar_t *name,const APHookProcedure *procedures,uint32_t count,uint32_t capacity){return init_selected_hooks(name,procedures,count,capacity,1);}
-AP_API BOOL APNativeInitFunctions(const wchar_t *name,const APHookProcedure *procedures,uint32_t count,uint32_t capacity){return init_selected_hooks(name,procedures,count,capacity,2);}
+AP_API BOOL APNativeInitHooks(const wchar_t *name,const APHookProcedure *procedures,uint32_t count,uint32_t capacity){return init_selected_hooks(name,procedures,count,capacity,1,FALSE);}
+AP_API BOOL APNativeInitFunctions(const wchar_t *name,const APHookProcedure *procedures,uint32_t count,uint32_t capacity){return init_selected_hooks(name,procedures,count,capacity,2,FALSE);}
 AP_API BOOL APNativeShutdown(DWORD timeout_ms) {
     if (!state.rings || !state.worker) return FALSE;
     InterlockedExchange(&state.running, 0); InterlockedExchange(&state.stopping, 1);

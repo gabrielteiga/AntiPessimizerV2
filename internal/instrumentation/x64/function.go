@@ -89,6 +89,13 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 	}
 	framed := originalInfo[2] != 0
 	entry := entryJump(source, base)
+	tiny := size < NearJumpSize
+	if tiny {
+		if !selected[source] || framed || originalInfo[1] != 0 || metadata.handlerRVA != 0 || len(metadata.chainBoundaries) != 0 {
+			return fail("breakpoint entry requires a selected leaf without unwind actions or handler")
+		}
+		entry = []byte{0xcc}
+	}
 	if metadata.handlerRVA != 0 {
 		selected = nil
 	}
@@ -212,6 +219,11 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 			binary.LittleEndian.PutUint16(descriptor[mapAt+i*4:], mapping.original)
 			binary.LittleEndian.PutUint16(descriptor[mapAt+2+i*4:], mapping.relocated)
 		}
+	}
+	if tiny {
+		// The debugger delivers the breakpoint before decoding the original
+		// first instruction. No other source bytes need to be overwritten.
+		flow.overwrite = 1
 	}
 	patch := append(entry, make([]byte, flow.overwrite-len(entry))...)
 	for i := len(entry); i < len(patch); i++ {

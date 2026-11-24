@@ -82,7 +82,7 @@ AP_API DWORD WINAPI APNativeBootstrap(void *request) {
     wchar_t *pipe=(wchar_t *)(data+32+count*12);
     if(pipe[chars-1] || wcslen(pipe)!=chars-1) return ERROR_INVALID_DATA;
     bootstrap_mode=TRUE;
-    if(!APNativeInitFunctions(pipe,selected,count,capacity)) return ERROR_INVALID_DATA;
+    if(!init_selected_hooks(pipe,selected,count,capacity,2,TRUE)) return ERROR_INVALID_DATA;
     if(!bootstrap_hook_exit()) return ERROR_NOT_SUPPORTED;
     return ERROR_SUCCESS;
 }

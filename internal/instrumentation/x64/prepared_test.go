@@ -107,7 +107,7 @@ func TestPreparedLookupMatchesIndependentIntervalScan(t *testing.T) {
 	}
 	for rva := uint32(0xff0); rva < 0x5010; rva += 7 {
 		for _, size := range []uint32{0, 4, 5, 6, 7, 16, 4096, 4097, 8192, 8193} {
-			valid := size >= 5 && size <= MaxFunctionBytes && rva >= 0x1000 && uint64(rva)+uint64(size) <= 0x5000
+			valid := size > 0 && size <= MaxFunctionBytes && rva >= 0x1000 && uint64(rva)+uint64(size) <= 0x5000
 			if valid {
 				for i := uint32(0); i < 2048; i++ {
 					begin, end := 0x1000+i*6, 0x1000+i*6+6
