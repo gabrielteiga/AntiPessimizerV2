@@ -196,3 +196,31 @@ func TestInlineDelphiStackProbeKeepsShortBranchAndUnwind(t *testing.T) {
 		t.Fatal("inconsistent probe limit accepted", err)
 	}
 }
+
+func TestDelphiCPUIDLeafSynthesizesRBXUnwindWithoutChangingSourceExtent(t *testing.T) {
+	code := bytes.Clone(delphiCPUIDLeaf)
+	build := func(code []byte, clone uint64) (FunctionPlan, error) {
+		return BuildPEFunction(scalarImage(code), peLeafRVA, uint32(len(code)), 0x100000, clone, 0x300000, 0x400000, 0x500000, 1)
+	}
+	for _, placement := range []struct {
+		base  uint64
+		patch int
+	}{{0x180000, 6}, {0x100000000, 16}} {
+		p, err := build(code, placement.base)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(p.Source, code) || len(p.Patch) != placement.patch || !bytes.Equal(p.Original, code[:placement.patch]) {
+			t.Fatal("synthetic push changed the source extent", len(p.Patch), p.Original)
+		}
+		info := p.Functions[1].Unwind
+		if !bytes.Equal(p.Image[info:info+8], []byte{17, 1, 1, 0, 1, 0x30, 0, 0}) ||
+			p.Image[p.BodyRVA] != 0x53 || !bytes.Equal(p.Image[p.BodyRVA+1:p.BodyRVA+29], code[:28]) || p.Image[p.BodyRVA+29] != 0x5b {
+			t.Fatal("native CPUID body lost its Windows RBX save/restore")
+		}
+	}
+	code[19]++
+	if _, err := build(code, 0x180000); !errors.Is(err, ErrUnsupported) {
+		t.Fatal("unreviewed CPUID leaf shape accepted", err)
+	}
+}

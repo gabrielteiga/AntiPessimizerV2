@@ -686,8 +686,8 @@ de saturação exige contador positivo junto de ErrLoss e incomplete=true.
 
 ## Corpus de execução da DLL Delphi original
 
-O CI Windows inclui um ensaio separado de quinze rotinas com bytes conferidos na
-DLL v0.3 do Hoshoyo, comparando 1.500 pares original/corpo relocado com resultados
+O CI Windows inclui um ensaio separado de dezesseis rotinas com bytes conferidos na
+DLL v0.3 do Hoshoyo, comparando 1.600 pares original/corpo relocado com resultados
 esperados e um helper nativo que altera GPR voláteis. Inclui push/pop com CMPXCHG16B
 sobre buffers privados e cem leituras RDTSC relocalizadas, cada uma entre leituras
 do corpo original na mesma CPU lógica. A leitura de StackBase via GS é comparada
@@ -700,8 +700,11 @@ Isso não certifica Delphi 10.4, handlers privados ou o fluxo completo num EXE D
 O planejador nativo aceita `CPUID` sem prefixo depois de um prólogo que começa
 com `PUSH RBX` e registra esse salvamento no unwind. O ensaio Windows confere
 os quatro resultados e a recuperação de RBX após uma falha de memória.
-A rotina CPUID da DLL original fica fora desse subconjunto porque seu unwind
-não descreve o salvamento de RBX.
+A forma exata do RTL no RVA 0xb5e0 guarda RBX em R10 e grava os resultados
+em memória antes de restaurá-lo. O clone usa PUSH/POP RBX e unwind v1.
+O ensaio força uma falha de gravação no clone e confere RBX no handler chamador.
+O outro corpo conhecido no RVA 0x60210 continua recusado porque seu PUSH RBX
+fica sem metadados de unwind.
 
 ## Planejamento de várias funções na mesma imagem
 

@@ -55,7 +55,7 @@ sem converter esse valor em chamadas ou duração por chamada.
    conferidos. Sem frame, dois LEAs e CMOV permitem escolher entre entradas
    selecionadas. Outros destinos dinâmicos e formatos TD32 adicionais continuam pendentes.
 3. **Compatibilidade Delphi demonstrada.** As fixtures de integração atuais são
-   C/GCC para o fluxo completo. Um ensaio separado compara quinze rotinas conferidas
+   C/GCC para o fluxo completo. Um ensaio separado compara dezesseis rotinas conferidas
    da DLL Delphi original com seus corpos relocados; não inclui TDS. Um ensaio separado exige captura/retomada/reraise com o handler real da mesma DLL, inicializando seu RTL num filho próprio; ele cobre um construtor e a worker real com catch tipado Exception, sem certificar uma versão inteira do compilador.
    Exigir evidência reproduzível
    para prólogos, métodos, exceções e bibliotecas efetivamente suportados. A fixture
