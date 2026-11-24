@@ -376,3 +376,8 @@ aceitos de 8.777. A execução cobre os corpos selecionados para o ensaio.
 O prólogo de RVA 0x89b0 usa o mesmo loop de sondagem por página. Com o
 salto curto preservado, o corpus estático passa a aceitar 8.648 entradas.
 O teste de execução usa um alvo C/assembly com o mesmo padrão de prólogo.
+
+Os RVAs 0x3f300 e 0x1729b0 calculam o próprio endereço de entrada com LEA.
+A realocação mantém o endereço original. O ensaio de 0x1729b0 verifica os
+dois limites de um intervalo de código, com cem comparações entre o corpo
+original e o realocado. A cobertura estática chega a 8.650 de 8.777 entradas.

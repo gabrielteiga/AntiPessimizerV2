@@ -113,3 +113,29 @@ func TestNativeThreadStackBaseReadKeepsExactEncoding(t *testing.T) {
 		}
 	}
 }
+
+func TestNativeSelfEntryLEARetainsOriginalAddress(t *testing.T) {
+	const base, clone = uint64(0x100000), uint64(0x180000)
+	code := []byte{0x48, 0x8d, 0x05, 0xf9, 0xff, 0xff, 0xff, 0xc3} // LEA RAX,[RIP-7]; RET
+	build := func(code []byte) (FunctionPlan, error) {
+		return BuildPEFunction(scalarImage(code), peLeafRVA, uint32(len(code)), base, clone, 0x300000, 0x400000, 0x500000, 1)
+	}
+	p, err := build(code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	disp := int32(binary.LittleEndian.Uint32(p.Image[p.BodyRVA+3:]))
+	if int64(clone)+int64(p.BodyRVA)+7+int64(disp) != int64(base+uint64(peLeafRVA)) {
+		t.Fatal("LEA returned the clone address")
+	}
+	for _, change := range []struct {
+		i int
+		b byte
+	}{{1, 0x8b}, {3, 0xfa}} {
+		changed := bytes.Clone(code)
+		changed[change.i] = change.b
+		if _, err := build(changed); err == nil {
+			t.Fatal("read of patched entry or address of original interior was accepted", changed)
+		}
+	}
+}

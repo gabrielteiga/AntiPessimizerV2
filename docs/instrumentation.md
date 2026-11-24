@@ -686,8 +686,8 @@ de saturação exige contador positivo junto de ErrLoss e incomplete=true.
 
 ## Corpus de execução da DLL Delphi original
 
-O CI Windows inclui um ensaio separado de quatorze rotinas com bytes conferidos na
-DLL v0.3 do Hoshoyo, comparando 1.400 pares original/corpo relocado com resultados
+O CI Windows inclui um ensaio separado de quinze rotinas com bytes conferidos na
+DLL v0.3 do Hoshoyo, comparando 1.500 pares original/corpo relocado com resultados
 esperados e um helper nativo que altera GPR voláteis. Inclui push/pop com CMPXCHG16B
 sobre buffers privados e cem leituras RDTSC relocalizadas, cada uma entre leituras
 do corpo original na mesma CPU lógica. A leitura de StackBase via GS é comparada
