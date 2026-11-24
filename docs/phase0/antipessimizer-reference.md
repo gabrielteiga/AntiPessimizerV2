@@ -372,3 +372,7 @@ A rotina de RVA 0x177c60 lê StackBase em GS:[8]. O corpus executa 100
 comparações desse corpo original e relocado com GetCurrentThreadStackLimits
 na mesma thread. O total passa a 14 rotinas, 1.400 pares e 8.647 planos estáticos
 aceitos de 8.777. A execução cobre os corpos selecionados para o ensaio.
+
+O prólogo de RVA 0x89b0 usa o mesmo loop de sondagem por página. Com o
+salto curto preservado, o corpus estático passa a aceitar 8.648 entradas.
+O teste de execução usa um alvo C/assembly com o mesmo padrão de prólogo.

@@ -1,6 +1,7 @@
 package x64
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 
@@ -52,6 +53,7 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 	offsets := map[int]int{}
 	total, overwrite := 0, 0
 	var tailTargets []uint64
+	stackProbe := -1
 	for offset := 0; offset < len(code); {
 		inst, err := x86asm.Decode(code[offset:], 64)
 		if err != nil || inst.Op == 0 || inst.Len == 0 || inst.Len > len(code)-offset {
@@ -115,6 +117,10 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 			d.kind = 3
 			d.condition = code[offset] & 15
 			d.length = 6
+			if nativeFunction && prologue >= 9 && offset <= prologue-9 && verifiedInlineStackProbe(code, offset) {
+				stackProbe = offset
+				d.length = 2 // unwind offsets inside the prologue must remain exact
+			}
 		case inst.Len == 6 && code[offset] == 0x0f && code[offset+1] >= 0x80 && code[offset+1] <= 0x8f:
 			d.kind = 3
 			d.condition = code[offset+1] & 15
@@ -193,6 +199,9 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 	}
 	for _, d := range instructions {
 		if d.kind == 2 || d.kind == 3 {
+			if stackProbe >= 0 && d.offset != stackProbe && (d.offset < prologue || d.target < prologue) {
+				return fail("additional control flow around the inline stack probe")
+			}
 			i, ok := offsets[d.target]
 			if !ok {
 				return fail("branch targets the middle of an instruction")
@@ -212,6 +221,13 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 		if d.kind == 2 || d.kind == 3 {
 			target := instructions[offsets[d.target]].relocated
 			delta := int32(target - (d.relocated + d.length))
+			if d.kind == 3 && d.length == 2 {
+				if delta < -128 || delta > 127 {
+					return fail("inline stack probe branch is out of range")
+				}
+				dst[0], dst[1] = 0x70|d.condition, byte(delta)
+				continue
+			}
 			at := 1
 			if d.kind == 2 {
 				dst[0] = 0xe9
@@ -340,6 +356,25 @@ func indirectTailTargets(code []byte, source uint64, instructions []leafInstruct
 		return nil, 0
 	}
 	return []uint64{first, second}, last - 2
+}
+
+// Delphi touches each stack page before the unwind-described SUB RSP. Keep
+// its backward JA short only when the exact loop and allocation agree.
+func verifiedInlineStackProbe(code []byte, at int) bool {
+	if at < 20 || at+9 > len(code) {
+		return false
+	}
+	probe := code[at-20 : at+9]
+	if probe[0] != 0xb8 ||
+		!bytes.Equal(probe[5:16], []byte{0x48, 0x2d, 0, 0x10, 0, 0, 0x88, 0x04, 0x04, 0x48, 0x3d}) ||
+		!bytes.Equal(probe[20:25], []byte{0x77, 0xef, 0x48, 0x81, 0xec}) {
+		return false
+	}
+	initial := int64(binary.LittleEndian.Uint32(probe[1:5]))
+	limit := int64(int32(binary.LittleEndian.Uint32(probe[16:20])))
+	allocation := int64(binary.LittleEndian.Uint32(probe[25:29]))
+	return initial > 0 && initial < 4096 && limit < -4096 &&
+		-limit == allocation && (initial-limit)%4096 == 0
 }
 
 func ripTailAddress(code []byte, source uint64, previous leafInstruction, register x86asm.Reg) (uint64, bool) {
