@@ -129,7 +129,7 @@ type window struct {
 	inspect                                                                                                                   func(*window) error // smoke-test observation on the UI thread before destruction
 	inspection                                                                                                                error
 	initialPath                                                                                                               string
-	tableColumns                                                                                                              int
+	tableColumns, tableView                                                                                                   int
 	threads, cursor                                                                                                           uintptr
 	hwnd, processes, start, stop, demo, refresh, filter, thread, seconds, path, save, replay, compare, status, table, details uintptr
 	address                                                                                                                   string
@@ -340,7 +340,7 @@ func (a *window) open() error {
 	user.NewProc("ShowWindow").Call(a.copyDiagnosticsButton, 0)
 	user.NewProc("ShowWindow").Call(a.diagnosticText, 0)
 	a.table = child(a.hwnd, "SysListView32", "", 0x00811005, 10)
-	send.Call(a.table, 0x1036, 0, 0x10021)
+	send.Call(a.table, 0x1036, 0, 0x10031) // includes LVS_EX_HEADERDRAGDROP
 	a.syncColumns()
 	a.path = child(a.hwnd, "EDIT", "session.ndjson", 0x00810080, 11)
 	a.save = child(a.hwnd, "BUTTON", "Salvar histórico", 0x10000, 12)
@@ -451,7 +451,8 @@ func (a *window) persistPreferences() {
 	}
 	a.preferencesSaved = true
 	whole, _, _ := send.Call(a.wholeUnit, 0xf0, 0, 0)
-	p := Preferences{ExcludeRuntime: a.excludesRuntime(), WholeUnit: whole == 1, Version: 1, ImagePath: value(a.imagePath), ResultFilter: value(a.filter), SymbolFilter: value(a.symbolSearch), TimeUnit: Milliseconds}
+	a.storeColumnLayout()
+	p := Preferences{Columns: a.preferences.Columns, ExcludeRuntime: a.excludesRuntime(), WholeUnit: whole == 1, Version: 1, ImagePath: value(a.imagePath), ResultFilter: value(a.filter), SymbolFilter: value(a.symbolSearch), TimeUnit: Milliseconds}
 	index, _, _ := send.Call(a.metricUnits, 0x147, 0, 0)
 	units := []MetricTimeUnit{Nanoseconds, Microseconds, Milliseconds, Seconds, ClockTicks}
 	if index < uintptr(len(units)) {
@@ -1138,12 +1139,15 @@ func (a *window) draw() {
 
 func (a *window) syncColumns() {
 	headers := a.model.Headers()
-	changedMode := a.tableColumns != len(headers)
-	widths := []int32{90, 80, 90, 180, 420, 160, 100, 180}
-	if a.model.MetricComparison != nil {
-		widths = []int32{120, 130, 120, 160, 170, 180, 160, 170, 180, 180, 180, 180, 180, 420, 180, 180, 160}
-	} else if len(a.model.Metrics) > 0 {
-		widths = []int32{100, 140, 170, 140, 170, 90, 160, 180, 420, 160, 180, 90, 130}
+	view := a.model.columnView()
+	changedMode := a.tableColumns == 0 || a.tableView != view
+	if changedMode {
+		a.storeColumnLayout()
+	}
+	widths := defaultColumnWidths[view]
+	layout := a.preferences.Columns[view]
+	if layout != (columnLayout{}) {
+		widths = layout.Widths[:len(headers)]
 	}
 	for a.tableColumns > len(headers) {
 		send.Call(a.table, 0x101c, uintptr(a.tableColumns-1), 0)
@@ -1161,6 +1165,10 @@ func (a *window) syncColumns() {
 		} else {
 			send.Call(a.table, 0x1060, uintptr(i), uintptr(unsafe.Pointer(&col)))
 		}
+	}
+	if changedMode {
+		a.applyColumnOrder(view)
+		a.tableView = view
 	}
 }
 

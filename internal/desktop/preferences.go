@@ -17,13 +17,14 @@ const maxPreferencesBytes = 128 << 10
 // Preferences mirrors the original viewer's executable path, result/unit
 // filters and time unit. Collection data and active target state live elsewhere.
 type Preferences struct {
-	ExcludeRuntime bool           `json:"exclude_runtime,omitempty"`
-	WholeUnit      bool           `json:"whole_unit,omitempty"`
-	Version        int            `json:"version"`
-	ImagePath      string         `json:"image_path"`
-	ResultFilter   string         `json:"result_filter"`
-	SymbolFilter   string         `json:"symbol_filter"`
-	TimeUnit       MetricTimeUnit `json:"time_unit"`
+	Columns        columnPreferences `json:"columns,omitzero"`
+	ExcludeRuntime bool              `json:"exclude_runtime,omitempty"`
+	WholeUnit      bool              `json:"whole_unit,omitempty"`
+	Version        int               `json:"version"`
+	ImagePath      string            `json:"image_path"`
+	ResultFilter   string            `json:"result_filter"`
+	SymbolFilter   string            `json:"symbol_filter"`
+	TimeUnit       MetricTimeUnit    `json:"time_unit"`
 }
 
 func defaultPreferences() Preferences {
@@ -41,6 +42,11 @@ func preferencesPath() (string, error) {
 func (p Preferences) validate() error {
 	if p.Version != 1 || !p.TimeUnit.Valid() {
 		return errors.New("unsupported viewer preferences version/time unit")
+	}
+	for view, columns := range p.Columns {
+		if !columns.valid(len(defaultColumnWidths[view])) {
+			return errors.New("invalid viewer result columns")
+		}
 	}
 	for _, field := range []struct {
 		name, value string

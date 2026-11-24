@@ -70,6 +70,10 @@ omitidas. Ela não mostra overhead estimado sem uma medição específica.
 A caixa de caminho serve para salvar um arquivo novo, reproduzir NDJSON ou
 comparar um arquivo com a série atualmente retida. A comparação completa também
 está disponível pelo CLI em JSON. Abrir replay não encerra uma coleta existente.
+O viewer salva a largura e a ordem das colunas por tipo de resultado. Arraste
+os cabeçalhos para reordenar as colunas. Amostragem, chamadas e suas comparações
+restauram a configuração de cada tabela ao alternar ou reabrir a janela.
+
 **Diagnóstico** alterna a tabela para o histórico de estados da captura,
 falhas de conexão e mensagens de operações do viewer. **Copiar diagnóstico**
 copia as últimas 32 mensagens para a área de transferência. Mensagens

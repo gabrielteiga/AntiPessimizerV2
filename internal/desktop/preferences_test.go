@@ -66,3 +66,24 @@ func TestViewerPreferencesRejectInvalidOrOversizedInput(t *testing.T) {
 		}
 	}
 }
+
+func TestViewerColumnPreferencesKeepWidthsAndPermutation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "viewer.json")
+	p := defaultPreferences()
+	layout := &p.Columns[columnSamplingComparison]
+	for i, width := range defaultColumnWidths[columnSamplingComparison] {
+		layout.Widths[i], layout.Order[i] = width, int32(i)
+	}
+	layout.Widths[2] = 273
+	layout.Order[1], layout.Order[2] = layout.Order[2], layout.Order[1]
+	if err := savePreferences(path, p); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := loadPreferences(path); err != nil || got != p {
+		t.Fatal("column widths or order changed", got, err)
+	}
+	layout.Order[1] = layout.Order[2]
+	if err := savePreferences(path, p); err == nil {
+		t.Fatal("duplicate column accepted")
+	}
+}
