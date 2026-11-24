@@ -86,20 +86,23 @@ type paint struct {
 	Reserved           [32]byte
 }
 type update struct {
-	MetricComparison *instrumentation.Comparison
-	CatalogPath      string
-	CatalogUnit      string
-	CatalogText      string
-	Metrics          []instrumentation.Record
-	Live             bool
-	Comparison       *report.Comparison
-	Response         service.Response
-	Error            error
-	History          []profiling.Snapshot
-	Offline          bool
-	Note             string
+	CatalogExcludesRuntime bool
+	MetricComparison       *instrumentation.Comparison
+	CatalogPath            string
+	CatalogUnit            string
+	CatalogText            string
+	Metrics                []instrumentation.Record
+	Live                   bool
+	Comparison             *report.Comparison
+	Response               service.Response
+	Error                  error
+	History                []profiling.Snapshot
+	Offline                bool
+	Note                   string
 }
 type window struct {
+	excludeRuntime                                                                 uintptr
+	catalogExcludesRuntime                                                         bool
 	preferences                                                                    Preferences
 	preferencesPath                                                                string
 	preferencesProblem, preferencesWriteErr                                        error
@@ -348,6 +351,7 @@ func (a *window) open() error {
 	a.imagePath = child(a.hwnd, "EDIT", "", 0x00810080, 19)
 	a.symbolSearch = child(a.hwnd, "EDIT", "", 0x00810080, 20)
 	a.wholeUnit = child(a.hwnd, "BUTTON", "Unidades inteiras", 0x10003, 26)
+	a.excludeRuntime = child(a.hwnd, "BUTTON", "Omitir RTL e JCL", 0x10003, 30)
 	a.browseExecutable = child(a.hwnd, "BUTTON", "Procurar EXE", 0x10000, 27)
 	a.selectFiltered = child(a.hwnd, "BUTTON", "Selecionar busca", 0x10000, 28)
 	a.clearSelection = child(a.hwnd, "BUTTON", "Limpar seleção", 0x10000, 29)
@@ -417,6 +421,9 @@ func (a *window) applyPreferences() {
 	text(a.imagePath, a.preferences.ImagePath)
 	text(a.filter, a.preferences.ResultFilter)
 	text(a.symbolSearch, a.preferences.SymbolFilter)
+	if a.preferences.ExcludeRuntime {
+		send.Call(a.excludeRuntime, 0xf1, 1, 0)
+	}
 	if a.preferences.WholeUnit {
 		send.Call(a.wholeUnit, 0xf1, 1, 0)
 	}
@@ -434,7 +441,7 @@ func (a *window) persistPreferences() {
 	}
 	a.preferencesSaved = true
 	whole, _, _ := send.Call(a.wholeUnit, 0xf0, 0, 0)
-	p := Preferences{WholeUnit: whole == 1, Version: 1, ImagePath: value(a.imagePath), ResultFilter: value(a.filter), SymbolFilter: value(a.symbolSearch), TimeUnit: Milliseconds}
+	p := Preferences{ExcludeRuntime: a.excludesRuntime(), WholeUnit: whole == 1, Version: 1, ImagePath: value(a.imagePath), ResultFilter: value(a.filter), SymbolFilter: value(a.symbolSearch), TimeUnit: Milliseconds}
 	index, _, _ := send.Call(a.metricUnits, 0x147, 0, 0)
 	units := []MetricTimeUnit{Nanoseconds, Microseconds, Milliseconds, Seconds, ClockTicks}
 	if index < uintptr(len(units)) {
@@ -493,7 +500,8 @@ func (a *window) layout() {
 			searchCue = "Nomes exatos das unidades, separados por vírgulas"
 		}
 		send.Call(a.symbolSearch, 0x1501, 0, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(searchCue)))) // EM_SETCUEBANNER
-		pos(a.status, 12, 230, statusWidth, 42)
+		pos(a.excludeRuntime, 12, 230, 160, 28)
+		pos(a.status, 181, 230, statusWidth-169, 42)
 		pos(a.selectFiltered, w-290, 230, 135, 28)
 		pos(a.clearSelection, w-150, 230, 135, 28)
 		user.NewProc("ShowWindow").Call(a.selectFiltered, show)
@@ -512,7 +520,7 @@ func (a *window) request(q service.Request) {
 	go func() {
 		defer a.wg.Done()
 		r, err := service.Call(a.ctx, a.address, q)
-		a.send(update{Response: r, Error: err, Live: true, CatalogPath: q.Catalog.Image, CatalogUnit: strings.Join(q.Catalog.Units, ", "), CatalogText: q.Catalog.Text})
+		a.send(update{Response: r, Error: err, Live: true, CatalogPath: q.Catalog.Image, CatalogUnit: strings.Join(q.Catalog.Units, ", "), CatalogText: q.Catalog.Text, CatalogExcludesRuntime: q.Catalog.ExcludeRuntime})
 	}()
 }
 func (a *window) poll() {
@@ -575,7 +583,7 @@ func (a *window) poll() {
 }
 func (a *window) command(id int) {
 	if a.followPath != "" {
-		if id == 2 || id == 3 || id == 5 || id == 27 || id == 28 || id == 29 {
+		if id == 2 || id == 3 || id == 5 || id == 27 || id == 28 || id == 29 || id == 30 {
 			return
 		}
 		if id == 4 {
@@ -608,6 +616,10 @@ func (a *window) command(id int) {
 	switch id {
 	case 26:
 		a.layout()
+	case 30:
+		a.catalog = nil
+		send.Call(a.procedureList, 0x184, 0, 0)
+		text(a.status, "Leia os símbolos com o filtro atual.")
 	case 28, 29:
 		if !a.instrumentMode {
 			return
@@ -621,7 +633,7 @@ func (a *window) command(id int) {
 			return
 		}
 		page := a.catalog
-		if page == nil || a.catalogPath != value(a.imagePath) || a.catalogUnit != "" || a.catalogText != value(a.symbolSearch) {
+		if page == nil || a.catalogExcludesRuntime != a.excludesRuntime() || a.catalogPath != value(a.imagePath) || a.catalogUnit != "" || a.catalogText != value(a.symbolSearch) {
 			text(a.status, "Leia os símbolos da busca atual.")
 			return
 		}
@@ -899,6 +911,7 @@ func (a *window) tick() {
 			}
 			if page := u.Response.Catalog; page != nil && a.currentCatalogQuery(u) {
 				a.catalog = page
+				a.catalogExcludesRuntime = u.CatalogExcludesRuntime
 				a.catalogPath = u.CatalogPath
 				a.catalogUnit = u.CatalogUnit
 				a.catalogText = u.CatalogText
@@ -1133,7 +1146,7 @@ func (a *window) configureMode() {
 		visible = 5
 		sampling = 0
 	}
-	for _, h := range []uintptr{a.imagePath, a.symbolSearch, a.wholeUnit, a.programArgs, a.launchTimeout, a.procedureList, a.clearButton, a.browseExecutable, a.selectFiltered, a.clearSelection} {
+	for _, h := range []uintptr{a.imagePath, a.symbolSearch, a.wholeUnit, a.programArgs, a.launchTimeout, a.procedureList, a.clearButton, a.browseExecutable, a.selectFiltered, a.clearSelection, a.excludeRuntime} {
 		user.NewProc("ShowWindow").Call(h, visible)
 	}
 	for _, h := range []uintptr{a.processes, a.demo} {
@@ -1161,8 +1174,13 @@ func exactUnits(search string) []string {
 	return units
 }
 
+func (a *window) excludesRuntime() bool {
+	checked, _, _ := send.Call(a.excludeRuntime, 0xf0, 0, 0)
+	return checked == 1
+}
+
 func (a *window) currentCatalogQuery(u update) bool {
-	if !a.instrumentMode || u.CatalogPath != value(a.imagePath) {
+	if !a.instrumentMode || u.CatalogPath != value(a.imagePath) || u.CatalogExcludesRuntime != a.excludesRuntime() {
 		return false
 	}
 	search := value(a.symbolSearch)
@@ -1186,7 +1204,7 @@ func (a *window) instrumentCommand(id int) {
 		}
 	}
 	if id == 2 {
-		q := service.CatalogQuery{Image: path, Text: search, Limit: service.MaxInstrumentedProcedures, Check: true}
+		q := service.CatalogQuery{ExcludeRuntime: a.excludesRuntime(), Image: path, Text: search, Limit: service.MaxInstrumentedProcedures, Check: true}
 		if unitMode {
 			q.Text = ""
 			q.Units = units
@@ -1194,7 +1212,7 @@ func (a *window) instrumentCommand(id int) {
 		a.request(service.Request{Op: "instrument-catalog", Catalog: q})
 		return
 	}
-	if a.catalog == nil || a.catalogPath != path {
+	if a.catalog == nil || a.catalogPath != path || a.catalogExcludesRuntime != a.excludesRuntime() {
 		text(a.status, "Leia os símbolos do EXE antes de iniciar.")
 		return
 	}
@@ -1260,5 +1278,5 @@ func (a *window) instrumentCommand(id int) {
 	a.offline.Store(false)
 	a.model = Model{}
 	a.lastBuild = ""
-	a.request(service.Request{Op: "instrument-start", Instrument: service.InstrumentOptions{Image: path, ImageID: a.catalog.ImageID, CatalogID: a.catalog.CatalogID, Procedures: ids, Units: units, Args: args[1:], TimeoutMS: seconds * 1000}})
+	a.request(service.Request{Op: "instrument-start", Instrument: service.InstrumentOptions{ExcludeRuntime: a.excludesRuntime(), Image: path, ImageID: a.catalog.ImageID, CatalogID: a.catalog.CatalogID, Procedures: ids, Units: units, Args: args[1:], TimeoutMS: seconds * 1000}})
 }

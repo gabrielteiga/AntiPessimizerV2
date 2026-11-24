@@ -467,3 +467,50 @@ func TestUnitSelectionRejectionsPreserveHistoryAndNeverLaunch(t *testing.T) {
 		})
 	}
 }
+
+func TestRuntimeFilterMatchesPreviewAndStartBeforeSelectionLimit(t *testing.T) {
+	c, o := instrumentController(t)
+	load := c.LoadCatalog
+	c.LoadCatalog = func(path string) (native.Catalog, error) {
+		catalog, err := load(path)
+		catalog.Aliases = append(catalog.Aliases, native.ProcedureAlias{ID: 2, Name: "System.Alias", Unit: "System"})
+		for i := uint32(0); i < MaxInstrumentedProcedures; i++ {
+			catalog.Procedures = append(catalog.Procedures, native.SelectedProcedure{ID: 3 + i, RVA: 0x3000 + i*32, Size: 32, Name: fmt.Sprintf("Winapi.Helper%d", i), Unit: "Lab"})
+		}
+		return catalog, err
+	}
+	q := CatalogQuery{Image: o.Image, Units: []string{"Lab"}, ExcludeRuntime: true, Check: true}
+	page, err := c.Catalog(q)
+	if err != nil || page.Total != 1 || page.Procedures[0].ID != 1 || page.Checks[0].ID != 1 {
+		t.Fatal("filtered preview", page, err)
+	}
+	q.Units = nil
+	page, err = c.Catalog(q)
+	if err != nil || page.Total != 1 || page.Procedures[0].ID != 1 {
+		t.Fatal("filtered search", page, err)
+	}
+	q.Units = []string{"Lab"}
+	q.ExcludeRuntime = false
+	if _, err := c.Catalog(q); err == nil {
+		t.Fatal("default exact-unit limit was bypassed")
+	}
+	launched := make(chan native.LaunchOptions, 1)
+	c.LaunchInstrumented = func(_ context.Context, options native.LaunchOptions, _ io.Writer) error {
+		launched <- options
+		return nil
+	}
+	o.ExcludeRuntime = true
+	if err := c.StartInstrumented(context.Background(), o); err == nil {
+		t.Fatal("explicit list included a filtered alias")
+	}
+	o.Procedures = nil
+	o.Units = q.Units
+	if err := c.StartInstrumented(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	awaitInstrumentedStop(t, c)
+	got := <-launched
+	if len(got.Procedures) != 1 || got.Procedures[0].ID != 1 {
+		t.Fatal("launch did not match preview", got.Procedures)
+	}
+}

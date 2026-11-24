@@ -37,6 +37,7 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer) (result
 	outputPath := flags.String("output", "", "write live metrics to a new NDJSON file (never overwrite)")
 	timeout := flags.Duration("timeout", time.Minute, "capture timeout; expiry terminates this owned target")
 	capacity := flags.Int("capacity", 1024, "native events per thread (1..1024)")
+	excludeRuntime := flags.Bool("exclude-runtime", false, "omit System., Winapi. and JCL procedures")
 	var units, names, programArgs repeated
 	flags.Var(&units, "unit", "exact Pascal unit to select (repeatable)")
 	flags.Var(&names, "procedure", "exact procedure to select (repeatable)")
@@ -55,6 +56,9 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer) (result
 		return err
 	}
 	selected := catalog.Match(units, names)
+	if *excludeRuntime {
+		selected = catalog.WithoutRuntime(selected)
+	}
 	if len(selected) == 0 {
 		return errors.New("no procedures match the requested selection")
 	}

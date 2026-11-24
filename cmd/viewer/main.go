@@ -49,6 +49,7 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 	replay := flags.String("replay", "", "read an NDJSON archive")
 	follow := flags.String("follow", "", "follow an instrumentation NDJSON file in the native GUI")
 	compare := flags.String("compare", "", "compare replay archive with another archive")
+	excludeRuntime := flags.Bool("exclude-runtime", false, "omit System., Winapi. and JCL procedures when selecting calls")
 	unit := flags.String("unit", "", "exact Pascal unit name filter")
 	module := flags.String("module", "", "exact module name filter")
 	thread := flags.Uint64("thread", 0, "thread ID filter; 0 means all")
@@ -157,7 +158,7 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 		now := time.Now()
 		request := service.Request{Op: *op, Start: service.StartOptions{PID: uint32(*pid), Demo: *demo, WindowMS: *window}, From: now.Add(-time.Duration(*seconds) * time.Second), To: now, Module: *module, Thread: uint32(*thread)}
 		if *op == "instrument-catalog" {
-			request.Catalog = service.CatalogQuery{Image: *image, Text: *catalogText, Unit: *unit, Offset: *catalogOffset, Check: *catalogCheck}
+			request.Catalog = service.CatalogQuery{ExcludeRuntime: *excludeRuntime, Image: *image, Text: *catalogText, Unit: *unit, Offset: *catalogOffset, Check: *catalogCheck}
 		}
 		if *op == "instrument-start" {
 			var ids []uint32
@@ -181,7 +182,7 @@ func run(args []string, in io.Reader, out, diagnostics io.Writer) error {
 			if err != nil {
 				return err
 			}
-			request.Instrument = service.InstrumentOptions{Image: path, ImageID: *imageID, CatalogID: *catalogID, Procedures: ids, Units: units, Args: programArgs, TimeoutMS: timeout.Milliseconds()}
+			request.Instrument = service.InstrumentOptions{ExcludeRuntime: *excludeRuntime, Image: path, ImageID: *imageID, CatalogID: *catalogID, Procedures: ids, Units: units, Args: programArgs, TimeoutMS: timeout.Milliseconds()}
 		}
 		return control(*address, request, out)
 	}
