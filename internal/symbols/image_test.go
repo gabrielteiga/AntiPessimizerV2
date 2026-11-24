@@ -112,14 +112,58 @@ func TestPE32Mapping(t *testing.T) {
 	}
 }
 
-func TestRejectMultipleCodeSections(t *testing.T) {
-	b := testfixture.Image(true)
+func TestPrimaryCodeSectionInImageWithAdditionalCode(t *testing.T) {
+	b := append(testfixture.Image(false), make([]byte, 0x200)...)
 	binary.LittleEndian.PutUint16(b[128+4+2:], 2)
 	const second = 128 + 4 + 20 + 240 + 40
 	copy(b[second:second+40], b[second-40:second])
+	copy(b[second:], ".apcode\x00")
 	binary.LittleEndian.PutUint32(b[second+12:], 0x6000)
-	if _, err := loadImage(b, filepath.Join(t.TempDir(), "lab.exe"), false); err == nil {
-		t.Fatal("ambiguous code layout accepted")
+	binary.LittleEndian.PutUint32(b[second+20:], 0x400)
+	path := filepath.Join(t.TempDir(), "lab.exe")
+	sidecar := filepath.Join(filepath.Dir(path), "lab.tds")
+	if err := os.WriteFile(sidecar, testfixture.TDSWithSource(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	image, err := loadImage(b, path, true)
+	if err != nil || image.ProcedureCount != 1 {
+		t.Fatal("additional code prevented primary mapping", image, err)
+	}
+	const base = 0x7ff000000000
+	primary, ok := image.Index.Resolve(base, base+0x5020)
+	if !ok || primary.Procedure != "Lab.Hot" {
+		t.Fatal(primary)
+	}
+	if line, ok := image.SourceAt(base, base+0x5028); !ok || line.Line != 109 {
+		t.Fatal("primary source mapping changed", line, ok)
+	}
+	other, ok := image.Index.Resolve(base, base+0x6020)
+	if !ok || other.Status != "unknown" {
+		t.Fatal("additional code inherited TD32 procedure", other)
+	}
+	if _, ok := image.SourceAt(base, base+0x6028); ok {
+		t.Fatal("additional code inherited TD32 source")
+	}
+	for name, change := range map[string]func([]byte){
+		"duplicate base":  func(b []byte) { binary.LittleEndian.PutUint32(b[second+12:], 0x5000) },
+		"virtual overlap": func(b []byte) { binary.LittleEndian.PutUint32(b[second+12:], 0x5100) },
+		"raw overlap":     func(b []byte) { binary.LittleEndian.PutUint32(b[second+20:], 0x200) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			broken := append([]byte(nil), b...)
+			change(broken)
+			if _, err := loadImage(broken, path, true); err == nil {
+				t.Fatal("ambiguous primary section accepted")
+			}
+		})
+	}
+	data := testfixture.TDS()
+	binary.LittleEndian.PutUint16(data[84:], 2)
+	if err := os.WriteFile(sidecar, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadImage(b, path, false); err == nil {
+		t.Fatal("inferred segment 2 from a second PE section")
 	}
 }
 
