@@ -45,6 +45,7 @@ var referenceCases = []referenceCase{
 	{0x177c60, "6548a10800000000000000c3", "thread-stack-base"},
 	{0x1729b0, "488d0559ffffff488d15f2ffffff483bc27d18488d0546ffffff483bc17f0c488d05daffffff483bc17f0433c0eb02b001c3", "code-range"},
 	{0xb5e0, "4989da4989c989d04489c10fa241890141895904418949084189510c4c89d3c3", "cpu-identification"},
+	{0x60210, "53b8010000000fa2b803000000f7c101000000740383c804f7c100020000740383c808f7c100000800740383c810f7c100001000740383c820f7c100008000740383c840f7c10000000274050d80000000f7c10200000074050d000100005bc3", "cpu-feature-mask"},
 }
 
 func pinReferenceThread(t *testing.T) {
@@ -207,7 +208,7 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 			}
 			registered = true
 			var stackBase uintptr
-			if c.Kind == "timestamp" || c.Kind == "cpu-identification" {
+			if c.Kind == "timestamp" || c.Kind == "cpu-identification" || c.Kind == "cpu-feature-mask" {
 				pinReferenceThread(t)
 			} else if c.Kind == "thread-stack-base" {
 				runtime.LockOSThread()
@@ -240,6 +241,22 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 					observed, _, _ := syscall.SyscallN(memory, out, 0, 0)
 					if original == 0 || observed != original || !bytes.Equal(read(out, 16), want) {
 						t.Fatalf("relocated CPUID results changed at call %d", trial)
+					}
+					calls++
+					continue
+				}
+				if c.Kind == "cpu-feature-mask" {
+					out := rw + 128
+					syscall.SyscallN(uintptr(dll)+0xb5e0, out, 1, 0)
+					ecx := binary.LittleEndian.Uint32(read(out+8, 4))
+					want := uintptr(3)
+					for i, bit := range [...]uint32{0, 9, 19, 20, 23, 25, 1} {
+						want |= uintptr((ecx>>bit)&1) << (i + 2)
+					}
+					original, _, _ := syscall.SyscallN(uintptr(dll) + uintptr(c.RVA))
+					observed, _, _ := syscall.SyscallN(memory)
+					if original != want || observed != want {
+						t.Fatalf("CPU feature mask: original=%#x clone=%#x want=%#x", original, observed, want)
 					}
 					calls++
 					continue

@@ -83,15 +83,20 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 	}
 	entry := entryJump(source, base)
 	body, prefix := code, 0
-	if metadata.handlerRVA == 0 && len(metadata.chainBoundaries) == 0 &&
-		bytes.Equal(originalInfo, []byte{1, 0, 0, 0}) && bytes.Equal(code, delphiCPUIDLeaf) {
-		// Delphi saves RBX in volatile R10. Its result stores can fault
-		// before RBX is restored. Give this exact stack-independent body a
-		// real RBX save so Windows can unwind the clone at any store.
-		body = append([]byte{0x53}, code[:len(code)-4]...)
-		body = append(body, 0x5b, 0xc3)
-		originalInfo = []byte{1, 1, 1, 0, 1, 0x30, 0, 0}
-		prefix = 1
+	if metadata.handlerRVA == 0 && len(metadata.chainBoundaries) == 0 && bytes.Equal(originalInfo, []byte{1, 0, 0, 0}) {
+		switch {
+		case bytes.Equal(code, delphiCPUIDLeaf):
+			// Delphi saves RBX in volatile R10. Its result stores can fault
+			// before RBX is restored. Add a real RBX save for the clone.
+			body = append([]byte{0x53}, code[:len(code)-4]...)
+			body = append(body, 0x5b, 0xc3)
+			originalInfo = []byte{1, 1, 1, 0, 1, 0x30, 0, 0}
+			prefix = 1
+		case bytes.Equal(code, delphiCPUFeatureMask):
+			// The original already saves RBX at entry and restores it on
+			// every path. Supply only the missing unwind description.
+			originalInfo = []byte{1, 1, 1, 0, 1, 0x30, 0, 0}
+		}
 	}
 	framed := originalInfo[2] != 0
 	tiny := size < NearJumpSize
@@ -249,6 +254,20 @@ var delphiCPUIDLeaf = []byte{
 	0x49, 0x89, 0xda, 0x49, 0x89, 0xc9, 0x89, 0xd0, 0x44, 0x89, 0xc1, 0x0f, 0xa2,
 	0x41, 0x89, 0x01, 0x41, 0x89, 0x59, 0x04, 0x41, 0x89, 0x49, 0x08, 0x41, 0x89, 0x51, 0x0c,
 	0x4c, 0x89, 0xd3, 0xc3,
+}
+
+// Delphi RVA 0x60210 reads CPUID leaf 1 then maps seven ECX bits.
+// Each short JE skips one OR and must preserve the final POP RBX.
+var delphiCPUFeatureMask = []byte{
+	0x53, 0xb8, 1, 0, 0, 0, 0x0f, 0xa2, 0xb8, 3, 0, 0, 0,
+	0xf7, 0xc1, 1, 0, 0, 0, 0x74, 3, 0x83, 0xc8, 4,
+	0xf7, 0xc1, 0, 2, 0, 0, 0x74, 3, 0x83, 0xc8, 8,
+	0xf7, 0xc1, 0, 0, 8, 0, 0x74, 3, 0x83, 0xc8, 0x10,
+	0xf7, 0xc1, 0, 0, 0x10, 0, 0x74, 3, 0x83, 0xc8, 0x20,
+	0xf7, 0xc1, 0, 0, 0x80, 0, 0x74, 3, 0x83, 0xc8, 0x40,
+	0xf7, 0xc1, 0, 0, 0, 2, 0x74, 5, 0x0d, 0x80, 0, 0, 0,
+	0xf7, 0xc1, 2, 0, 0, 0, 0x74, 5, 0x0d, 0, 1, 0, 0,
+	0x5b, 0xc3,
 }
 
 func validateChainCode(code []byte, boundaries []int, gaps []chainGap) error {
