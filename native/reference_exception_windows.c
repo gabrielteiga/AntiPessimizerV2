@@ -92,8 +92,12 @@ __asm__(
  ".rva .Lreference_try_begin,.Lreference_try_end,APReferenceFilter,.Lreference_catch\n .text\n .seh_endproc\n"
 );
 typedef struct {OVERLAPPED connect;uint32_t command;} WorkerRequest;
-static DWORD WINAPI send_worker_command(void *arg){
- WorkerRequest *request=arg;DWORD transferred=0;
+static WorkerRequest worker_request;
+static HANDLE command_ready,command_done;
+static DWORD command_status;
+static BOOL command_stop;
+static DWORD send_worker_command(WorkerRequest *request){
+ DWORD transferred=0;
  if(WaitForSingleObject(request->connect.hEvent,5000)!=WAIT_OBJECT_0 || !GetOverlappedResult(reference_server,&request->connect,&transferred,FALSE))return 1;
  OVERLAPPED write={0};write.hEvent=CreateEventW(NULL,TRUE,FALSE,NULL);if(!write.hEvent)return 1;
  uint32_t packet[2]={4,request->command};
@@ -101,23 +105,31 @@ static DWORD WINAPI send_worker_command(void *arg){
  if(!ok && GetLastError()==ERROR_IO_PENDING)ok=WaitForSingleObject(write.hEvent,5000)==WAIT_OBJECT_0 && GetOverlappedResult(reference_server,&write,&transferred,FALSE);
  CloseHandle(write.hEvent);return ok && transferred==sizeof(packet)?0:1;
 }
+static DWORD WINAPI command_sender(void *unused){
+ (void)unused;
+ if(!SetEvent(command_done))return 1; /* Loader thread initialization is complete. */
+ for(;;){
+  if(WaitForSingleObject(command_ready,INFINITE)!=WAIT_OBJECT_0)return 1;
+  if(command_stop)return 0;
+  command_status=send_worker_command(&worker_request);
+  if(!SetEvent(command_done))return 1;
+ }
+}
 static BOOL worker_call(BOOL malformed){
  reference_malformed=malformed;
  if(!DisconnectNamedPipe(reference_server) && GetLastError()!=ERROR_PIPE_NOT_CONNECTED)return FALSE;
- WorkerRequest request={0};request.command=malformed?2:0;
- request.connect.hEvent=CreateEventW(NULL,TRUE,FALSE,NULL);if(!request.connect.hEvent)return FALSE;
- BOOL connected=ConnectNamedPipe(reference_server,&request.connect);
- if(!connected && GetLastError()!=ERROR_IO_PENDING){CloseHandle(request.connect.hEvent);return FALSE;}
- HANDLE sender=CreateThread(NULL,0,send_worker_command,&request,0,NULL);
- if(!sender){CloseHandle(request.connect.hEvent);return FALSE;}
+ worker_request=(WorkerRequest){0};worker_request.command=malformed?2:0;
+ worker_request.connect.hEvent=CreateEventW(NULL,TRUE,FALSE,NULL);if(!worker_request.connect.hEvent)return FALSE;
+ BOOL connected=ConnectNamedPipe(reference_server,&worker_request.connect);
+ if(!connected && GetLastError()!=ERROR_IO_PENDING){CloseHandle(worker_request.connect.hEvent);return FALSE;}
+ if(!SetEvent(command_ready))return FALSE;
  LONG before=caught,exceptions_before=typed_exceptions;
  uintptr_t result=APReferenceCall(NULL);
- DWORD status=1;
- if(WaitForSingleObject(sender,5000)!=WAIT_OBJECT_0){TerminateProcess(GetCurrentProcess(),25);return FALSE;}
- BOOL ok=GetExitCodeThread(sender,&status);CloseHandle(sender);CloseHandle(request.connect.hEvent);
+ if(WaitForSingleObject(command_done,5000)!=WAIT_OBJECT_0){TerminateProcess(GetCurrentProcess(),25);return FALSE;}
+ BOOL ok=CloseHandle(worker_request.connect.hEvent);
  if(*reference_client==INVALID_HANDLE_VALUE || !CloseHandle(*reference_client))ok=FALSE;
  *reference_client=INVALID_HANDLE_VALUE;
- return ok && !status && !result && caught==before && typed_exceptions==exceptions_before+(malformed?1:0) && !bad;
+ return ok && !command_status && !result && caught==before && typed_exceptions==exceptions_before+(malformed?1:0) && !bad;
 }
 static BOOL pairs(uint32_t count){
  for(uint32_t i=0;i<count;i++){
@@ -152,6 +164,19 @@ int wmain(int argc,wchar_t **argv){
  if(pipe==INVALID_HANDLE_VALUE)return 3;
  OVERLAPPED connect={0};connect.hEvent=CreateEventW(NULL,TRUE,FALSE,NULL);if(!connect.hEvent)return 3;
  BOOL pending=ConnectNamedPipe(pipe,&connect);if(!pending && GetLastError()!=ERROR_IO_PENDING)return 3;
+ HANDLE sender=NULL;
+ if(worker_mode){
+  /* DLLHandler uses the Delphi heap to log thread notifications. The original
+   * DLL uses CreateThread and the observed heap took its unlocked path. Keep
+   * the pipe sender alive across all measured calls, with no attach/detach
+   * notifications running in parallel with the original or cloned Worker. */
+  reference_server=pipe;
+  command_ready=CreateEventW(NULL,FALSE,FALSE,NULL);
+  command_done=CreateEventW(NULL,FALSE,FALSE,NULL);
+  if(!command_ready || !command_done)return 19;
+  sender=CreateThread(NULL,0,command_sender,NULL,0,NULL);
+  if(!sender || WaitForSingleObject(command_done,5000)!=WAIT_OBJECT_0)return 19;
+ }
  HMODULE dll=LoadLibraryW(argv[1]);if(!dll){fprintf(stderr,"LoadLibrary original failed %lu\n",GetLastError());return 4;}
  if(WaitForSingleObject(connect.hEvent,5000)!=WAIT_OBJECT_0)return 5;
  HANDLE worker=worker_mode?original_worker((unsigned char *)dll):NULL;
@@ -175,7 +200,7 @@ int wmain(int argc,wchar_t **argv){
   int32_t displacement=0;memcpy(&displacement,image+source_rva+0x5c,4);
   reference_client=(HANDLE *)(image+source_rva+0x60+displacement);
   if(*reference_client==INVALID_HANDLE_VALUE || !CloseHandle(*reference_client))return 19;
-  *reference_client=INVALID_HANDLE_VALUE;reference_server=pipe;
+  *reference_client=INVALID_HANDLE_VALUE;
   reference_image=(uintptr_t)image;
   measurement_thread=GetCurrentThreadId();
   if(!AddVectoredExceptionHandler(1,reference_typed_exception))return 19;
@@ -230,6 +255,13 @@ int wmain(int argc,wchar_t **argv){
  reference_target=(uintptr_t)memory;
  fprintf(stderr,"cloned Delphi: %s\n",worker_mode?"typed Exception catch, normal return and Go metrics":"original handler, capture/resume/reraise and cleanup");
  if(!pairs(100) || bad || (worker_mode?(caught!=0 || typed_exceptions!=104):caught!=104)){fprintf(stderr,"clone failed caught=%ld code=%lx bad=%ld\n",caught,observed_exception,bad);return 12;}
+ if(sender){
+  DWORD status=1;
+  command_stop=TRUE;
+  if(!SetEvent(command_ready) || WaitForSingleObject(sender,5000)!=WAIT_OBJECT_0 ||
+     !GetExitCodeThread(sender,&status) || status)return 19;
+  CloseHandle(sender);CloseHandle(command_ready);CloseHandle(command_done);
+ }
  uint32_t entries=0,returns=0,unwinds=0;
  if(!capture_finish.finish(argv[3],&entries,&returns,&unwinds) || entries!=200 || returns!=(worker_mode?200u:100u) || unwinds!=(worker_mode?0u:100u)){fprintf(stderr,"native capture incomplete enter=%u return=%u unwind=%u\n",entries,returns,unwinds);return 17;}
  if((!worker_mode && observed_exception!=0x0eedfadeu) || memcmp(original,image+source_rva,source_size))return 15;
