@@ -33,6 +33,27 @@ __asm__(
  ".rva .Lcpuid_try,.Lcpuid_end,APFrameMemoryFilter,.Lcpuid_catch\n .text\n .seh_endproc\n"
 );
 
+static DWORD check_delphi_cpuid;
+extern void APFrameDelphiCPUID(uint32_t *,uint32_t,uint32_t);
+extern uint64_t APFrameDelphiCPUIDCatch(void);
+__asm__(
+ ".text\n .globl APFrameDelphiCPUID\n .def APFrameDelphiCPUID; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameDelphiCPUID\n APFrameDelphiCPUID:\n .seh_endprologue\n"
+ "movq %rbx,%r10\n movq %rcx,%r9\n movl %edx,%eax\n movl %r8d,%ecx\n cpuid\n"
+ "movl %eax,(%r9)\n movl %ebx,4(%r9)\n movl %ecx,8(%r9)\n movl %edx,12(%r9)\n"
+ "movq %r10,%rbx\n ret\n .seh_endproc\n"
+ ".globl APFrameDelphiCPUIDCatch\n .def APFrameDelphiCPUIDCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameDelphiCPUIDCatch\n APFrameDelphiCPUIDCatch:\n"
+ "pushq %rbx\n .seh_pushreg %rbx\n subq $32,%rsp\n .seh_stackalloc 32\n .seh_endprologue\n"
+ "movabsq $0x1122334455667788,%rbx\n"
+ ".Ldelphi_cpuid_try:\n xorl %ecx,%ecx\n xorl %edx,%edx\n xorq %r8,%r8\n call APFrameDelphiCPUID\n nop\n"
+ ".Ldelphi_cpuid_end:\n xorl %eax,%eax\n addq $32,%rsp\n popq %rbx\n ret\n"
+ ".Ldelphi_cpuid_catch:\n movabsq $0x1122334455667788,%rax\n cmpq %rax,%rbx\n sete %al\n movzbl %al,%eax\n"
+ "addq $32,%rsp\n popq %rbx\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Ldelphi_cpuid_try,.Ldelphi_cpuid_end,APFrameMemoryFilter,.Ldelphi_cpuid_catch\n .text\n .seh_endproc\n"
+);
+
 static BOOL check_stack_probe;
 extern uint64_t APFrameStackProbe(const uint64_t *),APFrameStackProbeCatch(void);
 __asm__(
@@ -353,6 +374,13 @@ static DWORD WINAPI worker(void *unused){
   for(unsigned i=0;i<4;i++)if(actual[i]!=expected[i])return 13;
   if(APFrameCPUIDCatch()!=1)return 13;
  }
+ if(check_delphi_cpuid){
+  uint32_t expected[4],actual[4];
+  __cpuid_count(0,0,expected[0],expected[1],expected[2],expected[3]);
+  APFrameDelphiCPUID(actual,0,0);
+  for(unsigned i=0;i<4;i++)if(actual[i]!=expected[i])return 15;
+  if(check_delphi_cpuid==2 && APFrameDelphiCPUIDCatch()!=1)return 15;
+ }
  if(check_stack_probe){
   const uint64_t value=UINT64_C(0xabc123def4569870);
   if(APFrameStackProbe(&value)!=value || APFrameStackProbeCatch()!=904)return 14;
@@ -383,11 +411,12 @@ int wmain(int argc,wchar_t **argv){
   else if(!wcscmp(argv[i],L"--normal-cleanup-throws"))normal_cleanup_throws=(BOOL)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--unselected-id"))unselected_id=(uint32_t)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--check-cpuid"))check_cpuid=(BOOL)wcstoul(argv[i+1],NULL,10);
+  else if(!wcscmp(argv[i],L"--check-delphi-cpuid"))check_delphi_cpuid=(DWORD)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--check-stack-probe"))check_stack_probe=(BOOL)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--check-chain"))check_chain=(BOOL)wcstoul(argv[i+1],NULL,10);
   else return 2;
  }
- if(!batch_limit||batch_limit>256||!threads||threads>16||!rounds||rounds>1000||!iterations||iterations>1000||child_delay_ms>5000)return 2;
+ if(check_delphi_cpuid>2||!batch_limit||batch_limit>256||!threads||threads>16||!rounds||rounds>1000||!iterations||iterations>1000||child_delay_ms>5000)return 2;
  LARGE_INTEGER start,finish,frequency;
  if(!QueryPerformanceCounter(&start)||!QueryPerformanceFrequency(&frequency))return 10;
  barrier=CreateEventW(NULL,TRUE,FALSE,NULL);if(!barrier)return 3;

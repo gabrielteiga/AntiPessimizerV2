@@ -44,9 +44,10 @@ var referenceCases = []referenceCase{
 	{0x182090, "0f3148c1e2204809d0c3", "timestamp"},
 	{0x177c60, "6548a10800000000000000c3", "thread-stack-base"},
 	{0x1729b0, "488d0559ffffff488d15f2ffffff483bc27d18488d0546ffffff483bc17f0c488d05daffffff483bc17f0433c0eb02b001c3", "code-range"},
+	{0xb5e0, "4989da4989c989d04489c10fa241890141895904418949084189510c4c89d3c3", "cpu-identification"},
 }
 
-func pinTimestampThread(t *testing.T) {
+func pinReferenceThread(t *testing.T) {
 	t.Helper()
 	runtime.LockOSThread()
 	t.Cleanup(runtime.UnlockOSThread)
@@ -54,13 +55,13 @@ func pinTimestampThread(t *testing.T) {
 	var processMask, systemMask uintptr
 	ok, _, err := kernel.NewProc("GetProcessAffinityMask").Call(uintptr(windows.CurrentProcess()), uintptr(unsafe.Pointer(&processMask)), uintptr(unsafe.Pointer(&systemMask)))
 	if ok == 0 || processMask == 0 {
-		t.Fatal("get process affinity for timestamp comparison", err)
+		t.Fatal("get process affinity for reference comparison", err)
 	}
 	setAffinity := kernel.NewProc("SetThreadAffinityMask")
 	thread := uintptr(windows.CurrentThread())
 	previous, _, err := setAffinity.Call(thread, processMask&-processMask)
 	if previous == 0 {
-		t.Fatal("pin timestamp comparison to one logical processor", err)
+		t.Fatal("pin reference comparison to one logical processor", err)
 	}
 	t.Cleanup(func() {
 		if ok, _, err := setAffinity.Call(thread, previous); ok == 0 {
@@ -206,8 +207,8 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 			}
 			registered = true
 			var stackBase uintptr
-			if c.Kind == "timestamp" {
-				pinTimestampThread(t)
+			if c.Kind == "timestamp" || c.Kind == "cpu-identification" {
+				pinReferenceThread(t)
 			} else if c.Kind == "thread-stack-base" {
 				runtime.LockOSThread()
 				defer runtime.UnlockOSThread()
@@ -226,6 +227,19 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 					after, _, _ := syscall.SyscallN(source)
 					if before == 0 || after <= before || observed < before || observed > after {
 						t.Fatalf("relocated timestamp outside original interval: %#x <= %#x <= %#x", before, observed, after)
+					}
+					calls++
+					continue
+				}
+				if c.Kind == "cpu-identification" {
+					out := rw + 128
+					write(out, make([]byte, 16))
+					original, _, _ := syscall.SyscallN(uintptr(dll)+uintptr(c.RVA), out, 0, 0)
+					want := read(out, 16)
+					write(out, bytes.Repeat([]byte{0xff}, 16))
+					observed, _, _ := syscall.SyscallN(memory, out, 0, 0)
+					if original == 0 || observed != original || !bytes.Equal(read(out, 16), want) {
+						t.Fatalf("relocated CPUID results changed at call %d", trial)
 					}
 					calls++
 					continue

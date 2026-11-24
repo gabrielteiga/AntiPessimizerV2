@@ -381,3 +381,9 @@ Os RVAs 0x3f300 e 0x1729b0 calculam o próprio endereço de entrada com LEA.
 A realocação mantém o endereço original. O ensaio de 0x1729b0 verifica os
 dois limites de um intervalo de código, com cem comparações entre o corpo
 original e o realocado. A cobertura estática chega a 8.650 de 8.777 entradas.
+
+A consulta CPUID de RVA 0xb5e0 recebe o buffer, a folha e a subfolha. Ela
+guarda RBX em R10 e grava EAX, EBX, ECX e EDX no buffer de saída. O clone do
+padrão exato preserva os resultados e registra a pilha usada para salvar RBX.
+O corpus compara 100 pares dessa consulta no mesmo processador lógico.
+São 16 rotinas executadas, 1.600 pares e 8.651 planejamentos estáticos aceitos.

@@ -11,14 +11,18 @@ import (
 )
 
 func TestNativeProducerCPUIDPreservesResultsAndRBXDuringUnwind(t *testing.T) {
-	testNativeFrameReturnAndUnwind(t, "APFrameCPUID", "--check-cpuid")
+	testNativeFrameReturnAndUnwind(t, "APFrameCPUID", "--check-cpuid", "1")
 }
 
 func TestNativeProducerInlineStackProbeAndUnwind(t *testing.T) {
-	testNativeFrameReturnAndUnwind(t, "APFrameStackProbe", "--check-stack-probe")
+	testNativeFrameReturnAndUnwind(t, "APFrameStackProbe", "--check-stack-probe", "1")
 }
 
-func testNativeFrameReturnAndUnwind(t *testing.T, symbol, flag string) {
+func TestNativeProducerDelphiCPUIDLeafRestoresRBXAfterOutputFault(t *testing.T) {
+	testNativeFrameReturnAndUnwind(t, "APFrameDelphiCPUID", "--check-delphi-cpuid", "2")
+}
+
+func testNativeFrameReturnAndUnwind(t *testing.T, symbol, flag, capturedMode string) {
 	t.Helper()
 	o := frameSelectionFixture(t, map[string]uint32{symbol: 1})
 	o.Args = append(o.Args, flag, "1")
@@ -27,6 +31,7 @@ func testNativeFrameReturnAndUnwind(t *testing.T, symbol, flag string) {
 	if data, err := exec.CommandContext(ctx, o.Image, o.Args...).CombinedOutput(); err != nil {
 		t.Fatal("baseline native frame return or unwind differs", err, string(data))
 	}
+	o.Args[len(o.Args)-1] = capturedMode
 	var output bytes.Buffer
 	if err := Launch(ctx, o, &output); err != nil {
 		t.Fatal(err, output.String())

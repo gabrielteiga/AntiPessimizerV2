@@ -1,6 +1,7 @@
 package x64
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 
@@ -80,8 +81,19 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 	if err := validateChainCode(code, metadata.chainBoundaries, metadata.chainGaps); err != nil {
 		return FunctionPlan{}, err
 	}
-	framed := originalInfo[2] != 0
 	entry := entryJump(source, base)
+	body, prefix := code, 0
+	if metadata.handlerRVA == 0 && len(metadata.chainBoundaries) == 0 &&
+		bytes.Equal(originalInfo, []byte{1, 0, 0, 0}) && bytes.Equal(code, delphiCPUIDLeaf) {
+		// Delphi saves RBX in volatile R10. Its result stores can fault
+		// before RBX is restored. Give this exact stack-independent body a
+		// real RBX save so Windows can unwind the clone at any store.
+		body = append([]byte{0x53}, code[:len(code)-4]...)
+		body = append(body, 0x5b, 0xc3)
+		originalInfo = []byte{1, 1, 1, 0, 1, 0x30, 0, 0}
+		prefix = 1
+	}
+	framed := originalInfo[2] != 0
 	tiny := size < NearJumpSize
 	if tiny {
 		if !selected[source] || framed || originalInfo[1] != 0 || metadata.handlerRVA != 0 || len(metadata.chainBoundaries) != 0 {
@@ -96,12 +108,14 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 	if len(selected) > 0 && (framed || originalInfo[1] != 0) {
 		restored = verifiedTailEpilogues(code, originalInfo)
 	}
-	// validatePrologueActions already matched every push to its unwind action.
-	savedRBX := originalInfo[1] != 0 && code[0] == 0x53
-	flow, err := rewriteSelectedFunction(code, source, base, framed, int(originalInfo[1]), len(entry), true, savedRBX, selected, restored)
+	// The original prologue was checked above. The exact replacement emits
+	// a matching PUSH RBX and unwind action together.
+	savedRBX := originalInfo[1] != 0 && body[0] == 0x53
+	flow, err := rewriteSelectedFunction(body, source, base, framed, int(originalInfo[1]), len(entry)+prefix, true, savedRBX, selected, restored)
 	if err != nil {
 		return FunctionPlan{}, err
 	}
+	flow.overwrite -= prefix
 	if len(metadata.chainBoundaries) != 0 && flow.overwrite > metadata.chainBoundaries[0] {
 		return fail("entry patch crosses an unwind chain boundary")
 	}
@@ -227,6 +241,14 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 		tails = append(tails, uint32(target-loadedBase))
 	}
 	return FunctionPlan{TailTargets: tails, Original: append([]byte(nil), code[:flow.overwrite]...), Source: append([]byte(nil), code...), Patch: patch, Image: data, BodyRVA: 512, ExitRVA: flow.exitRVA, OriginalHandlerRVA: metadata.handlerRVA, RelocatedHandler: len(scopes) != 0, HandlerScopeStyle: metadata.scopeStyle, Functions: [3]RuntimeFunction{{0, in.CodeSize, in.UnwindRVA}, {512, 512 + uint32(len(flow.code)), infoRVA}, {flow.exitRVA, flow.exitRVA + out.CodeSize, flow.exitRVA + out.UnwindRVA}}}, nil
+}
+
+// The pinned Delphi RTL copies four CPUID results into RCX and restores RBX
+// from R10. This byte pattern has no stack operands or position-dependent code.
+var delphiCPUIDLeaf = []byte{
+	0x49, 0x89, 0xda, 0x49, 0x89, 0xc9, 0x89, 0xd0, 0x44, 0x89, 0xc1, 0x0f, 0xa2,
+	0x41, 0x89, 0x01, 0x41, 0x89, 0x59, 0x04, 0x41, 0x89, 0x49, 0x08, 0x41, 0x89, 0x51, 0x0c,
+	0x4c, 0x89, 0xd3, 0xc3,
 }
 
 func validateChainCode(code []byte, boundaries []int, gaps []chainGap) error {
