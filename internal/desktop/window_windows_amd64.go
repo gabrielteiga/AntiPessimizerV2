@@ -86,19 +86,23 @@ type paint struct {
 	Reserved           [32]byte
 }
 type update struct {
-	MetricComparison *instrumentation.Comparison
-	CatalogPath      string
-	CatalogUnit      string
-	Metrics          []instrumentation.Record
-	Live             bool
-	Comparison       *report.Comparison
-	Response         service.Response
-	Error            error
-	History          []profiling.Snapshot
-	Offline          bool
-	Note             string
+	CatalogExcludesRuntime bool
+	MetricComparison       *instrumentation.Comparison
+	CatalogPath            string
+	CatalogUnit            string
+	CatalogText            string
+	Metrics                []instrumentation.Record
+	Live                   bool
+	Comparison             *report.Comparison
+	Response               service.Response
+	Error                  error
+	History                []profiling.Snapshot
+	Offline                bool
+	Note                   string
 }
 type window struct {
+	excludeRuntime                                                                 uintptr
+	catalogExcludesRuntime                                                         bool
 	preferences                                                                    Preferences
 	preferencesPath                                                                string
 	preferencesProblem, preferencesWriteErr                                        error
@@ -112,6 +116,8 @@ type window struct {
 	catalog                                                                        *service.CatalogPage
 	catalogPath                                                                    string
 	catalogUnit                                                                    string
+	catalogText                                                                    string
+	selectFiltered, clearSelection                                                 uintptr
 	wholeUnit                                                                      uintptr
 	followPath                                                                     string
 	followCancel                                                                   context.CancelFunc
@@ -344,12 +350,15 @@ func (a *window) open() error {
 	a.modeButton = child(a.hwnd, "BUTTON", "Chamadas", 0x10000, 18)
 	a.imagePath = child(a.hwnd, "EDIT", "", 0x00810080, 19)
 	a.symbolSearch = child(a.hwnd, "EDIT", "", 0x00810080, 20)
-	a.wholeUnit = child(a.hwnd, "BUTTON", "Unidade inteira", 0x10003, 26)
+	a.wholeUnit = child(a.hwnd, "BUTTON", "Unidades inteiras", 0x10003, 26)
+	a.excludeRuntime = child(a.hwnd, "BUTTON", "Omitir RTL e JCL", 0x10003, 30)
 	a.browseExecutable = child(a.hwnd, "BUTTON", "Procurar EXE", 0x10000, 27)
+	a.selectFiltered = child(a.hwnd, "BUTTON", "Selecionar busca", 0x10000, 28)
+	a.clearSelection = child(a.hwnd, "BUTTON", "Limpar seleção", 0x10000, 29)
 	a.programArgs = child(a.hwnd, "EDIT", "", 0x00810080, 21)
 	a.launchTimeout = child(a.hwnd, "EDIT", "60", 0x00810080, 22)
 	a.procedureList = child(a.hwnd, "LISTBOX", "", 0x00a10801, 23)
-	for h, label := range map[uintptr]string{a.imagePath: "Caminho completo do EXE Delphi", a.symbolSearch: "Buscar unidade ou procedimento (depois, Ler símbolos)", a.programArgs: "Argumentos do novo programa", a.launchTimeout: "Prazo em segundos"} {
+	for h, label := range map[uintptr]string{a.imagePath: "Caminho completo do EXE Delphi", a.programArgs: "Argumentos do novo programa", a.launchTimeout: "Prazo em segundos"} {
 		send.Call(h, 0x1501, 0, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(label))))
 	}
 	a.applyPreferences()
@@ -412,6 +421,9 @@ func (a *window) applyPreferences() {
 	text(a.imagePath, a.preferences.ImagePath)
 	text(a.filter, a.preferences.ResultFilter)
 	text(a.symbolSearch, a.preferences.SymbolFilter)
+	if a.preferences.ExcludeRuntime {
+		send.Call(a.excludeRuntime, 0xf1, 1, 0)
+	}
 	if a.preferences.WholeUnit {
 		send.Call(a.wholeUnit, 0xf1, 1, 0)
 	}
@@ -429,7 +441,7 @@ func (a *window) persistPreferences() {
 	}
 	a.preferencesSaved = true
 	whole, _, _ := send.Call(a.wholeUnit, 0xf0, 0, 0)
-	p := Preferences{WholeUnit: whole == 1, Version: 1, ImagePath: value(a.imagePath), ResultFilter: value(a.filter), SymbolFilter: value(a.symbolSearch), TimeUnit: Milliseconds}
+	p := Preferences{ExcludeRuntime: a.excludesRuntime(), WholeUnit: whole == 1, Version: 1, ImagePath: value(a.imagePath), ResultFilter: value(a.filter), SymbolFilter: value(a.symbolSearch), TimeUnit: Milliseconds}
 	index, _, _ := send.Call(a.metricUnits, 0x147, 0, 0)
 	units := []MetricTimeUnit{Nanoseconds, Microseconds, Milliseconds, Seconds, ClockTicks}
 	if index < uintptr(len(units)) {
@@ -481,7 +493,19 @@ func (a *window) layout() {
 		pos(a.clearButton, w-155, 90, 140, 28)
 		pos(a.programArgs, w/2, 90, w/2-300, 28)
 		pos(a.procedureList, 12, 130, w-24, 92)
-		pos(a.status, 12, 230, w-24, 42)
+		statusWidth, show := w-314, uintptr(5)
+		searchCue := "Buscar unidade ou procedimento"
+		if whole, _, _ := send.Call(a.wholeUnit, 0xf0, 0, 0); whole == 1 {
+			statusWidth, show = w-24, 0
+			searchCue = "Nomes exatos das unidades, separados por vírgulas"
+		}
+		send.Call(a.symbolSearch, 0x1501, 0, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(searchCue)))) // EM_SETCUEBANNER
+		pos(a.excludeRuntime, 12, 230, 160, 28)
+		pos(a.status, 181, 230, statusWidth-169, 42)
+		pos(a.selectFiltered, w-290, 230, 135, 28)
+		pos(a.clearSelection, w-150, 230, 135, 28)
+		user.NewProc("ShowWindow").Call(a.selectFiltered, show)
+		user.NewProc("ShowWindow").Call(a.clearSelection, show)
 		pos(a.table, 12, 280, w-24, h-490)
 	}
 }
@@ -496,7 +520,7 @@ func (a *window) request(q service.Request) {
 	go func() {
 		defer a.wg.Done()
 		r, err := service.Call(a.ctx, a.address, q)
-		a.send(update{Response: r, Error: err, Live: true, CatalogPath: q.Catalog.Image, CatalogUnit: q.Catalog.Unit})
+		a.send(update{Response: r, Error: err, Live: true, CatalogPath: q.Catalog.Image, CatalogUnit: strings.Join(q.Catalog.Units, ", "), CatalogText: q.Catalog.Text, CatalogExcludesRuntime: q.Catalog.ExcludeRuntime})
 	}()
 }
 func (a *window) poll() {
@@ -559,7 +583,7 @@ func (a *window) poll() {
 }
 func (a *window) command(id int) {
 	if a.followPath != "" {
-		if id == 2 || id == 3 || id == 5 || id == 27 {
+		if id == 2 || id == 3 || id == 5 || id == 27 || id == 28 || id == 29 || id == 30 {
 			return
 		}
 		if id == 4 {
@@ -590,6 +614,34 @@ func (a *window) command(id int) {
 		return
 	}
 	switch id {
+	case 26:
+		a.layout()
+	case 30:
+		a.catalog = nil
+		send.Call(a.procedureList, 0x184, 0, 0)
+		text(a.status, "Leia os símbolos com o filtro atual.")
+	case 28, 29:
+		if !a.instrumentMode {
+			return
+		}
+		if whole, _, _ := send.Call(a.wholeUnit, 0xf0, 0, 0); whole == 1 {
+			text(a.status, "Unidades inteiras seleciona todos os procedimentos dessas unidades.")
+			return
+		}
+		if id == 29 {
+			send.Call(a.procedureList, 0x185, 0, ^uintptr(0)) // LB_SETSEL, all items
+			return
+		}
+		page := a.catalog
+		if page == nil || a.catalogExcludesRuntime != a.excludesRuntime() || a.catalogPath != value(a.imagePath) || a.catalogUnit != "" || a.catalogText != value(a.symbolSearch) {
+			text(a.status, "Leia os símbolos da busca atual.")
+			return
+		}
+		if page.Total == 0 || page.Total != len(page.Procedures) || page.Total > service.MaxInstrumentedProcedures {
+			text(a.status, fmt.Sprintf("A busca contém %d procedimentos. Selecione de 1 a %d ou refine a busca.", page.Total, service.MaxInstrumentedProcedures))
+			return
+		}
+		send.Call(a.procedureList, 0x185, 1, ^uintptr(0))
 	case 27:
 		if !a.instrumentMode {
 			return
@@ -602,7 +654,7 @@ func (a *window) command(id int) {
 		if path != "" && path != value(a.imagePath) {
 			text(a.imagePath, path)
 			a.catalog = nil
-			a.catalogPath, a.catalogUnit = "", ""
+			a.catalogPath, a.catalogUnit, a.catalogText = "", "", ""
 			send.Call(a.procedureList, 0x184, 0, 0) // LB_RESETCONTENT
 			text(a.details, "Leia os símbolos do executável escolhido.")
 		}
@@ -857,10 +909,12 @@ func (a *window) tick() {
 					text(a.status, err.Error())
 				}
 			}
-			if page := u.Response.Catalog; page != nil && a.instrumentMode && u.CatalogPath == value(a.imagePath) {
+			if page := u.Response.Catalog; page != nil && a.currentCatalogQuery(u) {
 				a.catalog = page
+				a.catalogExcludesRuntime = u.CatalogExcludesRuntime
 				a.catalogPath = u.CatalogPath
 				a.catalogUnit = u.CatalogUnit
+				a.catalogText = u.CatalogText
 				send.Call(a.procedureList, 0x184, 0, 0)
 				for _, procedure := range page.Procedures {
 					label := procedure.Unit + " | " + procedure.Name
@@ -1092,7 +1146,7 @@ func (a *window) configureMode() {
 		visible = 5
 		sampling = 0
 	}
-	for _, h := range []uintptr{a.imagePath, a.symbolSearch, a.wholeUnit, a.programArgs, a.launchTimeout, a.procedureList, a.clearButton, a.browseExecutable} {
+	for _, h := range []uintptr{a.imagePath, a.symbolSearch, a.wholeUnit, a.programArgs, a.launchTimeout, a.procedureList, a.clearButton, a.browseExecutable, a.selectFiltered, a.clearSelection, a.excludeRuntime} {
 		user.NewProc("ShowWindow").Call(h, visible)
 	}
 	for _, h := range []uintptr{a.processes, a.demo} {
@@ -1108,48 +1162,81 @@ func (a *window) configureMode() {
 		text(a.start, "Iniciar")
 	}
 }
+
+func exactUnits(search string) []string {
+	units := strings.Split(search, ",")
+	for i, unit := range units {
+		units[i] = strings.TrimSpace(unit)
+		if units[i] == "" {
+			return nil
+		}
+	}
+	return units
+}
+
+func (a *window) excludesRuntime() bool {
+	checked, _, _ := send.Call(a.excludeRuntime, 0xf0, 0, 0)
+	return checked == 1
+}
+
+func (a *window) currentCatalogQuery(u update) bool {
+	if !a.instrumentMode || u.CatalogPath != value(a.imagePath) || u.CatalogExcludesRuntime != a.excludesRuntime() {
+		return false
+	}
+	search := value(a.symbolSearch)
+	if whole, _, _ := send.Call(a.wholeUnit, 0xf0, 0, 0); whole == 1 {
+		return u.CatalogUnit != "" && strings.EqualFold(strings.Join(exactUnits(search), ", "), u.CatalogUnit)
+	}
+	return u.CatalogUnit == "" && u.CatalogText == search
+}
+
 func (a *window) instrumentCommand(id int) {
 	path := value(a.imagePath)
 	whole, _, _ := send.Call(a.wholeUnit, 0xf0, 0, 0)
 	unitMode := whole == 1
-	unitName := strings.TrimSpace(value(a.symbolSearch))
+	search := value(a.symbolSearch)
+	var units []string
+	if unitMode {
+		units = exactUnits(search)
+		if len(units) == 0 {
+			text(a.status, "Informe os nomes exatos das unidades Pascal, separados por vírgulas.")
+			return
+		}
+	}
 	if id == 2 {
-		q := service.CatalogQuery{Image: path, Text: value(a.symbolSearch), Limit: 200, Check: true}
+		q := service.CatalogQuery{ExcludeRuntime: a.excludesRuntime(), Image: path, Text: search, Limit: service.MaxInstrumentedProcedures, Check: true}
 		if unitMode {
-			if unitName == "" {
-				text(a.status, "Informe o nome exato da unidade Pascal e leia os símbolos.")
-				return
-			}
 			q.Text = ""
-			q.Unit = unitName
-			q.Limit = service.MaxInstrumentedProcedures
+			q.Units = units
 		}
 		a.request(service.Request{Op: "instrument-catalog", Catalog: q})
 		return
 	}
-	if a.catalog == nil || a.catalogPath != path {
+	if a.catalog == nil || a.catalogPath != path || a.catalogExcludesRuntime != a.excludesRuntime() {
 		text(a.status, "Leia os símbolos do EXE antes de iniciar.")
 		return
 	}
 	var ids []uint32
-	var units []string
 	if unitMode {
-		if unitName == "" || !strings.EqualFold(unitName, a.catalogUnit) {
-			text(a.status, "Leia os símbolos da unidade exata antes de iniciar.")
+		if !strings.EqualFold(strings.Join(units, ", "), a.catalogUnit) {
+			text(a.status, "Leia os símbolos das unidades atuais antes de iniciar.")
 			return
 		}
 		if a.catalog.Total < 1 || a.catalog.Total > service.MaxInstrumentedProcedures || len(a.catalog.Procedures) != a.catalog.Total {
-			text(a.status, fmt.Sprintf("Unidade contém %d procedimentos; escolha uma unidade com 1 a %d ou IDs individuais.", a.catalog.Total, service.MaxInstrumentedProcedures))
+			text(a.status, fmt.Sprintf("As unidades contêm %d procedimentos. Escolha de 1 a %d.", a.catalog.Total, service.MaxInstrumentedProcedures))
 			return
 		}
 		for _, check := range a.catalog.Checks {
 			if !check.PlanSupported {
-				text(a.status, "Unidade contém procedimento não suportado: "+check.Reason)
+				text(a.status, "As unidades contêm um procedimento não suportado: "+check.Reason)
 				return
 			}
 		}
-		units = []string{unitName}
 	} else {
+		if a.catalogUnit != "" {
+			text(a.status, "Leia os símbolos da busca atual antes de iniciar.")
+			return
+		}
 		count, _, _ := send.Call(a.procedureList, 0x190, 0, 0)
 		if count < 1 || count > service.MaxInstrumentedProcedures {
 			text(a.status, fmt.Sprintf("Selecione de 1 a %d procedimentos (Ctrl/Shift).", service.MaxInstrumentedProcedures))
@@ -1191,5 +1278,5 @@ func (a *window) instrumentCommand(id int) {
 	a.offline.Store(false)
 	a.model = Model{}
 	a.lastBuild = ""
-	a.request(service.Request{Op: "instrument-start", Instrument: service.InstrumentOptions{Image: path, ImageID: a.catalog.ImageID, CatalogID: a.catalog.CatalogID, Procedures: ids, Units: units, Args: args[1:], TimeoutMS: seconds * 1000}})
+	a.request(service.Request{Op: "instrument-start", Instrument: service.InstrumentOptions{ExcludeRuntime: a.excludesRuntime(), Image: path, ImageID: a.catalog.ImageID, CatalogID: a.catalog.CatalogID, Procedures: ids, Units: units, Args: args[1:], TimeoutMS: seconds * 1000}})
 }

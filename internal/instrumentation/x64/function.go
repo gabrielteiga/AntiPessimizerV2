@@ -41,9 +41,9 @@ func (p *PEImage) BuildFunction(rva, size uint32, loadedBase, base, enter, exit,
 	return p.buildSelectedFunction(rva, size, loadedBase, base, enter, exit, unwind, id, nil)
 }
 
-// BuildSelectedFunction additionally permits direct tail jumps with verified stack restoration to
-// exact entries in this selection. The owner must install every selected target
-// and use an adapter with shared-physical-frame completion semantics.
+// BuildSelectedFunction permits verified direct and indirect tail jumps to exact
+// entries in this selection. The owner must install every selected target and
+// use an adapter with shared-physical-frame completion semantics.
 func (p *PEImage) BuildSelectedFunction(rva, size uint32, loadedBase, base, enter, exit, unwind uint64, id uint32, selected []uint32) (FunctionPlan, error) {
 	targets := make(map[uint64]bool, len(selected))
 	for _, target := range selected {
@@ -89,14 +89,23 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 	}
 	framed := originalInfo[2] != 0
 	entry := entryJump(source, base)
+	tiny := size < NearJumpSize
+	if tiny {
+		if !selected[source] || framed || originalInfo[1] != 0 || metadata.handlerRVA != 0 || len(metadata.chainBoundaries) != 0 {
+			return fail("breakpoint entry requires a selected leaf without unwind actions or handler")
+		}
+		entry = []byte{0xcc}
+	}
 	if metadata.handlerRVA != 0 {
 		selected = nil
 	}
-	var restored map[int]bool
+	var restored map[int]int
 	if len(selected) > 0 && (framed || originalInfo[1] != 0) {
 		restored = verifiedTailEpilogues(code, originalInfo)
 	}
-	flow, err := rewriteSelectedFunction(code, source, base, framed, int(originalInfo[1]), len(entry), true, selected, restored)
+	// validatePrologueActions already matched every push to its unwind action.
+	savedRBX := originalInfo[1] != 0 && code[0] == 0x53
+	flow, err := rewriteSelectedFunction(code, source, base, framed, int(originalInfo[1]), len(entry), true, savedRBX, selected, restored)
 	if err != nil {
 		return FunctionPlan{}, err
 	}
@@ -210,6 +219,11 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 			binary.LittleEndian.PutUint16(descriptor[mapAt+i*4:], mapping.original)
 			binary.LittleEndian.PutUint16(descriptor[mapAt+2+i*4:], mapping.relocated)
 		}
+	}
+	if tiny {
+		// The debugger delivers the breakpoint before decoding the original
+		// first instruction. No other source bytes need to be overwritten.
+		flow.overwrite = 1
 	}
 	patch := append(entry, make([]byte, flow.overwrite-len(entry))...)
 	for i := len(entry); i < len(patch); i++ {

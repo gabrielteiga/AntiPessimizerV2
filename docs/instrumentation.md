@@ -686,15 +686,22 @@ de saturação exige contador positivo junto de ErrLoss e incomplete=true.
 
 ## Corpus de execução da DLL Delphi original
 
-O CI Windows inclui um ensaio separado de treze rotinas com bytes conferidos na
-DLL v0.3 do Hoshoyo, comparando 1.300 pares original/corpo relocado com resultados
+O CI Windows inclui um ensaio separado de quinze rotinas com bytes conferidos na
+DLL v0.3 do Hoshoyo, comparando 1.500 pares original/corpo relocado com resultados
 esperados e um helper nativo que altera GPR voláteis. Inclui push/pop com CMPXCHG16B
 sobre buffers privados e cem leituras RDTSC relocalizadas, cada uma entre leituras
-do corpo original na mesma CPU lógica. O ensaio chama as rotinas sem inicializar
+do corpo original na mesma CPU lógica. A leitura de StackBase via GS é comparada
+com GetCurrentThreadStackLimits na mesma thread Windows. O ensaio chama as rotinas sem inicializar
 a DLL ou suas dependências. O original
 não é modificado. Hashes, RVAs, bytes e limites de evidência estão no
 [mapa do original](phase0/antipessimizer-reference.md#execução-limitada-do-código-delphi-distribuído-pelo-original).
 Isso não certifica Delphi 10.4, handlers privados ou o fluxo completo num EXE Delphi.
+
+O planejador nativo aceita `CPUID` sem prefixo depois de um prólogo que começa
+com `PUSH RBX` e registra esse salvamento no unwind. O ensaio Windows confere
+os quatro resultados e a recuperação de RBX após uma falha de memória.
+A rotina CPUID da DLL original fica fora desse subconjunto porque seu unwind
+não descreve o salvamento de RBX.
 
 ## Planejamento de várias funções na mesma imagem
 
@@ -816,9 +823,10 @@ memória, handles, QPC e bytes emitidos contra baseline do mesmo EXE.
 ## Tail calls diretas entre métodos selecionados
 
 BuildSelectedFunction permite JMP direto, curto ou rel32, para o início exato
-de outro procedimento da seleção completa. O chamador precisa ter unwind vazio,
-sem prólogo, frame ou handler. Transferências condicionais externas, indiretas,
-com frame/handler ou para destinos não selecionados/interiores continuam recusadas.
+de outro procedimento da seleção completa. O chamador pode ter unwind vazio
+ou restaurar o frame com um dos epílogos conferidos adiante. Transferências
+condicionais externas, com handler ou para destinos no interior de outro
+método ou fora da seleção continuam recusadas.
 BuildFunction sem seleção e o caminho legado conservam a rejeição anterior.
 A pré-validação usa somente os RVAs da seleção consultada; um método isolado
 pode aparecer recusado até que seu destino seja incluído na mesma seleção.
@@ -876,3 +884,35 @@ o alvo confere o valor de retorno e captura uma falha real no secundário.
 A captura exige duas chamadas e um unwind por thread, zero perdas e zero
 frames abertos. Chains com ações locais, handlers, versões alternativas
 ou extensões descontínuas continuam fora do subconjunto conferido.
+
+## Tail calls indiretas com destinos comprovados
+
+Em métodos sem frame ou handler, o planejador aceita `JMP R11` quando a
+instrução imediatamente anterior é `LEA R11, [RIP+disp32]` e o endereço
+calculado é a entrada exata de outro método selecionado. Ramos que pulam o
+LEA são rejeitados. A cópia conserva o valor de R11 e emite salto direto ao
+mesmo endereço. O slot de retorno original e a contabilidade da cadeia
+seguem as mesmas regras das tail calls diretas.
+
+O planejador também aceita `LEA R11`, `LEA R10`, `CMOVcc R11, R10`, `JMP R11`
+quando os dois endereços RIP-relative apontam para entradas exatas selecionadas.
+A cópia conserva o CMOV e o JMP indireto, com a mesma decisão pelas flags em
+tempo de execução. Desvios para o meio da sequência são recusados.
+
+Um chamador com frame e sem handler pode carregar um endereço selecionado
+em R11 imediatamente antes de restaurar a pilha com ADD/LEA e POPs conferidos.
+O planejador conserva a restauração e o valor de R11 e emite um salto direto
+ao destino. Ramos precisam executar tanto a atribuição quanto a restauração.
+A escolha entre dois alvos com CMOV exige um chamador sem frame.
+
+O teste Windows executa o EXE baseline e a captura instrumentada em três
+threads, com seis argumentos, onze chamadas externas por worker e uma saída
+excepcional. Confere as chamadas por destino e a conservação do tempo inclusivo.
+
+## Sondagem de páginas de pilha no prólogo
+
+O planejador mantém o salto condicional curto no loop Delphi que toca cada
+página antes do SUB RSP registrado no unwind. Ele confere o passo de 4 KiB,
+o limite do loop e o valor da alocação. O prólogo e seus offsets permanecem
+idênticos. O ensaio Windows força o crescimento da pilha de três threads e
+confere o retorno normal e o unwind após uma falha de memória.

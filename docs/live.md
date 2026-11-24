@@ -143,5 +143,16 @@ todas as unidades pedidas precisam existir. Até 256 procedimentos físicos pode
 ser selecionados. Unidades maiores são recusadas com a contagem, sem truncamento
 por paginação. ImageID/CatalogID e a pré-validação continuam obrigatórios;
 qualquer método não suportado impede o lançamento e preserva o histórico.
-O terminal oferece `--unit Nome` e a janela o modo Unidade inteira. O catálogo
-é lido novamente pelo serviço antes do início, incluindo TDS externo.
+O terminal oferece `--unit Nome` repetível. Na janela, **Unidades inteiras**
+aceita nomes separados por vírgulas e salva o texto no filtro de símbolos ao
+fechar. `instrument-catalog` pode receber `catalog.units` como alternativa a
+`catalog.text` e `catalog.unit`. A prévia usa a expansão e os limites do início.
+O serviço relê o catálogo antes de iniciar, incluindo TDS externo.
+
+A opção **Omitir RTL e JCL** aplica os prefixos `System.`, `Winapi.` e `Jcl`
+do profiler original, incluindo aliases do mesmo intervalo. O filtro precede
+a paginação e o limite de 256 procedimentos da seleção exata. A janela salva
+a preferência e carrega nova prévia para o estado do filtro antes de iniciar.
+O RPC recebe `exclude_runtime` no catálogo e na seleção instrumentada.
+No terminal, `instrument` e `viewer --op instrument-catalog` /
+`--op instrument-start` aceitam `--exclude-runtime`.

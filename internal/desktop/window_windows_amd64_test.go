@@ -245,7 +245,7 @@ func TestNativeInstrumentedControlWindowSmoke(t *testing.T) {
 	address := listener.Addr().String()
 	c := service.New()
 	c.LoadCatalog = func(string) (native.Catalog, error) {
-		return native.Catalog{CatalogID: "catalog-token", ImageID: "smoke-build", Procedures: []native.SelectedProcedure{{ID: 7, RVA: 0x1000, Size: 32, Name: "Lab.Parent", Unit: "Lab"}, {ID: 8, RVA: 0x2000, Size: 32, Name: "Lab.Handler", Unit: "Lab"}}, Aliases: []native.ProcedureAlias{{ID: 7, Name: "Lab.ParentAlias", Unit: "Shared"}}}, nil
+		return native.Catalog{CatalogID: "catalog-token", ImageID: "smoke-build", Procedures: []native.SelectedProcedure{{ID: 7, RVA: 0x1000, Size: 32, Name: "Lab.Parent", Unit: "Lab"}, {ID: 8, RVA: 0x2000, Size: 32, Name: "Lab.Handler", Unit: "Lab"}}, Aliases: []native.ProcedureAlias{{ID: 7, Name: "Lab.ParentAlias", Unit: "Shared"}, {ID: 7, Name: "Fonte.ParentAlias", Unit: "Fonte"}, {ID: 8, Name: "System.Internal", Unit: "System"}}}, nil
 	}
 	c.CheckCatalog = func(_ native.Catalog, procedures []native.SelectedProcedure) ([]native.ProcedureCheck, error) {
 		var checks []native.ProcedureCheck
@@ -316,13 +316,35 @@ func TestNativeInstrumentedControlWindowSmoke(t *testing.T) {
 		if !strings.Contains(windows.UTF16ToString(label[:]), "não suportado: language handler") {
 			return fmt.Errorf("unsupported procedure label missing")
 		}
-		send.Call(w.procedureList, 0x185, 1, 1) // Select unsupported procedure.
+		text(w.symbolSearch, "New filter")
+		send.Call(w.selectFiltered, 0xf5, 0, 0)
+		count, _, _ := send.Call(w.procedureList, 0x190, 0, 0) // LB_GETSELCOUNT
+		if count != 0 || !strings.Contains(value(w.status), "busca atual") {
+			return fmt.Errorf("bulk selection used results for a stale filter")
+		}
+		text(w.symbolSearch, "Lab")
+		w.catalog.Total = service.MaxInstrumentedProcedures + 1
+		send.Call(w.selectFiltered, 0xf5, 0, 0)
+		count, _, _ = send.Call(w.procedureList, 0x190, 0, 0)
+		if count != 0 || !strings.Contains(value(w.status), fmt.Sprint(service.MaxInstrumentedProcedures+1)) {
+			return fmt.Errorf("bulk selection truncated an oversized result")
+		}
+		w.catalog.Total = len(w.catalog.Procedures)
+		send.Call(w.selectFiltered, 0xf5, 0, 0)
+		count, _, _ = send.Call(w.procedureList, 0x190, 0, 0)
+		if count != 2 {
+			return fmt.Errorf("bulk selection omitted a matching procedure")
+		}
 		w.command(3)
 		if !strings.Contains(value(w.status), "language handler") || c.Status().State != "idle" || len(launch) != 0 {
 			return fmt.Errorf("unsupported procedure reached collector launch")
 		}
-		send.Call(w.procedureList, 0x185, 0, ^uintptr(0)) // Clear all selections.
-		send.Call(w.procedureList, 0x185, 1, 0)           // LB_SETSEL: choose the first procedure.
+		send.Call(w.clearSelection, 0xf5, 0, 0)
+		count, _, _ = send.Call(w.procedureList, 0x190, 0, 0)
+		if count != 0 {
+			return fmt.Errorf("clear selection kept a matching procedure")
+		}
+		send.Call(w.procedureList, 0x185, 1, 0) // LB_SETSEL: choose the first procedure.
 		text(w.programArgs, `--name "valor com espaços"`)
 		text(w.launchTimeout, "120")
 		w.command(3)
@@ -371,20 +393,27 @@ func TestNativeInstrumentedControlWindowSmoke(t *testing.T) {
 		if !strings.Contains(value(w.status), "language handler") || len(launch) != 0 {
 			return fmt.Errorf("unsupported member of whole unit launched")
 		}
-		text(w.symbolSearch, "Shared")
+		text(w.symbolSearch, "Shared,Fonte")
 		w.command(3)
 		if !strings.Contains(value(w.status), "Leia os símbolos") || len(launch) != 0 {
 			return fmt.Errorf("changed unit used stale preview")
 		}
 		w.command(2)
 		deadline = time.Now().Add(2 * time.Second)
-		for w.catalogUnit != "Shared" && time.Now().Before(deadline) {
+		for w.catalogUnit != "Shared, Fonte" && time.Now().Before(deadline) {
 			w.tick()
 			time.Sleep(10 * time.Millisecond)
 		}
-		if w.catalogUnit != "Shared" || len(w.catalog.Procedures) != 1 {
-			return fmt.Errorf("alias unit catalog not resolved")
+		if w.catalogUnit != "Shared, Fonte" || len(w.catalog.Procedures) != 1 {
+			return fmt.Errorf("two units sharing a procedure must resolve to one catalog entry")
 		}
+		send.Call(w.wholeUnit, 0xf1, 0, 0)
+		w.command(3)
+		if !strings.Contains(value(w.status), "Leia os símbolos") || len(launch) != 0 {
+			return fmt.Errorf("unit preview was used as a procedure search")
+		}
+		send.Call(w.wholeUnit, 0xf1, 1, 0)
+		text(w.symbolSearch, "shared,  Fonte")
 		send.Call(w.procedureList, 0x185, 0, ^uintptr(0)) // Unit mode ignores manual list selection.
 		w.command(3)
 		select {
@@ -403,6 +432,20 @@ func TestNativeInstrumentedControlWindowSmoke(t *testing.T) {
 		}
 		if c.Status().State != "stopped" {
 			return fmt.Errorf("whole-unit Stop did not join owner")
+		}
+		send.Call(w.excludeRuntime, 0xf5, 0, 0)
+		if !w.excludesRuntime() || w.catalog != nil {
+			return fmt.Errorf("runtime filter did not invalidate the old catalog")
+		}
+		text(w.symbolSearch, "Lab")
+		w.command(2)
+		deadline = time.Now().Add(2 * time.Second)
+		for w.catalog == nil && time.Now().Before(deadline) {
+			w.tick()
+			time.Sleep(10 * time.Millisecond)
+		}
+		if w.catalog == nil || !w.catalogExcludesRuntime || len(w.catalog.Procedures) != 1 || w.catalog.Procedures[0].ID != 7 {
+			return fmt.Errorf("runtime alias was kept in the whole-unit preview")
 		}
 		const other = `D:\teste\outra aplicação.exe`
 		w.executablePicker = func(uintptr) (string, error) { return other, nil }

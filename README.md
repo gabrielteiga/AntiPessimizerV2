@@ -21,6 +21,7 @@ Revisado em 18 de novembro de 2026.
 | Memória e sincronização | MOVS/STOS com frame/unwind verificado e operações LOCK de memória; testes de cópia/preenchimento, compare/exchange de 64/128 bits e contador compartilhado |
 | Captura/retomada SEH | Tabelas CRT reconhecidas e scopes Delphi catch-all/finally e capturas tipadas com handler/resolvedor conferidos são traduzidos para a cópia; testes Windows de captura, recursão, continuação e cleanup com exceção |
 | Tail calls diretas | Chamador sem handler pode saltar para outro método selecionado após restauração conferida da pilha (ADD/LEA e POPs); testes Windows exigem seis argumentos, recursão mútua e unwind de toda a cadeia |
+| Tail calls indiretas | O chamador sem frame ou handler pode saltar via R11 para um destino calculado por LEA ou escolher entre dois destinos comprovados com CMOV. O teste Windows confere argumentos, contagens, tempos e unwind |
 | Métodos maiores | Até 8 KiB de código por procedimento, com alocação limitada de 32 KiB para código/metadados; integração Windows exige retornos e unwind reais |
 | Estado SSE | Probes preservam controle/status MXCSR dos callbacks; setter/getter instrumentados conferem os quatro modos de arredondamento |
 | Preferências da janela | Restaura EXE, filtro de resultados, busca de símbolos e unidade de tempo por usuário ao reabrir |
@@ -31,19 +32,19 @@ Revisado em 18 de novembro de 2026.
 | Arquivos e histórico | Salvar/replay, acompanhamento de arquivo crescente, filtros, ordenação e histórico limitado; comparação entre sessões de sampling e instrumentação |
 | Ciclos de vida de threads | Encerramento pelo evento real do Windows e reutilização do pool nativo; teste de 300 instâncias sem mesclar contagens |
 | Drenagem cooperativa | Worker ocioso desperta por evento coalescido, com rescan contra despertar perdido; entrega ao vivo conferida antes de encerrar a captura |
-| Evidência do original | Treze rotinas conferidas (1.300 pares), incluindo push/pop atômicos de 128 bits e RDTSC, sem inicialização; ensaio separado inicializa o RTL em filho próprio e exige 100 pares normal/falha, 200 chamadas e 100 unwinds de uma rotina com handler Delphi real; worker original com 100 falhas EReadError capturadas por Exception, 200 retornos e métricas Go; sem certificação de Delphi 10.4 |
+| Evidência do original | Quinze rotinas conferidas (1.500 pares), incluindo push/pop atômicos de 128 bits e RDTSC, sem inicialização; ensaio separado inicializa o RTL em filho próprio e exige 100 pares normal/falha, 200 chamadas e 100 unwinds de uma rotina com handler Delphi real; worker original com 100 falhas EReadError capturadas por Exception, 200 retornos e métricas Go; sem certificação de Delphi 10.4 |
 | Qualidade | Testes Go/race, integração nativa Windows, ETW, janela Win32, executáveis e empacotamento; merge somente com CI aprovado no commit exato |
 | Carga e recursos | 320 vidas de thread/32.001 chamadas, 32 capturas por bloco, dez repetições com heap/handles/goroutines limitados e zero objetos de depuração restantes e perda explícita sob saturação; dados no CI |
 | Contadores nativos | Leituras atômicas sequencialmente consistentes; CI compara DLLs com/sem RMW no mesmo alvo e runner |
 | Medição de custo | Pares baseline/instrumentado no mesmo alvo C, com checksums e contagens exatas; relatório QPC bruto nos artefatos do CI |
 
 **Ainda não há paridade completa com o original.** Variantes de handlers Delphi
-não reconhecidas, unwind encadeado com ações adicionais ou lacunas entre fragmentos, tail calls indiretas ou com restauração/handlers não reconhecidos e outros formatos/instruções
+não reconhecidas, unwind encadeado com ações adicionais ou lacunas entre fragmentos, tail calls com destinos dinâmicos ou restauração/handlers não reconhecidos e outros formatos/instruções
 continuam fora do subconjunto aceito. A limpeza de métricas já usa uma barreira sincronizada na captura nativa,
 preservando as chamadas em andamento e o histórico das épocas anteriores. A compatibilidade com todas as
 variantes do Delphi 10.4 e o overhead nesse ambiente ainda não foram comprovados.
 Fixtures C e TDS sintéticos não são apresentados como binários compilados no Delphi.
-O ensaio adicional da DLL original executa treze rotinas conferidas sobre buffers privados;
+O ensaio adicional da DLL original executa quinze rotinas conferidas com buffers privados ou estado da thread;
 não comprova integração completa ou a versão do compilador. O ensaio de exceções separado
 usa uma rotina e o handler real da mesma DLL, com RTL inicializado num processo filho.
 
@@ -69,12 +70,16 @@ Amostras ETW são atividade de CPU observada; não são contagens de chamadas.
 
 Na janela, use **Chamadas**, escolha o arquivo com **Procurar EXE** ou informe
 o caminho completo, e clique em
-**Ler símbolos**. A busca reduz o catálogo por unidade ou procedimento; apresenta
-até 200 resultados por busca de procedimentos. Para selecionar uma unidade inteira,
-marque **Unidade inteira**, informe seu nome exato na busca e use **Ler símbolos**.
-Esse modo mostra e seleciona todos os seus procedimentos, até 256, incluindo aliases
-sem duplicar código. Se algum método não for suportado, o início informa o motivo;
-unidades maiores precisam de seleção por IDs e nunca são truncadas silenciosamente. Selecione de 1 a 256 procedimentos com Ctrl/Shift,
+**Ler símbolos**. A busca por unidade ou procedimento exibe até 256 resultados.
+Use **Selecionar busca** para marcar todas as correspondências quando couberem
+na seleção, ou **Limpar seleção** para desmarcá-las. Para selecionar unidades inteiras,
+marque **Unidades inteiras**, informe os nomes exatos separados por vírgulas e use
+**Ler símbolos**. Marque **Omitir RTL e JCL** para aplicar o filtro do profiler
+original a nomes com prefixos `System.`, `Winapi.` e `Jcl`. O modo seleciona até 256 procedimentos no total e conta cada
+intervalo uma vez, mesmo quando aparece em várias unidades. A prévia informa se
+alguma unidade estiver ausente ou se o conjunto ultrapassar o limite. Se algum
+método for recusado pelo planejador, o início informa o motivo. Na busca por
+procedimentos, selecione de 1 a 256 entradas com Ctrl/Shift,
 informe argumentos e prazo em segundos, e use **Iniciar EXE**. Também pode abrir
 esse modo diretamente:
 
@@ -135,7 +140,7 @@ verificar apenas os procedimentos desejados.
 
 O subconjunto aceita unwind v1 sem handler ou com cleanup UHANDLER-only original, prólogos verificados,
 chamadas/recursão, branches internos e múltiplos retornos, de 5 a 8192 bytes por procedimento quando a alocação
-permite salto próximo. Métodos menores que 5 bytes continuam rejeitados. Procedimentos não suportados são rejeitados. Um cleanup nativo
+permite salto próximo. Funções folha de 1 a 4 bytes usam um breakpoint de entrada somente no processo lançado. Esse caminho inclui o custo de entrega de uma exceção ao depurador por chamada. Um cleanup nativo
 registra saídas durante o unwind real do Windows e encaminha a limpeza original
 com seus metadados e endereços de origem. Handlers que capturam/retomam a exceção
 (EHANDLER, inclusive combinado com UHANDLER) são aceitos somente para o formato CRT reconhecido; o handler Delphi conferido da revisão v0.3 aceita scopes de catch-all/finally e tabelas tipadas com resolvedor conferido; outras variantes continuam fora da seleção. A captura inclui finalizadores anteriores
@@ -168,7 +173,8 @@ viewer.exe --op stop
 
 `--unit` no início seleciona a unidade exata inteira, em alternativa a `--procedure-ids`.
 O serviço resolve o catálogo completo e refaz a pré-validação antes de lançar.
-`--arg` é repetível. Catálogo aceita `--unit` e `--catalog-offset`; `--address`
+`--arg` é repetível. Use `--exclude-runtime` por terminal para aplicar o filtro
+de RTL e JCL, tanto no catálogo quanto na captura. Catálogo aceita `--unit` e `--catalog-offset`; `--address`
 seleciona outro Named Pipe local. Assinaturas são observadores: desconectá-las não
 cancela a captura. Um novo lançamento cria outra sessão. `latest` distingue
 `metric` instrumentado de `snapshot` de sampling. [Protocolo](docs/live.md).
@@ -204,8 +210,8 @@ Com `--source`, o symresolve mostra arquivo e linha para cada endereço com
 informação TD32 correspondente. O parser cobre sstModule e procedimentos
 LPROC32/GPROC32. Nomes `_ZN` suportados
 são apresentados como nomes Delphi legíveis; o dump preserva nomes originais.
-A conversão automática cobre segmento TD32 1 em uma única seção executável,
-derivando RVA de BaseOfCode. Outros layouts mantêm módulo/endereço desconhecido
+A conversão automática associa o segmento TD32 1 à seção executável em
+BaseOfCode. Seções adicionais podem coexistir com ela. Outros segmentos mantêm módulo/endereço desconhecido
 no sampling e não permitem lançamento instrumentado sem seleção resolvida.
 EXE/TDS devem ser do mesmo build; ainda não há autenticação de correspondência
 de TDS externo. [Formato, evidência e limites](docs/td32.md).

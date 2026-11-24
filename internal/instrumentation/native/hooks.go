@@ -26,7 +26,8 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 	if _, err := io.ReadFull(conn, offer[:]); err != nil {
 		return fmt.Errorf("hook allocation offer: %w", err)
 	}
-	tailPlans := string(offer[:8]) == "APHOOKA\x00"
+	tinyPlans := string(offer[:8]) == "APHOOKB\x00"
+	tailPlans := tinyPlans || string(offer[:8]) == "APHOOKA\x00"
 	expandedSelection := tailPlans || string(offer[:8]) == "APHOOK9\x00"
 	largePlans := expandedSelection || string(offer[:8]) == "APHOOK8\x00"
 	typedScopes := largePlans || string(offer[:8]) == "APHOOK7\x00"
@@ -98,6 +99,9 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 			plan, err := prepared.BuildSelectedFunction(proc.RVA, size, loaded, allocation+uint64(offset), enter, exit, cleanup, proc.ID, targets)
 			if err != nil {
 				return fmt.Errorf("procedure %d frame plan: %w", proc.ID, err)
+			}
+			if len(plan.Patch) == 1 && !tinyPlans {
+				return errors.New("breakpoint entries require APHOOKB and an owned target")
 			}
 			if len(plan.TailTargets) != 0 && !tailPlans {
 				return errors.New("update the native adapter DLL: selected tail calls require APHOOKA")

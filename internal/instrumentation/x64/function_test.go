@@ -145,3 +145,54 @@ func TestFramedColdBlockCanEndInInternalJump(t *testing.T) {
 		t.Fatal("fallthrough outside selected extent accepted")
 	}
 }
+
+func TestCPUIDRequiresVerifiedRBXSave(t *testing.T) {
+	image, code := framedPE()
+	copy(code[5:], []byte{0x0f, 0xa2})
+	copy(image[0x220:], code)
+	plan := func() (FunctionPlan, error) {
+		return BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 1)
+	}
+	p, err := plan()
+	if err != nil || !bytes.Equal(p.Image[p.BodyRVA+5:p.BodyRVA+7], []byte{0x0f, 0xa2}) {
+		t.Fatal("CPUID with verified RBX save did not survive relocation", err)
+	}
+	image[0x220] = 0x56 // PUSH RSI and matching unwind metadata
+	image[0x487] = 0x60
+	if _, err := plan(); !errors.Is(err, ErrUnsupported) {
+		t.Fatal("CPUID without an RBX save was accepted", err)
+	}
+}
+
+func TestInlineDelphiStackProbeKeepsShortBranchAndUnwind(t *testing.T) {
+	code := []byte{
+		0x53,
+		0xb8, 0xa8, 0x0f, 0, 0,
+		0x48, 0x2d, 0, 0x10, 0, 0,
+		0x88, 0x04, 0x04,
+		0x48, 0x3d, 0xa8, 0xbf, 0xff, 0xff,
+		0x77, 0xef,
+		0x48, 0x81, 0xec, 0x58, 0x40, 0, 0,
+		0x48, 0x81, 0xc4, 0x58, 0x40, 0, 0,
+		0x5b, 0xc3,
+	}
+	image, _ := framedPE()
+	binary.LittleEndian.PutUint32(image[0x404:], peLeafRVA+uint32(len(code)))
+	info := []byte{1, 30, 3, 0, 30, 1, 0x0b, 0x08, 1, 0x30, 0, 0}
+	copy(image[0x480:], info)
+	plan := func(code []byte) (FunctionPlan, error) {
+		copy(image[0x220:], code)
+		return BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 1)
+	}
+	p, err := plan(code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(p.Image[p.BodyRVA:p.BodyRVA+30], code[:30]) || !bytes.Equal(p.Image[p.Functions[1].Unwind+1:p.Functions[1].Unwind+12], info[1:]) {
+		t.Fatal("inline probe or unwind offsets changed")
+	}
+	code[17] = 0xb8
+	if _, err := plan(code); !errors.Is(err, ErrUnsupported) {
+		t.Fatal("inconsistent probe limit accepted", err)
+	}
+}

@@ -21,6 +21,10 @@ enum { MAX_ROUNDS=64,MAX_WORKERS=16 };
 static WorkerCost costs[MAX_WORKERS*MAX_ROUNDS];
 typedef struct {SIZE_T private_bytes,working_set,peak_working_set;DWORD handles;} MemoryPoint;
 static MemoryPoint memory_points[MAX_ROUNDS+1];
+/* Keep a second executable section in the launched TD32 integration target. */
+static __attribute__((section(".apcode"),noinline)) uint32_t auxiliary_code(uint32_t value){
+ return value ^ UINT32_C(0x42123456);
+}
 static BOOL measure_memory(MemoryPoint *point){
  PROCESS_MEMORY_COUNTERS_EX memory={0};memory.cb=sizeof(memory);
  if(!GetProcessMemoryInfo(GetCurrentProcess(),(PROCESS_MEMORY_COUNTERS *)&memory,sizeof(memory)) || !GetProcessHandleCount(GetCurrentProcess(),&point->handles))return FALSE;
@@ -75,6 +79,7 @@ static BOOL report_cost(uint32_t threads,uint32_t rounds,uint64_t elapsed){
  return ok;
 }
 int wmain(int argc,wchar_t **argv){
+ if(auxiliary_code((uint32_t)argc)!=((uint32_t)argc^UINT32_C(0x42123456)))return 7;
  uint32_t threads=3,rounds=1;
  DWORD round_delay_ms=0;
  BOOL pace=FALSE;

@@ -1,6 +1,6 @@
 # Plano e estado de implementação
 
-Atualizado em 18 de novembro de 2026. O alvo é **Delphi 10.4, Windows 10/11 x64**
+Atualizado em 24 de novembro de 2026. O alvo é **Delphi 10.4, Windows 10/11 x64**
 (Intel ou AMD). Linux valida o núcleo portável. O README é a entrada de uso;
 este documento organiza as entregas e os critérios que ainda faltam.
 
@@ -9,10 +9,10 @@ este documento organiza as entregas e os critérios que ainda faltam.
 | Área | Comportamento atual | Evidência |
 |---|---|---|
 | Núcleo de sampling | Janelas, correlação PID/TID, perda explícita, histórico limitado e snapshots imutáveis | Testes Go/race e ETW real sobre carga própria no Windows |
-| Símbolos | TD32/TDS FB09/FB0A, procedimentos, unidades Pascal por contribuição de código/diretórios globais, diretórios encadeados, nomes Delphi suportados e conversão por BaseOfCode | Casos derivados da JCL da revisão fixada, testes de corrupção/fuzz e TDS sintético ligado ao EXE de laboratório |
+| Símbolos | TD32/TDS FB09/FB0A, procedimentos, unidades Pascal por contribuição de código/diretórios globais, diretórios encadeados, nomes Delphi suportados e conversão por BaseOfCode | Casos derivados da JCL da revisão fixada, testes de corrupção/fuzz e TDS sintético ligado ao EXE de laboratório com duas seções de código |
 | Aliases de símbolos | Intervalos exatamente iguais compartilham nome primário/ID; nomes e unidades alternativos preservados na busca | Ordem de FindProc da JCL, testes de TD32/ASLR/catálogo/CLI, limites de metadados e janela Windows |
 | Arquivo e linha TD32 | `symresolve --source` resolve o endereço observado via `sstSrcModule` em símbolos embutidos ou sidecar | Layout da JCL fixada; fixtures verificam limites, conflitos, ASLR e duas linhas no mesmo procedimento |
-| Preferências do viewer | Caminho do EXE, filtros de resultados/símbolos e unidade de tempo persistidos por usuário | Roundtrip/limites/corrupção e janela Windows reaberta; arquivo desconhecido preservado ao usar padrões |
+| Preferências do viewer | Caminho do EXE, filtros de resultados/símbolos, nomes das unidades inteiras e unidade de tempo persistidos por usuário | Roundtrip/limites/corrupção e janela Windows reaberta; arquivo desconhecido preservado ao usar padrões |
 | Coletor/viewer | Processos independentes, Named Pipe local, seleção/start/stop, filtros, tabela virtual, histórico, salvar/replay e comparação de sampling | Executáveis Windows, integração ETW e smoke da janela |
 | Contabilidade de chamadas | Calls, tempos inclusivos/exclusivos, médias, recursão, instâncias de thread, unwind, Clear e perdas | Semântica conferida em CoreProfiler; testes determinísticos e callbacks C/QPC |
 | Captura sem SDK no EXE | Lançamento próprio, barreira no ponto de entrada, DLL nativa, verificação do código original, finalizadores e cancelamento | EXE C sem imports do profiler, três threads e finalizador, fluxo até o viewer |
@@ -25,9 +25,9 @@ este documento organiza as entregas e os critérios que ainda faltam.
 | Identidade nativa de frames | ID/RSP de entrada em pilha limitada por thread; fechamento por frame físico durante unwind repetido | ABI nativa preserva argumentos e slot original; AV em RBP com bias e demais testes de recursão/Clear/collision |
 | Cleanup original | Encaminhamento UHANDLER-only com PCs e metadados de origem; protocolo exige DLL compatível | Alvo C/assembly cobre retorno, saída antecipada, limpeza excepcional e exceção na própria limpeza; não comprova o compilador Delphi |
 | Controle/status SSE | MXCSR salvo/restaurado ao redor dos helpers; LDMXCSR/STMXCSR com validação normal de memória | Helper nativo clobbera status; setter/getter em três threads preservam todos os modos de arredondamento e 44 chamadas por método/thread |
-| Tail calls selecionadas | Salto direto ao início exato de outro método selecionado, sem handler e com pilha restaurada por epílogo conferido; metadados independentes e retorno original preservado | Alvo Windows exige seis argumentos, recursão mútua, fechamento normal/excepcional da cadeia e médias/conservação de QPC |
+| Tail calls selecionadas | Em métodos sem handler, salto direto ou via R11 para endereço comprovado, incluindo epílogos conferidos. Escolha entre dois alvos por CMOV em métodos sem frame. Retorno original preservado | Alvo Windows exige seis argumentos, recursão mútua, contagens por destino, fechamento normal/excepcional e conservação de QPC |
 | Métodos até 8 KiB | Strides limitados de 32 KiB no APHOOK8; versões antigas recusam planos maiores | Programa Windows de quase 8 KiB com retornos/calls/unwind e instalação conjunta de 64 strides |
-| Métodos pequenos | E9 rel32 de cinco bytes quando próximo; fallback absoluto e rejeição sem invadir o vizinho | PR #23: método Windows de seis bytes com onze chamadas por thread e testes dos limites signed rel32 |
+| Métodos pequenos | E9 rel32 de cinco bytes quando próximo. Funções folha de 1 a 4 bytes usam um único breakpoint no lançamento próprio | Alvos Windows conferem seleção, função vizinha, breakpoint da aplicação e chamadas por thread |
 | Threads nativas de longa duração | Fim real por EXIT_THREAD, proteção contra TID reutilizado e pool de 64 rings reutilizáveis | 300 instâncias Windows com contagens/tempos/SEH preservados, sem crescimento do pool |
 | Despertar da drenagem | Sinal coalescido por publicação no cooperativo; rescan antes de aguardar, mantendo polling no lançamento próprio | Cada chamada da fixture chega ao núcleo com a captura aberta, sem depender do drain final; startup/retirada repetidos no Windows |
 | Comparação instrumentada | Seleção completa no contrato v2, compatibilidade de binário/método/relógio, totais por procedimento e médias ponderadas entre snapshots | Testes de épocas/threads/overflow, GUI e executáveis diretos versus serviço |
@@ -49,11 +49,13 @@ sem converter esse valor em chamadas ou duração por chamada.
    preservar a busca do handler, seu cleanup e a retomada de execução, incluindo
    exceções aninhadas/recursivas, sem falsificar métricas nem quebrar o programa.
 2. **Cobertura de código e metadados.** Ampliar somente com casos conferidos:
-   unwind encadeado com ações adicionais, handlers ou fragmentos não contíguos e versões adicionais, tail calls indiretas/com epílogos não reconhecidos e instruções não suportadas;
-   saltos diretos para outro método selecionado já aceitam epílogos ADD/LEA e POPs conferidos;
-   funções menores que cinco bytes e formatos TD32 adicionais continuam rejeitados.
+   unwind encadeado com ações adicionais, handlers ou fragmentos não contíguos,
+   outras versões de unwind, epílogos e instruções ainda recusados. Saltos diretos
+   e saltos por R11 para destinos estáticos já aceitam epílogos ADD/LEA e POPs
+   conferidos. Sem frame, dois LEAs e CMOV permitem escolher entre entradas
+   selecionadas. Outros destinos dinâmicos e formatos TD32 adicionais continuam pendentes.
 3. **Compatibilidade Delphi demonstrada.** As fixtures de integração atuais são
-   C/GCC para o fluxo completo. Um ensaio separado compara treze rotinas conferidas
+   C/GCC para o fluxo completo. Um ensaio separado compara quinze rotinas conferidas
    da DLL Delphi original com seus corpos relocados; não inclui TDS. Um ensaio separado exige captura/retomada/reraise com o handler real da mesma DLL, inicializando seu RTL num filho próprio; ele cobre um construtor e a worker real com catch tipado Exception, sem certificar uma versão inteira do compilador.
    Exigir evidência reproduzível
    para prólogos, métodos, exceções e bibliotecas efetivamente suportados. A fixture
@@ -64,7 +66,13 @@ sem converter esse valor em chamadas ou duração por chamada.
    O CI mede pares em loop C e 20 rodadas de reutilização com memória/handles e
    saturação deliberada. O workflow Native endurance permite pares no mesmo alvo
    C com até duas horas por modo, com memória, handles, perdas e cadência de
-   publicação. A evidência de overhead e operação prolongada em Delphi
+   publicação. O primeiro par de uma hora por modo no Windows registrou 108.001
+   chamadas esperadas e medidas, zero perdas, 12.683 snapshots ao vivo e
+   intervalo máximo de 364,22 ms entre publicações. O alvo instrumentado terminou
+   com os mesmos 49 handles e 4 KiB a mais de memória privada que no início.
+   A taxa de 30 chamadas por segundo foi definida pelo ritmo da carga.
+   [Execução e relatório bruto](https://github.com/gabrielteiga/AntiPessimizerV2/actions/runs/45257756767).
+   A evidência de overhead e operação prolongada em Delphi
    continua pendente. Não subtrair overhead presumido. Sampling e instrumentação mantêm metodologias
    próprias. Limites atuais de seleção/buffer só aumentam junto dessas medições.
 5. **Complementos do fluxo principal.** Demais preferências/diagnósticos do

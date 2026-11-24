@@ -337,3 +337,34 @@ func TestLargeAdapterKeepsIndependentStridesForAll256Methods(t *testing.T) {
 		}
 	}
 }
+
+func TestTinyBreakpointRequiresOwnedAdapterBeforePayload(t *testing.T) {
+	image := hookImage()
+	original := []byte{0x31, 0xc0, 0xc3}
+	copy(image[0x220:], original)
+	for _, version := range []string{"APHOOKA\x00", "APHOOKB\x00"} {
+		offer := make([]byte, 61)
+		copy(offer, hookOffer()[:48])
+		copy(offer, version)
+		binary.LittleEndian.PutUint32(offer[24:], largeHookStride+36)
+		binary.LittleEndian.PutUint64(offer[48:], 0x200200)
+		binary.LittleEndian.PutUint32(offer[56:], uint32(len(original)))
+		offer[60] = 1
+		stream := &hookStream{in: bytes.NewReader(offer)}
+		err := installHooks(stream, image, []Procedure{{1, 0x5020}})
+		if version[6] == 'A' {
+			if err == nil || !strings.Contains(err.Error(), "require APHOOKB") || stream.out.Len() != 1 {
+				t.Fatal("older adapter received a breakpoint patch", err, stream.out.Len())
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		payload := stream.out.Bytes()
+		item := payload[25+largeHookStride+36:]
+		if len(item) != 12 || binary.LittleEndian.Uint32(item) != 3 || binary.LittleEndian.Uint32(item[4:]) != 1 || !bytes.Equal(item[8:11], original) || item[11] != 0xcc {
+			t.Fatal("wrong original bytes or breakpoint length", item)
+		}
+	}
+}

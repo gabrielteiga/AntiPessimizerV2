@@ -23,22 +23,25 @@ const MaxInstrumentedProcedures = native.MaxSelectedProcedures
 // InstrumentOptions always launches a NEW owned process. Stop cancels that
 // process, never attaches to or terminates an unrelated running application.
 type InstrumentOptions struct {
-	CatalogID  string   `json:"catalog_id"`
-	Image      string   `json:"image"`
-	ImageID    string   `json:"image_id"`
-	Procedures []uint32 `json:"procedure_ids"`
-	Units      []string `json:"units,omitempty"`
-	Args       []string `json:"args,omitempty"`
-	TimeoutMS  int64    `json:"timeout_ms,omitempty"`
+	ExcludeRuntime bool     `json:"exclude_runtime,omitempty"`
+	CatalogID      string   `json:"catalog_id"`
+	Image          string   `json:"image"`
+	ImageID        string   `json:"image_id"`
+	Procedures     []uint32 `json:"procedure_ids"`
+	Units          []string `json:"units,omitempty"`
+	Args           []string `json:"args,omitempty"`
+	TimeoutMS      int64    `json:"timeout_ms,omitempty"`
 }
 
 type CatalogQuery struct {
-	Check  bool   `json:"check,omitempty"`
-	Image  string `json:"image"`
-	Text   string `json:"text,omitempty"`
-	Unit   string `json:"unit,omitempty"`
-	Offset int    `json:"offset,omitempty"`
-	Limit  int    `json:"limit,omitempty"`
+	ExcludeRuntime bool     `json:"exclude_runtime,omitempty"`
+	Check          bool     `json:"check,omitempty"`
+	Image          string   `json:"image"`
+	Text           string   `json:"text,omitempty"`
+	Unit           string   `json:"unit,omitempty"`
+	Units          []string `json:"units,omitempty"`
+	Offset         int      `json:"offset,omitempty"`
+	Limit          int      `json:"limit,omitempty"`
 }
 
 type CatalogPage struct {
@@ -79,9 +82,16 @@ func (c *Controller) StartInstrumented(parent context.Context, o InstrumentOptio
 	}
 	var selected []native.SelectedProcedure
 	if len(o.Units) != 0 {
-		selected, err = catalog.SelectUnits(o.Units)
+		if o.ExcludeRuntime {
+			selected, err = catalog.SelectUnitsWithoutRuntime(o.Units)
+		} else {
+			selected, err = catalog.SelectUnits(o.Units)
+		}
 	} else {
 		selected, err = catalog.Select(o.Procedures)
+		if err == nil && o.ExcludeRuntime && len(catalog.WithoutRuntime(selected)) != len(selected) {
+			return errors.New("the explicit selection includes Delphi runtime or JCL procedures")
+		}
 	}
 	if err != nil {
 		return err
@@ -254,12 +264,31 @@ func (c *Controller) Catalog(q CatalogQuery) (CatalogPage, error) {
 	if q.Limit == 0 {
 		q.Limit = 200
 	}
+	if len(q.Units) != 0 && (q.Unit != "" || q.Text != "") {
+		return CatalogPage{}, errors.New("choose an exact unit selection or catalog search filters, exclusively")
+	}
 	catalog, err := c.LoadCatalog(q.Image)
 	if err != nil {
 		return CatalogPage{}, err
 	}
 	page := CatalogPage{CatalogID: catalog.CatalogID, ImageID: catalog.ImageID, SymbolSource: catalog.SymbolSource, Procedures: []native.SelectedProcedure{}}
-	for _, p := range catalog.Search(q.Text, q.Unit) {
+	var procedures []native.SelectedProcedure
+	if len(q.Units) != 0 {
+		if q.ExcludeRuntime {
+			procedures, err = catalog.SelectUnitsWithoutRuntime(q.Units)
+		} else {
+			procedures, err = catalog.SelectUnits(q.Units)
+		}
+		if err != nil {
+			return CatalogPage{}, err
+		}
+	} else {
+		procedures = catalog.Search(q.Text, q.Unit)
+		if q.ExcludeRuntime {
+			procedures = catalog.WithoutRuntime(procedures)
+		}
+	}
+	for _, p := range procedures {
 		if page.Total >= q.Offset && len(page.Procedures) < q.Limit {
 			page.Procedures = append(page.Procedures, p)
 		}

@@ -19,8 +19,10 @@ $env:AP_REFERENCE_DELPHI_EXCEPTION_REPORT = Join-Path $Output 'reference-delphi-
 try {
     go test -v -count=1 -timeout=45s ./internal/instrumentation/x64 -run '^TestReferenceDelphi(ReviewedRoutinesPreserveNativeResults|StaticPlanCoverage)$'
     if ($LASTEXITCODE -ne 0) { throw 'Reviewed original Delphi routines changed results after relocation' }
-    go test -v -count=1 -timeout=45s ./internal/instrumentation/native -run '^TestReferenceDelphi(ExceptionHandlerPreservesCatchAndReraise|TypedHandlerCatchesWorkerReadFailure)$'
+    go test -v -count=1 -timeout=45s ./internal/instrumentation/native -run '^TestReferenceDelphiExceptionHandlerPreservesCatchAndReraise$'
     if ($LASTEXITCODE -ne 0) { throw 'Original Delphi handler, native events or Go accounting changed behavior' }
+    go test -v -count=32 -timeout=90s ./internal/instrumentation/native -run '^TestReferenceDelphiTypedHandlerCatchesWorkerReadFailure$'
+    if ($LASTEXITCODE -ne 0) { throw 'Repeated Delphi typed handler validation failed' }
 } finally {
     Remove-Item Env:AP_REFERENCE_DELPHI_DLL -ErrorAction SilentlyContinue
     Remove-Item Env:AP_REFERENCE_DELPHI_REPORT -ErrorAction SilentlyContinue

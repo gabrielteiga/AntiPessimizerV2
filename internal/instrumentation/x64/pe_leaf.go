@@ -213,7 +213,7 @@ func (p *PEImage) readCode(rva, size uint32, collectedUnwind *functionUnwind) ([
 	if p == nil || len(p.data) == 0 {
 		return fail("uninitialized image")
 	}
-	if (collectedUnwind == nil && size <= JumpSize) || (collectedUnwind != nil && size < NearJumpSize) || (collectedUnwind == nil && size > 4096) || size > MaxFunctionBytes {
+	if (collectedUnwind == nil && size <= JumpSize) || size == 0 || (collectedUnwind == nil && size > 4096) || size > MaxFunctionBytes {
 		return fail("invalid leaf extent")
 	}
 	code, ok := p.mapped(rva, size, true)

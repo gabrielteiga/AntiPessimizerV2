@@ -25,7 +25,8 @@ type referenceCase struct {
 }
 
 // Only reviewed, exact bytes from the original v0.3 DLL are executable here.
-// These routines use only caller-owned memory and no imports, globals, initialized RTL or private ABI.
+// These routines use caller-owned memory or the current Windows thread state.
+// They require no imports, globals, initialized RTL or private ABI.
 // There is no claim about names (the release has no TDS) or compiler version.
 var referenceCases = []referenceCase{
 	{0x19210, "488d042560020000c3", "constant"},
@@ -41,6 +42,8 @@ var referenceCases = []referenceCase{
 	{0x3ccc0, "555756534883ec28488bec4989c84989d1488d7d10498bf048a548a5488b45104989014c894d00488b4518488d4001488945084c8d5510498b5208498b02488b4d08488b5d00f0490fc7080f94c14989520849890284c974b8488d65285b5e5f5dc3", "atomic-push-framed"},
 	{0x3cd30, "555756534883ec28488bec4989c8488d7d10498bf048a548a5488b45104885c0750433c0eb3d488b0048894500488b4518488d4001488945084c8d4d10498b5108498b01488b4d08488b5d00f0490fc7080f94c14989510849890184c974af488b4510488d65285b5e5f5dc3", "atomic-pop-framed"},
 	{0x182090, "0f3148c1e2204809d0c3", "timestamp"},
+	{0x177c60, "6548a10800000000000000c3", "thread-stack-base"},
+	{0x1729b0, "488d0559ffffff488d15f2ffffff483bc27d18488d0546ffffff483bc17f0c488d05daffffff483bc17f0433c0eb02b001c3", "code-range"},
 }
 
 func pinTimestampThread(t *testing.T) {
@@ -202,8 +205,18 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 				t.Fatal("register original corpus table", err)
 			}
 			registered = true
+			var stackBase uintptr
 			if c.Kind == "timestamp" {
 				pinTimestampThread(t)
+			} else if c.Kind == "thread-stack-base" {
+				runtime.LockOSThread()
+				defer runtime.UnlockOSThread()
+				var stackLimit uintptr
+				kernel := windows.NewLazySystemDLL("kernel32.dll")
+				kernel.NewProc("GetCurrentThreadStackLimits").Call(uintptr(unsafe.Pointer(&stackLimit)), uintptr(unsafe.Pointer(&stackBase)))
+				if stackLimit == 0 || stackBase <= stackLimit {
+					t.Fatalf("invalid native stack limits: %#x..%#x", stackLimit, stackBase)
+				}
 			}
 			for trial := uint64(0); trial < 100; trial++ {
 				if c.Kind == "timestamp" {
@@ -234,6 +247,16 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 				put(peer[:], 0x123456789abcd000+trial+trial%2)
 				arguments := []uintptr{rw + 128, rw + 384, uintptr(trial % 4 * 8)}
 				switch c.Kind {
+				case "code-range":
+					begin, end := uintptr(dll)+0x172910, uintptr(dll)+uintptr(c.RVA)
+					point := [...]uintptr{begin - 1, begin, end - 1, end}[trial%4]
+					arguments = []uintptr{point}
+					mask = 0xff
+					if point >= begin && point < end {
+						want = 1
+					}
+				case "thread-stack-base":
+					want = uint64(stackBase)
 				case "constant":
 					want = 0x260
 				case "field32":

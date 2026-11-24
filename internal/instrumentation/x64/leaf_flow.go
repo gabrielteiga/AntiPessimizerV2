@@ -1,6 +1,7 @@
 package x64
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 
@@ -12,9 +13,10 @@ type leafInstruction struct {
 
 	offset, relocated, length int
 	inst                      x86asm.Inst
-	kind                      byte // 0=ordinary, 1=return, 2=jump, 3=conditional, 4=call, 5=selected tail jump
+	kind                      byte // 0=ordinary, 1=return, 2=jump, 3=conditional, 4=call, 5=direct tail, 6=indirect tail
 	condition                 byte
 	target                    int
+	requiresPrevious          bool
 }
 type leafBody struct {
 	code        []byte
@@ -38,9 +40,9 @@ func rewriteFunctionBody(code []byte, source, base uint64, framed bool, prologue
 	return rewriteFunctionWithPatch(code, source, base, framed, prologue, JumpSize, false)
 }
 func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, prologue, patchSize int, nativeFunction bool) (leafBody, error) {
-	return rewriteSelectedFunction(code, source, base, framed, prologue, patchSize, nativeFunction, nil, nil)
+	return rewriteSelectedFunction(code, source, base, framed, prologue, patchSize, nativeFunction, false, nil, nil)
 }
-func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prologue, patchSize int, nativeFunction bool, selected map[uint64]bool, restored map[int]bool) (leafBody, error) {
+func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prologue, patchSize int, nativeFunction, savedRBX bool, selected map[uint64]bool, restored map[int]int) (leafBody, error) {
 	fail := func(reason string) (leafBody, error) {
 		return leafBody{}, fmt.Errorf("%w: leaf: %s", ErrUnsupported, reason)
 	}
@@ -51,6 +53,7 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 	offsets := map[int]int{}
 	total, overwrite := 0, 0
 	var tailTargets []uint64
+	stackProbe := -1
 	for offset := 0; offset < len(code); {
 		inst, err := x86asm.Decode(code[offset:], 64)
 		if err != nil || inst.Op == 0 || inst.Len == 0 || inst.Len > len(code)-offset {
@@ -75,10 +78,49 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 		case inst.Op == x86asm.JMP && (code[offset] == 0xeb && inst.Len == 2 || code[offset] == 0xe9 && inst.Len == 5):
 			d.kind = 2
 			d.length = 5
+		case nativeFunction && inst.Op == x86asm.JMP &&
+			inst.Len == 3 && code[offset] == 0x41 && code[offset+1] == 0xff && code[offset+2] == 0xe3:
+			var targets []uint64
+			var start int
+			if framed || prologue != 0 {
+				epilogue, ok := restored[offset]
+				if !ok || offsets[epilogue] == 0 {
+					return fail("indirect tail jump requires verified stack restoration")
+				}
+				start = offsets[epilogue] - 1
+				if instructions[start].offset < prologue {
+					return fail("indirect tail destination must be loaded after the prologue")
+				}
+				if target, ok := ripTailAddress(code, source, instructions[start], x86asm.R11); ok {
+					targets = []uint64{target}
+				}
+			} else {
+				targets, start = indirectTailTargets(code, source, instructions)
+			}
+			if len(targets) == 0 {
+				return fail("indirect tail jump requires an exact selected destination")
+			}
+			for _, target := range targets {
+				if target >= source && target < source+uint64(len(code)) || !selected[target] {
+					return fail("indirect tail jump requires an exact selected destination")
+				}
+			}
+			for i := start + 1; i < len(instructions); i++ {
+				instructions[i].requiresPrevious = true
+			}
+			d.kind, d.requiresPrevious = 6, true
+			if len(targets) == 1 {
+				d.kind, d.length, d.absolute = 5, 5, targets[0]
+			}
+			tailTargets = append(tailTargets, targets...)
 		case inst.Len == 2 && code[offset] >= 0x70 && code[offset] <= 0x7f:
 			d.kind = 3
 			d.condition = code[offset] & 15
 			d.length = 6
+			if nativeFunction && prologue >= 9 && offset <= prologue-9 && verifiedInlineStackProbe(code, offset) {
+				stackProbe = offset
+				d.length = 2 // unwind offsets inside the prologue must remain exact
+			}
 		case inst.Len == 6 && code[offset] == 0x0f && code[offset+1] >= 0x80 && code[offset+1] <= 0x8f:
 			d.kind = 3
 			d.condition = code[offset+1] & 15
@@ -103,6 +145,11 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 			if !nativeFunction || inst.Len != 2 || code[offset] != 0x0f || code[offset+1] != 0x31 {
 				return fail("unsupported timestamp counter instruction")
 			}
+		case inst.Op == x86asm.CPUID:
+			// CPUID implicitly overwrites EBX and zeroes the high half of RBX.
+			if !savedRBX || offset < prologue || inst.Len != 2 || code[offset] != 0x0f || code[offset+1] != 0xa2 {
+				return fail("CPUID requires an unprefixed instruction and an unwind-described RBX push")
+			}
 		default:
 			if !leafOperations[inst.Op.String()] && !scalarOperations[inst.Op.String()] && !(framed && frameOperations[inst.Op.String()]) && !(nativeFunction && (atomicOperations[inst.Op.String()] || mxcsrOperations[inst.Op.String()] || framed && (stringOperations[inst.Op.String()] || wideAtomicOperation(inst)))) {
 				return fail("unsupported operation: " + inst.Op.String())
@@ -115,7 +162,7 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 			}
 			target, ok := address(source+uint64(offset+inst.Len), int64(rel))
 			if !ok || target < source || target >= source+uint64(len(code)) {
-				if !ok || d.kind != 2 || !nativeFunction || (framed || prologue != 0) && !restored[offset] || !selected[target] {
+				if !ok || d.kind != 2 || !nativeFunction || (framed || prologue != 0) && restored[offset] == 0 || !selected[target] {
 					return fail("branch leaves the procedure; direct tail calls require selecting their exact target and verified stack restoration")
 				}
 				d.kind = 5
@@ -147,13 +194,20 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 		return fail("missing final RET")
 	}
 	last := instructions[len(instructions)-1].kind
-	if last != 1 && last != 5 && !(framed && last == 2) {
+	if last != 1 && last != 5 && last != 6 && !(framed && last == 2) {
 		return fail("body falls through its declared extent")
 	}
 	for _, d := range instructions {
 		if d.kind == 2 || d.kind == 3 {
-			if _, ok := offsets[d.target]; !ok {
+			if stackProbe >= 0 && d.offset != stackProbe && (d.offset < prologue || d.target < prologue) {
+				return fail("additional control flow around the inline stack probe")
+			}
+			i, ok := offsets[d.target]
+			if !ok {
 				return fail("branch targets the middle of an instruction")
+			}
+			if instructions[i].requiresPrevious {
+				return fail("branch bypasses the indirect tail destination assignment")
 			}
 		}
 	}
@@ -167,6 +221,13 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 		if d.kind == 2 || d.kind == 3 {
 			target := instructions[offsets[d.target]].relocated
 			delta := int32(target - (d.relocated + d.length))
+			if d.kind == 3 && d.length == 2 {
+				if delta < -128 || delta > 127 {
+					return fail("inline stack probe branch is out of range")
+				}
+				dst[0], dst[1] = 0x70|d.condition, byte(delta)
+				continue
+			}
 			at := 1
 			if d.kind == 2 {
 				dst[0] = 0xe9
@@ -202,7 +263,12 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 				}
 			case x86asm.Mem:
 				flatString := stringOperations[d.inst.Op.String()] && (arg.Segment == x86asm.ES || arg.Segment == x86asm.DS)
-				if arg.Segment != 0 && !flatString && !(framed && (arg.Segment == x86asm.GS || arg.Segment == x86asm.FS)) || arg.Base == x86asm.EIP {
+				// The original Delphi leaf reads NT_TIB.StackBase with a single
+				// MOV RAX, GS:[8]. This absolute offset is thread-relative.
+				threadStackBase := nativeFunction && d.inst.Op == x86asm.MOV && d.inst.Args[0] == x86asm.RAX &&
+					arg.Segment == x86asm.GS && arg.Base == 0 && arg.Index == 0 && arg.Disp == 8 &&
+					d.inst.Len == 11 && code[d.offset] == 0x65 && code[d.offset+1] == 0x48 && code[d.offset+2] == 0xa1
+				if arg.Segment != 0 && !flatString && !threadStackBase && !(framed && (arg.Segment == x86asm.GS || arg.Segment == x86asm.FS)) || arg.Base == x86asm.EIP {
 					return fail("segmented/address-size memory")
 				}
 				if !framed && (arg.Index == x86asm.RSP || arg.Index == x86asm.ESP) {
@@ -241,7 +307,11 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 				if !ok || target == 0 || target >= maxUserAddress {
 					return fail("invalid RIP target")
 				}
-				if target >= source && target < source+uint64(len(code)) {
+				// A LEA of the entry produces the original function pointer.
+				// Keep its identity across relocation. Reads of patched bytes
+				// and pointers into the original body remain unsupported.
+				entryAddress := nativeFunction && d.inst.Op == x86asm.LEA && target == source
+				if target >= source && target < source+uint64(len(code)) && !entryAddress {
 					return fail("RIP reference into replaced procedure")
 				}
 				delta := int64(target) - int64(base+512+uint64(d.relocated+d.inst.Len))
@@ -263,6 +333,64 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 		}
 	}
 	return out, nil
+}
+
+// A contiguous LEA or LEA/LEA/CMOV sequence proves all values that can reach
+// JMP R11. Callers must reject branches entering the middle of that sequence.
+func indirectTailTargets(code []byte, source uint64, instructions []leafInstruction) ([]uint64, int) {
+	last := len(instructions) - 1
+	if last < 0 {
+		return nil, 0
+	}
+	previous := instructions[last]
+	if target, ok := ripTailAddress(code, source, previous, x86asm.R11); ok {
+		return []uint64{target}, last
+	}
+	if last < 2 || previous.inst.Len != 4 {
+		return nil, 0
+	}
+	cmov := code[previous.offset:][:4]
+	if cmov[0] != 0x4d || cmov[1] != 0x0f || cmov[2]&0xf0 != 0x40 || cmov[3] != 0xda ||
+		previous.inst.Args[0] != x86asm.R11 || previous.inst.Args[1] != x86asm.R10 {
+		return nil, 0
+	}
+	first, firstOK := ripTailAddress(code, source, instructions[last-2], x86asm.R11)
+	second, secondOK := ripTailAddress(code, source, instructions[last-1], x86asm.R10)
+	if !firstOK || !secondOK {
+		return nil, 0
+	}
+	return []uint64{first, second}, last - 2
+}
+
+// Delphi touches each stack page before the unwind-described SUB RSP. Keep
+// its backward JA short only when the exact loop and allocation agree.
+func verifiedInlineStackProbe(code []byte, at int) bool {
+	if at < 20 || at+9 > len(code) {
+		return false
+	}
+	probe := code[at-20 : at+9]
+	if probe[0] != 0xb8 ||
+		!bytes.Equal(probe[5:16], []byte{0x48, 0x2d, 0, 0x10, 0, 0, 0x88, 0x04, 0x04, 0x48, 0x3d}) ||
+		!bytes.Equal(probe[20:25], []byte{0x77, 0xef, 0x48, 0x81, 0xec}) {
+		return false
+	}
+	initial := int64(binary.LittleEndian.Uint32(probe[1:5]))
+	limit := int64(int32(binary.LittleEndian.Uint32(probe[16:20])))
+	allocation := int64(binary.LittleEndian.Uint32(probe[25:29]))
+	return initial > 0 && initial < 4096 && limit < -4096 &&
+		-limit == allocation && (initial-limit)%4096 == 0
+}
+
+func ripTailAddress(code []byte, source uint64, previous leafInstruction, register x86asm.Reg) (uint64, bool) {
+	inst := previous.inst
+	mem, ok := inst.Args[1].(x86asm.Mem)
+	if inst.Op != x86asm.LEA || inst.Args[0] != register || !ok || mem.Base != x86asm.RIP ||
+		mem.Index != 0 || mem.Segment != 0 || inst.PCRel != 4 || inst.PCRelOff < 0 || inst.PCRelOff+4 > inst.Len {
+		return 0, false
+	}
+	at := previous.offset + inst.PCRelOff
+	displacement := int64(int32(binary.LittleEndian.Uint32(code[at:])))
+	return address(source+uint64(previous.offset+inst.Len), displacement)
 }
 
 var frameOperations = map[string]bool{"PUSH": true, "POP": true, "LEAVE": true, "CALL": true}
