@@ -150,6 +150,10 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 			if !savedRBX || offset < prologue || inst.Len != 2 || code[offset] != 0x0f || code[offset+1] != 0xa2 {
 				return fail("CPUID requires an unprefixed instruction and an unwind-described RBX push")
 			}
+		case inst.Op == x86asm.FNSTCW:
+			if !nativeFunction || !framed || inst.Len != 3 || !bytes.Equal(code[offset:offset+3], []byte{0xd9, 0x3c, 0x24}) {
+				return fail("FNSTCW requires a verified native stack destination")
+			}
 		default:
 			if !leafOperations[inst.Op.String()] && !scalarOperations[inst.Op.String()] && !(framed && frameOperations[inst.Op.String()]) && !(nativeFunction && (atomicOperations[inst.Op.String()] || mxcsrOperations[inst.Op.String()] || framed && (stringOperations[inst.Op.String()] || wideAtomicOperation(inst)))) {
 				return fail("unsupported operation: " + inst.Op.String())

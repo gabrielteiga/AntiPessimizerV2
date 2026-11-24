@@ -96,6 +96,10 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 			// The original already saves RBX at entry and restores it on
 			// every path. Supply only the missing unwind description.
 			originalInfo = []byte{1, 1, 1, 0, 1, 0x30, 0, 0}
+		case bytes.Equal(code, delphiX87ControlLeaf), bytes.Equal(code, delphiMXCSRLeaf):
+			// The exact RTL leaf allocates eight bytes with PUSH 0. The
+			// matching POP RAX releases the slot after loading the result.
+			originalInfo = []byte{1, 2, 1, 0, 2, 2, 0, 0}
 		}
 	}
 	framed := originalInfo[2] != 0
@@ -269,6 +273,9 @@ var delphiCPUFeatureMask = []byte{
 	0xf7, 0xc1, 2, 0, 0, 0, 0x74, 5, 0x0d, 0, 1, 0, 0,
 	0x5b, 0xc3,
 }
+
+var delphiX87ControlLeaf = []byte{0x6a, 0, 0xd9, 0x3c, 0x24, 0x58, 0xc3}
+var delphiMXCSRLeaf = []byte{0x6a, 0, 0x0f, 0xae, 0x1c, 0x24, 0x58, 0xc3}
 
 func validateChainCode(code []byte, boundaries []int, gaps []chainGap) error {
 	var padding, starts []bool

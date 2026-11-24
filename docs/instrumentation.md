@@ -692,8 +692,8 @@ de saturação exige contador positivo junto de ErrLoss e incomplete=true.
 
 ## Corpus de execução da DLL Delphi original
 
-O CI Windows inclui um ensaio separado de dezessete rotinas com bytes conferidos na
-DLL v0.3 do Hoshoyo, comparando 1.700 pares original/corpo relocado com resultados
+O CI Windows inclui um ensaio separado de dezenove rotinas com bytes conferidos na
+DLL v0.3 do Hoshoyo, comparando 1.900 pares original/corpo relocado com resultados
 esperados e um helper nativo que altera GPR voláteis. Inclui push/pop com CMPXCHG16B
 sobre buffers privados e cem leituras RDTSC relocalizadas, cada uma entre leituras
 do corpo original na mesma CPU lógica. A leitura de StackBase via GS é comparada
@@ -929,3 +929,11 @@ página antes do SUB RSP registrado no unwind. Ele confere o passo de 4 KiB,
 o limite do loop e o valor da alocação. O prólogo e seus offsets permanecem
 idênticos. O ensaio Windows força o crescimento da pilha de três threads e
 confere o retorno normal e o unwind após uma falha de memória.
+
+## Consultas x87 e MXCSR com slot temporário
+
+As duas rotinas do RTL que usam PUSH 0, FNSTCW ou STMXCSR, POP RAX e RET
+recebem uma descrição unwind v1 para a alocação de oito bytes. O ensaio
+Windows compara os valores com leituras independentes dos registradores.
+Também verifica o PC e RSP do chamador com RtlVirtualUnwind antes do PUSH,
+dentro do corpo, no POP e na saída do clone.

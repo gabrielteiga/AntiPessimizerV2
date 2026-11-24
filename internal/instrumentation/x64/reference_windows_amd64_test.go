@@ -46,6 +46,8 @@ var referenceCases = []referenceCase{
 	{0x1729b0, "488d0559ffffff488d15f2ffffff483bc27d18488d0546ffffff483bc17f0c488d05daffffff483bc17f0433c0eb02b001c3", "code-range"},
 	{0xb5e0, "4989da4989c989d04489c10fa241890141895904418949084189510c4c89d3c3", "cpu-identification"},
 	{0x60210, "53b8010000000fa2b803000000f7c101000000740383c804f7c100020000740383c808f7c100000800740383c810f7c100001000740383c820f7c100008000740383c840f7c10000000274050d80000000f7c10200000074050d000100005bc3", "cpu-feature-mask"},
+	{0x9cd0, "6a00d93c2458c3", "x87-control"},
+	{0x9d50, "6a000fae1c2458c3", "mxcsr-control"},
 }
 
 func pinReferenceThread(t *testing.T) {
@@ -188,6 +190,15 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 			helper = append(helper, 0xb8, 1, 0, 0, 0, 0xc3)
 			write(memory+8192, helper)
 			write(memory+8300, []byte{1, 0, 0, 0})
+			var controlBytes int
+			switch c.Kind {
+			case "x87-control":
+				controlBytes = 2
+				write(memory+8320, []byte{0xd9, 0x39, 0xc3}) // FNSTCW [RCX]; RET
+			case "mxcsr-control":
+				controlBytes = 4
+				write(memory+8320, []byte{0x0f, 0xae, 0x19, 0xc3}) // STMXCSR [RCX]; RET
+			}
 			functions := append(plan.Functions[:], RuntimeFunction{8192, 8192 + uint32(len(helper)), 8300})
 			var table bytes.Buffer
 			for _, function := range functions {
@@ -207,6 +218,35 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 				t.Fatal("register original corpus table", err)
 			}
 			registered = true
+			if controlBytes != 0 {
+				runtime.LockOSThread()
+				defer runtime.UnlockOSThread()
+				// Check every stack phase without touching the test's own stack.
+				unwind := nt.NewProc("RtlVirtualUnwind")
+				const contextSize = 1232
+				entrySP, returnPC := rw+3584, memory+8192
+				var word [8]byte
+				binary.LittleEndian.PutUint64(word[:], uint64(returnPC))
+				write(entrySP, word[:])
+				for _, offset := range [...]int{0, 2, len(code) - 2, len(code) - 1} {
+					sp := entrySP
+					if offset > 0 && offset < len(code)-1 {
+						sp -= 8
+					}
+					pc := memory + uintptr(plan.BodyRVA) + uintptr(offset)
+					context := make([]byte, contextSize)
+					binary.LittleEndian.PutUint32(context[48:], 0x0010000b)
+					binary.LittleEndian.PutUint64(context[152:], uint64(sp))
+					binary.LittleEndian.PutUint64(context[248:], uint64(pc))
+					write(rw+1024, context)
+					unwind.Call(0, memory, pc, memory+12288+12, rw+1024, rw+2560, rw+2568, 0)
+					got := read(rw+1024, contextSize)
+					if binary.LittleEndian.Uint64(got[152:]) != uint64(entrySP+8) ||
+						binary.LittleEndian.Uint64(got[248:]) != uint64(returnPC) {
+						t.Fatalf("%s unwind at offset %d lost caller SP or PC", c.Kind, offset)
+					}
+				}
+			}
 			var stackBase uintptr
 			if c.Kind == "timestamp" || c.Kind == "cpu-identification" || c.Kind == "cpu-feature-mask" {
 				pinReferenceThread(t)
@@ -257,6 +297,19 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 					observed, _, _ := syscall.SyscallN(memory)
 					if original != want || observed != want {
 						t.Fatalf("CPU feature mask: original=%#x clone=%#x want=%#x", original, observed, want)
+					}
+					calls++
+					continue
+				}
+				if controlBytes != 0 {
+					out := rw + 128
+					write(out, make([]byte, 8))
+					syscall.SyscallN(memory+8320, out)
+					want := uintptr(binary.LittleEndian.Uint64(read(out, 8)))
+					original, _, _ := syscall.SyscallN(uintptr(dll) + uintptr(c.RVA))
+					observed, _, _ := syscall.SyscallN(memory)
+					if original != want || observed != want {
+						t.Fatalf("control word: original=%#x clone=%#x want=%#x", original, observed, want)
 					}
 					calls++
 					continue
