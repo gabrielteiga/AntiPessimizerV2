@@ -352,7 +352,7 @@ efeito colateral da classificação.
 
 O diretório correspondente tem prioridade; o fallback usa cobertura disjunta
 construída sob demanda e consultada por busca binária. Nomes conflitantes em
-componentes sobrepostos ficam desconhecidos. A fixture TD32 do CI Windows usa
+endereços cobertos por unidades de nomes distintos ficam desconhecidos no fallback. A fixture TD32 do CI Windows usa
 0xffff em sstAlignSym e mantém sstModule separado, exigindo unidade resolvida
 até sampling, seleção do EXE, contagens e viewer. Não se altera a validação dos
 bytes/extents/unwind do código por relaxar a associação de um nome de unidade.
