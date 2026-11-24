@@ -145,6 +145,27 @@ __asm__(
  ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
  ".rva .Lpadded_chain_try,.Lpadded_chain_try_end,APFrameMemoryFilter,.Lpadded_chain_catch\n .text\n .seh_endproc\n"
 );
+extern uint64_t APFrameLocalSave(const uint64_t *),APFrameLocalSaveCatch(void);
+__asm__(
+ ".text\n .globl APFrameLocalSave\n .def APFrameLocalSave; .scl 2; .type 32; .endef\n"
+ "APFrameLocalSave:\n subq $40,%rsp\n .fill 8,1,0x90\n"
+ ".globl APFrameLocalSaveCold\n .def APFrameLocalSaveCold; .scl 2; .type 32; .endef\n"
+ "APFrameLocalSaveCold:\n movq %rbx,24(%rsp)\n movq %rcx,%rbx\n movq (%rbx),%rax\n"
+ "movq 24(%rsp),%rbx\n addq $40,%rsp\n ret\n .Llocal_save_end:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n .Llocal_save_primary:\n .byte 1,4,1,0,4,0x42,0,0\n"
+ ".Llocal_save_secondary:\n .byte 33,5,2,0,5,0x34,3,0\n .rva APFrameLocalSave,APFrameLocalSaveCold,.Llocal_save_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n .rva APFrameLocalSave,APFrameLocalSaveCold,.Llocal_save_primary\n"
+ ".rva APFrameLocalSaveCold,.Llocal_save_end,.Llocal_save_secondary\n"
+ ".text\n .globl APFrameLocalSaveCatch\n .def APFrameLocalSaveCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameLocalSaveCatch\n APFrameLocalSaveCatch:\n pushq %rbx\n .seh_pushreg %rbx\n subq $32,%rsp\n .seh_stackalloc 32\n .seh_endprologue\n"
+ "movl $0x42012345,%ebx\n .Llocal_save_try:\n xorq %rcx,%rcx\n call APFrameLocalSave\n nop\n"
+ ".Llocal_save_try_end:\n xorl %eax,%eax\n jmp .Llocal_save_return\n"
+ ".Llocal_save_catch:\n xorl %eax,%eax\n cmpl $0x42012345,%ebx\n sete %al\n"
+ ".Llocal_save_return:\n addq $32,%rsp\n popq %rbx\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Llocal_save_try,.Llocal_save_try_end,APFrameMemoryFilter,.Llocal_save_catch\n .text\n .seh_endproc\n"
+);
+
 
 extern uint64_t APFrameLarge(uint64_t),APFrameLargeCatch(void);
 __attribute__((noinline)) uint64_t APFrameLargeWork(uint64_t n){
@@ -418,7 +439,9 @@ static DWORD WINAPI worker(void *unused){
  }
  if(check_chain){
   const uint64_t value=UINT64_C(0x1122334455667788);
-  if(check_chain==2){
+  if(check_chain==3){
+   if(APFrameLocalSave(&value)!=value || APFrameLocalSaveCatch()!=1)return 12;
+  }else if(check_chain==2){
    if(APFramePaddedChain(&value)!=value || APFramePaddedChainCatch()!=903)return 12;
   }else if(APFrameChain(&value)!=value || APFrameChainCatch()!=903)return 12;
  }

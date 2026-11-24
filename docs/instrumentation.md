@@ -894,8 +894,14 @@ unwind com o cleanup do profiler. O teste Windows executa um alvo C/assembly
 com .pdata encadeada como baseline e depois instrumentado. Em três threads,
 o alvo confere o valor de retorno e captura uma falha real no secundário.
 A captura exige duas chamadas e um unwind por thread, zero perdas e zero
-frames abertos. Chains com ações locais, handlers, versões alternativas
-ou lacunas com código continuam fora do subconjunto conferido.
+frames abertos. Há também suporte a um fragmento final contíguo com um `SAVE_NONVOL` local.
+O primário aloca o frame inteiro com `SUB RSP`. O secundário salva e recupera
+um registrador num slot da alocação. A entrada no secundário sempre executa o
+save. O contrato privado `APHOOKC` mantém dois registros de unwind para o corpo
+instrumentado e confere o encadeamento com o primário relocado. O teste nativo
+confere o retorno e a recuperação do registrador após uma falha real.
+Outras ações locais, handlers, versões alternativas e lacunas com código
+continuam fora do subconjunto conferido.
 Lacunas entre fragmentos podem conter bytes NOP se o fluxo anterior termina
 antes delas e nenhum salto tem destino dentro da lacuna. O ensaio Windows
 confere retorno e uma falha no fragmento após oito bytes de padding.

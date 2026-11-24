@@ -97,19 +97,38 @@ func TestNativeProducerUnwindsInheritedChainedFrameAcrossPadding(t *testing.T) {
 	testNativeInheritedChainedFrame(t, "APFramePaddedChain", 8, "2")
 }
 
+func TestNativeProducerUnwindsChainedLocalRegisterSave(t *testing.T) {
+	testNativeInheritedChainedFrame(t, "APFrameLocalSave", 0, "3")
+}
+
 func testNativeInheritedChainedFrame(t *testing.T, symbol string, gap uint32, mode string) {
 	t.Helper()
-	o := frameSelectionFixture(t, map[string]uint32{symbol: 1, symbol + "Cold": 2})
-	primary, secondary := o.Procedures[0], o.Procedures[1]
-	if primary.ID == 2 {
-		primary, secondary = secondary, primary
+	names := map[string]uint32{symbol: 1, symbol + "Cold": 2}
+	if mode == "3" {
+		names["APFrameStackProbe"] = 3
+	}
+	o := frameSelectionFixture(t, names)
+	var primary, secondary SelectedProcedure
+	keep := o.Procedures[:0]
+	for _, procedure := range o.Procedures {
+		switch procedure.ID {
+		case 1:
+			primary = procedure
+		case 2:
+			secondary = procedure
+		default:
+			keep = append(keep, procedure)
+		}
 	}
 	if primary.RVA+primary.Size+gap != secondary.RVA {
 		t.Fatal("wrong gap between runtime ranges", primary, secondary)
 	}
 	primary.Size += secondary.Size + gap
-	o.Procedures = []SelectedProcedure{primary}
+	o.Procedures = append(keep, primary)
 	o.Args = []string{"--threads", "3", "--iterations", "1", "--delay-ms", "0", "--check-chain", mode}
+	if mode == "3" {
+		o.Args = append(o.Args, "--check-stack-probe", "1")
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 	defer cancel()
@@ -122,11 +141,11 @@ func testNativeInheritedChainedFrame(t *testing.T, symbol string, gap uint32, mo
 	}
 	record := output.last
 	s := record.Metrics
-	if s.Incomplete || s.OpenCalls != 0 || s.AbandonedCalls != 0 || record.NativeLostEvents != 0 || len(s.Rows) != 3 {
+	if s.Incomplete || s.OpenCalls != 0 || s.AbandonedCalls != 0 || record.NativeLostEvents != 0 || len(s.Rows) != 3*len(o.Procedures) {
 		t.Fatal("chained unwind left incomplete or missing frames", s)
 	}
 	for _, row := range s.Rows {
-		if row.ProcedureID != primary.ID || row.Calls != 2 || row.UnwoundCalls != 1 || row.InclusiveTicks == 0 || row.InclusiveTicks != row.ExclusiveTicks {
+		if row.ProcedureID != primary.ID && (mode != "3" || row.ProcedureID != 3) || row.Calls != 2 || row.UnwoundCalls != 1 || row.InclusiveTicks == 0 || row.InclusiveTicks != row.ExclusiveTicks {
 			t.Fatal("chained procedure did not record one return and one unwind per thread", row)
 		}
 	}
