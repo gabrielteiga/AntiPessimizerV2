@@ -21,6 +21,9 @@ func TestNativeProducerVerifiedIndirectTailPreservesArgumentsAndUnwind(t *testin
 func TestNativeProducerConditionalIndirectTailMeasuresBothDestinations(t *testing.T) {
 	testTailCalls(t, "APTailConditionalStart", "")
 }
+func TestNativeProducerConditionalDirectTailMeasuresBothDestinations(t *testing.T) {
+	testTailCalls(t, "APTailConditionalDirect", "")
+}
 func TestNativeProducerFramedIndirectTailPreservesUnwind(t *testing.T) {
 	testTailCalls(t, "APTailStart", "APTailFramedIndirect")
 }
@@ -32,7 +35,7 @@ func testTailCalls(t *testing.T, start, framedStart string) {
 		names[framedStart] = 7
 		names["APTailFramedRBP"] = 8
 	}
-	conditional := start == "APTailConditionalStart"
+	conditional := start == "APTailConditionalStart" || start == "APTailConditionalDirect"
 	if conditional {
 		names["APTailAlternative"] = 9
 	}
@@ -40,6 +43,8 @@ func testTailCalls(t *testing.T, start, framedStart string) {
 	o.Args = []string{"--threads", "3", "--iterations", "10"}
 	if start == "APTailIndirectStart" {
 		o.Args = append(o.Args, "--indirect", "1")
+	} else if start == "APTailConditionalDirect" {
+		o.Args = append(o.Args, "--indirect", "4")
 	} else if conditional {
 		o.Args = append(o.Args, "--indirect", "2")
 	} else if framedStart == "APTailFramedIndirect" {
