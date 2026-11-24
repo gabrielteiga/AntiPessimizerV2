@@ -75,6 +75,29 @@ __asm__(
  ".rva .Lchain_try,.Lchain_try_end,APFrameMemoryFilter,.Lchain_catch\n .text\n .seh_endproc\n"
 );
 
+extern uint64_t APFramePaddedChain(const uint64_t *),APFramePaddedChainCatch(void);
+__asm__(
+ ".text\n .globl APFramePaddedChain\n .def APFramePaddedChain; .scl 2; .type 32; .endef\n"
+ "APFramePaddedChain:\n pushq %rbx\n subq $32,%rsp\n movq %rcx,%rbx\n .fill 8,1,0x90\n jmp APFramePaddedChainCold\n"
+ ".Lpadded_chain_primary_end:\n .fill 8,1,0x90\n"
+ ".globl APFramePaddedChainCold\n .def APFramePaddedChainCold; .scl 2; .type 32; .endef\n"
+ "APFramePaddedChainCold:\n movq (%rbx),%rax\n addq $32,%rsp\n popq %rbx\n ret\n"
+ ".Lpadded_chain_end:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n"
+ ".Lpadded_chain_primary:\n .byte 1,5,2,0,5,0x32,1,0x30\n"
+ ".Lpadded_chain_secondary:\n .byte 33,0,0,0\n .rva APFramePaddedChain,.Lpadded_chain_primary_end,.Lpadded_chain_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n"
+ ".rva APFramePaddedChain,.Lpadded_chain_primary_end,.Lpadded_chain_primary\n"
+ ".rva APFramePaddedChainCold,.Lpadded_chain_end,.Lpadded_chain_secondary\n"
+ ".text\n .globl APFramePaddedChainCatch\n .def APFramePaddedChainCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFramePaddedChainCatch\n APFramePaddedChainCatch:\n subq $40,%rsp\n .seh_stackalloc 40\n .seh_endprologue\n"
+ ".Lpadded_chain_try:\n xorq %rcx,%rcx\n call APFramePaddedChain\n nop\n"
+ ".Lpadded_chain_try_end:\n xorl %eax,%eax\n addq $40,%rsp\n ret\n"
+ ".Lpadded_chain_catch:\n movl $903,%eax\n addq $40,%rsp\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Lpadded_chain_try,.Lpadded_chain_try_end,APFrameMemoryFilter,.Lpadded_chain_catch\n .text\n .seh_endproc\n"
+);
+
 extern uint64_t APFrameLarge(uint64_t),APFrameLargeCatch(void);
 __attribute__((noinline)) uint64_t APFrameLargeWork(uint64_t n){
  if(n==888)RaiseException(AP_FRAME_EXCEPTION,0,0,NULL);
@@ -336,7 +359,9 @@ static DWORD WINAPI worker(void *unused){
  }
  if(check_chain){
   const uint64_t value=UINT64_C(0x1122334455667788);
-  if(APFrameChain(&value)!=value || APFrameChainCatch()!=903)return 12;
+  if(check_chain==2){
+   if(APFramePaddedChain(&value)!=value || APFramePaddedChainCatch()!=903)return 12;
+  }else if(APFrameChain(&value)!=value || APFrameChainCatch()!=903)return 12;
  }
  if(normal_cleanup_throws){if(APUnwindCatch(7)!=779)return 6;}
  else if(APUnwindOuter(7)!=11)return 6;

@@ -883,7 +883,10 @@ com .pdata encadeada como baseline e depois instrumentado. Em três threads,
 o alvo confere o valor de retorno e captura uma falha real no secundário.
 A captura exige duas chamadas e um unwind por thread, zero perdas e zero
 frames abertos. Chains com ações locais, handlers, versões alternativas
-ou extensões descontínuas continuam fora do subconjunto conferido.
+ou lacunas com código continuam fora do subconjunto conferido.
+Lacunas entre fragmentos podem conter bytes NOP se o fluxo anterior termina
+antes delas e nenhum salto tem destino dentro da lacuna. O ensaio Windows
+confere retorno e uma falha no fragmento após oito bytes de padding.
 
 ## Tail calls indiretas com destinos comprovados
 

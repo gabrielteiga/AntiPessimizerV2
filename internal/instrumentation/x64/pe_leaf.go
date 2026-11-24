@@ -42,6 +42,7 @@ type functionUnwind struct {
 	scopes                          []byte
 	typeTables                      []delphiTypeTable
 	chainBoundaries                 []int
+	chainGaps                       []chainGap
 }
 
 // readPELeaf deliberately reads only bounded headers, sections and .pdata.
@@ -233,11 +234,12 @@ func (p *PEImage) readCode(rva, size uint32, collectedUnwind *functionUnwind) ([
 				return fail("partial runtime-function overlap")
 			}
 			var chainBoundaries []int
+			var chainGaps []chainGap
 			if end != procedureEnd {
 				if collectedUnwind == nil || info[0] != 1 || uint32(info[1]) > end-begin {
 					return fail("partial runtime-function overlap")
 				}
-				chainBoundaries = p.inheritedUnwindBoundaries(offset, procedureEnd, info[3])
+				chainBoundaries, chainGaps = p.inheritedUnwindBoundaries(offset, procedureEnd, info[3])
 				if len(chainBoundaries) == 0 {
 					return fail("procedure extent is not covered by an inherited unwind chain")
 				}
@@ -263,7 +265,7 @@ func (p *PEImage) readCode(rva, size uint32, collectedUnwind *functionUnwind) ([
 				if err := validateUnwindCodes(original); err != nil {
 					return nil, 0, err
 				}
-				*collectedUnwind = functionUnwind{info: original, runtimeRVA: p.directoryRVA + uint32(offset), infoRVA: unwind, chainBoundaries: chainBoundaries}
+				*collectedUnwind = functionUnwind{info: original, runtimeRVA: p.directoryRVA + uint32(offset), infoRVA: unwind, chainBoundaries: chainBoundaries, chainGaps: chainGaps}
 				if info[0] != 1 {
 					if uint64(unwind)+uint64(length)+4 > uint64(p.imageSize) {
 						return fail("truncated original unwind handler")
@@ -330,30 +332,47 @@ func (p *PEImage) readCode(rva, size uint32, collectedUnwind *functionUnwind) ([
 // unwind actions. In this case one copied record with the primary's actions
 // describes all of the relocated code. Match the complete embedded runtime
 // entry to the primary or the previous (already checked) fragment.
-func (p *PEImage) inheritedUnwindBoundaries(primaryAt int, procedureEnd uint32, frame byte) []int {
+type chainGap struct{ begin, end int }
+
+func (p *PEImage) inheritedUnwindBoundaries(primaryAt int, procedureEnd uint32, frame byte) ([]int, []chainGap) {
 	u32 := binary.LittleEndian.Uint32
 	primary := p.table[primaryAt : primaryAt+12]
 	previous, end := primary, u32(primary[4:])
 	start := u32(primary)
 	var boundaries []int
+	var gaps []chainGap
 	for at := primaryAt + 12; end < procedureEnd; at += 12 {
 		if at >= len(p.table) {
-			return nil
+			return nil, nil
 		}
 		entry := p.table[at : at+12]
-		nextEnd := u32(entry[4:])
-		if u32(entry) != end || nextEnd > procedureEnd {
-			return nil
+		nextBegin, nextEnd := u32(entry), u32(entry[4:])
+		if nextBegin < end || nextEnd > procedureEnd {
+			return nil, nil
 		}
 		info, ok := p.mapped(u32(entry[8:]), 16, false)
 		if !ok || info[0] != 33 || info[1] != 0 || info[2] != 0 || info[3] != frame {
-			return nil
+			return nil, nil
 		}
 		if !bytes.Equal(info[4:], primary) && !bytes.Equal(info[4:], previous) {
-			return nil
+			return nil, nil
 		}
 		boundaries = append(boundaries, int(end-start))
+		if nextBegin != end {
+			padding, ok := p.mapped(end, nextBegin-end, true)
+			if !ok {
+				return nil, nil
+			}
+			for _, b := range padding {
+				if b != 0x90 {
+					return nil, nil
+				}
+			}
+			gap := chainGap{int(end - start), int(nextBegin - start)}
+			gaps = append(gaps, gap)
+			boundaries = append(boundaries, gap.end)
+		}
 		previous, end = entry, nextEnd
 	}
-	return boundaries
+	return boundaries, gaps
 }
