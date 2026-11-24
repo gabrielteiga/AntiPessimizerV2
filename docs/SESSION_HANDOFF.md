@@ -30,8 +30,8 @@ já foram resolvidos. README/plano descrevem o estado atual.
 
 ## Estado confirmado no remoto
 
-A `main` integrou o PR #83 em `dd25471fa1ad508dd42244ef8d47448b5f250998`.
-[CI pós-merge](https://github.com/gabrielteiga/AntiPessimizerV2/actions/runs/45481582417).
+A `main` integrou o PR #86 em `6c2a9f5ccaf8c5f969208ab24e297e25a2bbb246`.
+[CI pós-merge](https://github.com/gabrielteiga/AntiPessimizerV2/actions/runs/45484127874).
 
 Entregas integradas após a CI do commit exato.
 
@@ -72,6 +72,11 @@ Entregas integradas após a CI do commit exato.
 
 - #82 cobre um `SAVE_NONVOL` local num fragmento final. #83 grava largura e
   ordem das colunas nas quatro tabelas de resultados e comparações.
+- #84 reloca tabelas de salto delimitadas com ponteiros `DIR64`. #85 aplica a
+  relocação ao preenchimento escalar, SSE e REP da DLL Delphi de referência e
+  confere a restauração de RDI no unwind.
+- #86 preserva unidade Pascal nos trechos de contribuição cobertos por um único
+  nome. Endereços ambíguos ficam sem associação quando o diretório é global.
 
 Já existiam TD32/TDS, lançamento próprio sem SDK, coletor/viewer separados,
 ETW, métricas, Clear sincronizado, perdas explícitas, replay/comparação,
@@ -81,7 +86,10 @@ preferências e empacotamento Windows. Não recomece essas partes.
 
 - O #61 prepara o build e a validação do EXE `ProfilerLab` com `dcc64` 10.4.
   Mantém-se em rascunho enquanto faltar um runner Windows com essa instalação
-  licenciada. A suíte pública roda os alvos C e a DLL Delphi de referência.
+  licenciada. O ensaio cobre TD32/linhas sob ASLR, capturas tipadas aninhadas e
+  unwind recursivo. O modo prolongado compara a mesma carga baseline e
+  instrumentada. Os leitores dos relatórios foram exercitados com dados
+  sintéticos. A suíte pública roda os alvos C e a DLL Delphi de referência.
   [PR #61](https://github.com/gabrielteiga/AntiPessimizerV2/pull/61).
 
 ## Lacunas materiais que continuam abertas
