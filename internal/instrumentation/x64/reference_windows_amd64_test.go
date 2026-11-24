@@ -246,6 +246,8 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 				put(peer[:], 0x123456789abcd000+trial+trial%2)
 				arguments := []uintptr{rw + 128, rw + 384, uintptr(trial % 4 * 8)}
 				switch c.Kind {
+				case "thread-stack-base":
+					want = uint64(stackBase)
 				case "constant":
 					want = 0x260
 				case "field32":
