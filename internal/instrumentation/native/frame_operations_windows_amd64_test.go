@@ -22,6 +22,10 @@ func TestNativeProducerDelphiCPUIDLeafRestoresRBXAfterOutputFault(t *testing.T) 
 	testNativeFrameReturnAndUnwind(t, "APFrameDelphiCPUID", "--check-delphi-cpuid", "2")
 }
 
+func TestNativeProducerLeafCapturesOriginalCallerContext(t *testing.T) {
+	testNativeFrameReturnAndUnwind(t, "APLeafCallerContext", "--check-caller-context", "1")
+}
+
 func testNativeFrameReturnAndUnwind(t *testing.T, symbol, flag, capturedMode string) {
 	t.Helper()
 	o := frameSelectionFixture(t, map[string]uint32{symbol: 1})

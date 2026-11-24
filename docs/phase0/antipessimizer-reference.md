@@ -387,3 +387,8 @@ guarda RBX em R10 e grava EAX, EBX, ECX e EDX no buffer de saída. O clone do
 padrão exato preserva os resultados e registra a pilha usada para salvar RBX.
 O corpus compara 100 pares dessa consulta no mesmo processador lógico.
 São 16 rotinas executadas, 1.600 pares e 8.651 planejamentos estáticos aceitos.
+
+O RVA 0xea80 salva o endereço de retorno, a pilha do chamador, GPRs não
+voláteis e XMM6–15. Esse caso amplia o corpus estático para 8.652 entradas.
+O teste Windows usa uma fixture de captura de contexto para conferir PC,
+RSP, RBX, XMM6 e o unwind quando a gravação falha.

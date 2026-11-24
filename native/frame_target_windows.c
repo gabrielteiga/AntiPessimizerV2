@@ -54,6 +54,33 @@ __asm__(
  ".rva .Ldelphi_cpuid_try,.Ldelphi_cpuid_end,APFrameMemoryFilter,.Ldelphi_cpuid_catch\n .text\n .seh_endproc\n"
 );
 
+static BOOL check_caller_context;
+extern uint64_t APCheckCallerContext(void *), APCatchCallerContext(void);
+__asm__(
+ ".text\n .globl APLeafCallerContext\n .def APLeafCallerContext; .scl 2; .type 32; .endef\n"
+ ".seh_proc APLeafCallerContext\n APLeafCallerContext:\n .seh_endprologue\n"
+ "movq (%rsp),%rax\n leaq 8(%rsp),%rdx\n movq %rax,(%rcx)\n movq %rdx,8(%rcx)\n"
+ "movq %rbx,16(%rcx)\n movapd %xmm6,32(%rcx)\n xorl %eax,%eax\n ret\n .seh_endproc\n"
+ ".globl APCheckCallerContext\n .def APCheckCallerContext; .scl 2; .type 32; .endef\n"
+ ".seh_proc APCheckCallerContext\n APCheckCallerContext:\n pushq %rbx\n .seh_pushreg %rbx\n"
+ "subq $64,%rsp\n .seh_stackalloc 64\n movaps %xmm6,48(%rsp)\n .seh_savexmm %xmm6,48\n .seh_endprologue\n"
+ "movq %rcx,32(%rsp)\n movabsq $0x1234567890abcdef,%rbx\n movq %rbx,%xmm6\n"
+ "call APLeafCallerContext\n .Lcontext_return:\n"
+ "testl %eax,%eax\n jne .Lcontext_failed\n"
+ "movq 32(%rsp),%rdx\n leaq .Lcontext_return(%rip),%rcx\n cmpq %rcx,(%rdx)\n jne .Lcontext_failed\n"
+ "cmpq %rsp,8(%rdx)\n jne .Lcontext_failed\n cmpq %rbx,16(%rdx)\n jne .Lcontext_failed\n"
+ "cmpq %rbx,32(%rdx)\n jne .Lcontext_failed\n cmpq $0,40(%rdx)\n jne .Lcontext_failed\n"
+ "movl $1,%eax\n jmp .Lcontext_done\n .Lcontext_failed:\n xorl %eax,%eax\n"
+ ".Lcontext_done:\n movaps 48(%rsp),%xmm6\n addq $64,%rsp\n popq %rbx\n ret\n .seh_endproc\n"
+ ".globl APCatchCallerContext\n .def APCatchCallerContext; .scl 2; .type 32; .endef\n"
+ ".seh_proc APCatchCallerContext\n APCatchCallerContext:\n subq $40,%rsp\n .seh_stackalloc 40\n .seh_endprologue\n"
+ ".Lcontext_try:\n xorq %rcx,%rcx\n call APLeafCallerContext\n nop\n"
+ ".Lcontext_end:\n xorl %eax,%eax\n addq $40,%rsp\n ret\n"
+ ".Lcontext_catch:\n movl $1,%eax\n addq $40,%rsp\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Lcontext_try,.Lcontext_end,APFrameMemoryFilter,.Lcontext_catch\n .text\n .seh_endproc\n"
+);
+
 static BOOL check_stack_probe;
 extern uint64_t APFrameStackProbe(const uint64_t *),APFrameStackProbeCatch(void);
 __asm__(
@@ -374,6 +401,10 @@ static DWORD WINAPI worker(void *unused){
   for(unsigned i=0;i<4;i++)if(actual[i]!=expected[i])return 13;
   if(APFrameCPUIDCatch()!=1)return 13;
  }
+ if(check_caller_context){
+  _Alignas(16) uint64_t caller_context[6]={0};
+  if(APCheckCallerContext(caller_context)!=1 || APCatchCallerContext()!=1)return 16;
+ }
  if(check_delphi_cpuid){
   uint32_t expected[4],actual[4];
   __cpuid_count(0,0,expected[0],expected[1],expected[2],expected[3]);
@@ -411,6 +442,7 @@ int wmain(int argc,wchar_t **argv){
   else if(!wcscmp(argv[i],L"--normal-cleanup-throws"))normal_cleanup_throws=(BOOL)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--unselected-id"))unselected_id=(uint32_t)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--check-cpuid"))check_cpuid=(BOOL)wcstoul(argv[i+1],NULL,10);
+  else if(!wcscmp(argv[i],L"--check-caller-context"))check_caller_context=(BOOL)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--check-delphi-cpuid"))check_delphi_cpuid=(DWORD)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--check-stack-probe"))check_stack_probe=(BOOL)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--check-chain"))check_chain=(BOOL)wcstoul(argv[i+1],NULL,10);
