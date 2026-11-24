@@ -908,3 +908,11 @@ A escolha entre dois alvos com CMOV exige um chamador sem frame.
 O teste Windows executa o EXE baseline e a captura instrumentada em três
 threads, com seis argumentos, onze chamadas externas por worker e uma saída
 excepcional. Confere as chamadas por destino e a conservação do tempo inclusivo.
+
+## Sondagem de páginas de pilha no prólogo
+
+O planejador mantém o salto condicional curto no loop Delphi que toca cada
+página antes do SUB RSP registrado no unwind. Ele confere o passo de 4 KiB,
+o limite do loop e o valor da alocação. O prólogo e seus offsets permanecem
+idênticos. O ensaio Windows força o crescimento da pilha de três threads e
+confere o retorno normal e o unwind após uma falha de memória.

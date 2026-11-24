@@ -33,6 +33,23 @@ __asm__(
  ".rva .Lcpuid_try,.Lcpuid_end,APFrameMemoryFilter,.Lcpuid_catch\n .text\n .seh_endproc\n"
 );
 
+static BOOL check_stack_probe;
+extern uint64_t APFrameStackProbe(const uint64_t *),APFrameStackProbeCatch(void);
+__asm__(
+ ".text\n .globl APFrameStackProbe\n .def APFrameStackProbe; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameStackProbe\n APFrameStackProbe:\n pushq %rbp\n .seh_pushreg %rbp\n pushq %rbx\n .seh_pushreg %rbx\n"
+ "movl $0xfa8,%eax\n .Lprobe_page:\n subq $4096,%rax\n movb %al,(%rsp,%rax)\n cmpq $-0x4058,%rax\n ja .Lprobe_page\n"
+ "subq $0x4058,%rsp\n .seh_stackalloc 0x4058\n .seh_endprologue\n"
+ "movq (%rcx),%rax\n addq $0x4058,%rsp\n popq %rbx\n popq %rbp\n ret\n .seh_endproc\n"
+ ".globl APFrameStackProbeCatch\n .def APFrameStackProbeCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameStackProbeCatch\n APFrameStackProbeCatch:\n subq $40,%rsp\n .seh_stackalloc 40\n .seh_endprologue\n"
+ ".Lprobe_try:\n xorq %rcx,%rcx\n call APFrameStackProbe\n nop\n"
+ ".Lprobe_end:\n xorl %eax,%eax\n addq $40,%rsp\n ret\n"
+ ".Lprobe_catch:\n movl $904,%eax\n addq $40,%rsp\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Lprobe_try,.Lprobe_end,APFrameMemoryFilter,.Lprobe_catch\n .text\n .seh_endproc\n"
+);
+
 extern uint64_t APFrameChain(const uint64_t *),APFrameChainCatch(void);
 
 /* GAS has no chain-info directive. Emit both ordinary .pdata entries and the
@@ -313,6 +330,10 @@ static DWORD WINAPI worker(void *unused){
   for(unsigned i=0;i<4;i++)if(actual[i]!=expected[i])return 13;
   if(APFrameCPUIDCatch()!=1)return 13;
  }
+ if(check_stack_probe){
+  const uint64_t value=UINT64_C(0xabc123def4569870);
+  if(APFrameStackProbe(&value)!=value || APFrameStackProbeCatch()!=904)return 14;
+ }
  if(check_chain){
   const uint64_t value=UINT64_C(0x1122334455667788);
   if(APFrameChain(&value)!=value || APFrameChainCatch()!=903)return 12;
@@ -337,6 +358,7 @@ int wmain(int argc,wchar_t **argv){
   else if(!wcscmp(argv[i],L"--normal-cleanup-throws"))normal_cleanup_throws=(BOOL)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--unselected-id"))unselected_id=(uint32_t)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--check-cpuid"))check_cpuid=(BOOL)wcstoul(argv[i+1],NULL,10);
+  else if(!wcscmp(argv[i],L"--check-stack-probe"))check_stack_probe=(BOOL)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--check-chain"))check_chain=(BOOL)wcstoul(argv[i+1],NULL,10);
   else return 2;
  }

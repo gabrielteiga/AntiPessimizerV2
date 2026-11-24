@@ -11,12 +11,21 @@ import (
 )
 
 func TestNativeProducerCPUIDPreservesResultsAndRBXDuringUnwind(t *testing.T) {
-	o := frameSelectionFixture(t, map[string]uint32{"APFrameCPUID": 1})
-	o.Args = append(o.Args, "--check-cpuid", "1")
+	testNativeFrameReturnAndUnwind(t, "APFrameCPUID", "--check-cpuid")
+}
+
+func TestNativeProducerInlineStackProbeAndUnwind(t *testing.T) {
+	testNativeFrameReturnAndUnwind(t, "APFrameStackProbe", "--check-stack-probe")
+}
+
+func testNativeFrameReturnAndUnwind(t *testing.T, symbol, flag string) {
+	t.Helper()
+	o := frameSelectionFixture(t, map[string]uint32{symbol: 1})
+	o.Args = append(o.Args, flag, "1")
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	if data, err := exec.CommandContext(ctx, o.Image, o.Args...).CombinedOutput(); err != nil {
-		t.Fatal("baseline CPUID values or RBX unwind differ", err, string(data))
+		t.Fatal("baseline native frame return or unwind differs", err, string(data))
 	}
 	var output bytes.Buffer
 	if err := Launch(ctx, o, &output); err != nil {
