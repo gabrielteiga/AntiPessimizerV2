@@ -64,7 +64,7 @@ func (p *PEImage) indexedJumpTable(rva uint32, code []byte, patchSize int) *inde
 			}
 		}
 	}
-	if !starts[fallback] || p.preferredBase == 0 || p.preferredBase >= maxUserAddress-uint64(p.imageSize) {
+	if !starts[fallback] || !p.validPreferredBase() {
 		return nil
 	}
 	table := &indexedJumpTable{load: load, data: data, targets: make([]int, count)}
@@ -77,6 +77,10 @@ func (p *PEImage) indexedJumpTable(rva uint32, code []byte, patchSize int) *inde
 		table.targets[i] = int(address - preferred)
 	}
 	return table
+}
+
+func (p *PEImage) validPreferredBase() bool {
+	return p.preferredBase != 0 && p.preferredBase < maxUserAddress-uint64(p.imageSize)
 }
 
 func tableRegister(reg x86asm.Reg) bool {
@@ -137,20 +141,20 @@ func (t *indexedJumpTable) plannerCode(code []byte) []byte {
 	return body
 }
 
-func (t *indexedJumpTable) relocate(source, body []byte, rva uint32, loaded, base uint64, flow *leafBody) error {
+func (t *indexedJumpTable) relocate(source, body []byte, rva uint32, loaded, base uint64, prefix int, flow *leafBody) error {
 	translate, err := scopePCMap(body, *flow, rva, 0)
 	if err != nil {
 		return err
 	}
 	fail := func() error { return fmt.Errorf("%w: invalid relocated index table boundary", ErrUnsupported) }
-	load, loadOK := translate(rva + uint32(t.load))
-	data, dataOK := translate(rva + uint32(t.data))
+	load, loadOK := translate(rva + uint32(t.load+prefix))
+	data, dataOK := translate(rva + uint32(t.data+prefix))
 	if !loadOK || !dataOK || data-load != uint32(t.data-t.load) {
 		return fail()
 	}
 	copy(flow.code[load:data], source[t.load:t.data])
 	for i, off := range t.targets {
-		target, ok := translate(rva + uint32(off))
+		target, ok := translate(rva + uint32(off+prefix))
 		if !ok {
 			return fail()
 		}

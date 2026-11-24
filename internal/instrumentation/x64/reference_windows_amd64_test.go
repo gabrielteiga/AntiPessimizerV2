@@ -25,8 +25,9 @@ type referenceCase struct {
 }
 
 // Only reviewed, exact bytes from the original v0.3 DLL are executable here.
-// These routines use caller-owned memory or the current Windows thread state.
-// They require no imports, globals, initialized RTL or private ABI.
+// These routines use controlled memory and thread state. The fill case reads
+// one verified DLL data slot. None requires imports, RTL initialization, or
+// a private calling convention.
 // There is no claim about names (the release has no TDS) or compiler version.
 var referenceCases = []referenceCase{
 	{0x19210, "488d042560020000c3", "constant"},
@@ -48,6 +49,7 @@ var referenceCases = []referenceCase{
 	{0x60210, "53b8010000000fa2b803000000f7c101000000740383c804f7c100020000740383c808f7c100000800740383c810f7c100001000740383c820f7c100008000740383c840f7c10000000274050d80000000f7c10200000074050d000100005bc3", "cpu-feature-mask"},
 	{0x9cd0, "6a00d93c2458c3", "x87-control"},
 	{0x9d50, "6a000fae1c2458c3", "mxcsr-control"},
+	{0xaf70, "410fb6c0483b15cdd019000f8dea0000004885d20f8e8f00000049b80101010101010101490fafc04883fa200f8f8f0000004883ea080f8f540000004c8d150500000041ff64d24019b040000000000021b040000000000027b04000000000001db04000000000002eb04000000000002bb040000000000024b04000000000001ab040000000000016b040000000000080fa087e0d80fa107e04488941104889410848890411488901c3894103668941018801c3894102668901c38841048901c3660f6ec0660f70c0000f11010f114411f0488d5411ff4883e2f04883c1104883e1f04829d14890488d0405000000000f2904114883c1107cf6c3fc4989f84889cf4889d1f3aa4c89c7c3", "indexed-fill"},
 }
 
 func pinReferenceThread(t *testing.T) {
@@ -151,8 +153,19 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 	for _, c := range referenceCases {
 		t.Run(fmt.Sprintf("RVA-%x-%s", c.RVA, c.Kind), func(t *testing.T) {
 			code, err := hex.DecodeString(c.Hex)
-			if err != nil || !bytes.Equal(read(uintptr(dll)+uintptr(c.RVA), len(code)), code) {
-				t.Fatal("loaded code differs from reviewed bytes", err)
+			if err != nil {
+				t.Fatal("invalid reviewed bytes", err)
+			}
+			expectedSource := code
+			if c.Kind == "indexed-fill" {
+				expectedSource = bytes.Clone(code)
+				for at := 72; at < 144; at += 8 {
+					pointer := binary.LittleEndian.Uint64(code[at:])
+					binary.LittleEndian.PutUint64(expectedSource[at:], uint64(dll)+(pointer-h.ImageBase))
+				}
+			}
+			if !bytes.Equal(read(uintptr(dll)+uintptr(c.RVA), len(code)), expectedSource) {
+				t.Fatal("loaded code differs from reviewed bytes or expected relocations")
 			}
 			memory := referenceAllocation(t, uint64(dll), h.SizeOfImage)
 			nt := windows.NewLazySystemDLL("ntdll.dll")
@@ -172,7 +185,7 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !bytes.Equal(plan.Source, code) || len(plan.Image) >= 8192 {
+			if !bytes.Equal(plan.Source, expectedSource) || len(plan.Image) >= 8192 {
 				t.Fatal("source extent or clone layout differs")
 			}
 			write(memory, plan.Image)
@@ -247,6 +260,16 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 					}
 				}
 			}
+			var threshold uintptr
+			if c.Kind == "indexed-fill" {
+				threshold = uintptr(dll) + 0x1a8048
+				originalThreshold := read(threshold, 8)
+				if binary.LittleEndian.Uint64(originalThreshold) != 1<<63-1 {
+					t.Fatal("uninitialized Delphi fill threshold differs")
+				}
+				defer write(threshold, originalThreshold)
+				verifyIndexedFillRDI(t, memory, rw, plan, write, read)
+			}
 			var stackBase uintptr
 			if c.Kind == "timestamp" || c.Kind == "cpu-identification" || c.Kind == "cpu-feature-mask" {
 				pinReferenceThread(t)
@@ -261,6 +284,30 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 				}
 			}
 			for trial := uint64(0); trial < 100; trial++ {
+				if c.Kind == "indexed-fill" {
+					var limit [8]byte
+					maximum := uint64(1<<63 - 1)
+					if trial%2 != 0 {
+						maximum = 10 // Exercise the already reviewed REP STOSB path.
+					}
+					binary.LittleEndian.PutUint64(limit[:], maximum)
+					write(threshold, limit[:])
+					count, begin, fill := int(trial/2), 16+int(trial%16), byte(0x27+trial)
+					initial := bytes.Repeat([]byte{0x7d}, 96)
+					want := bytes.Clone(initial)
+					for i := begin; i < begin+count; i++ {
+						want[i] = fill
+					}
+					for _, target := range []uintptr{uintptr(dll) + uintptr(c.RVA), memory} {
+						write(rw+128, initial)
+						syscall.SyscallN(target, rw+128+uintptr(begin), uintptr(count), uintptr(fill))
+						if !bytes.Equal(read(rw+128, len(want)), want) {
+							t.Fatalf("fill result changed at target %#x, size=%d, align=%d, threshold=%d", target, count, begin, maximum)
+						}
+					}
+					calls++
+					continue
+				}
 				if c.Kind == "timestamp" {
 					source := uintptr(dll) + uintptr(c.RVA)
 					before, _, _ := syscall.SyscallN(source)
@@ -419,7 +466,7 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 				}
 				calls++
 			}
-			if !bytes.Equal(read(uintptr(dll)+uintptr(c.RVA), len(code)), code) {
+			if !bytes.Equal(read(uintptr(dll)+uintptr(c.RVA), len(code)), expectedSource) {
 				t.Fatal("test modified original Delphi code")
 			}
 		})
@@ -440,5 +487,32 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 		if err := os.WriteFile(path, append(data, '\n'), 0600); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func verifyIndexedFillRDI(t *testing.T, memory, rw uintptr, plan FunctionPlan, write func(uintptr, []byte), read func(uintptr, int) []byte) {
+	t.Helper()
+	body := plan.Image[plan.BodyRVA:plan.Functions[1].End]
+	at := bytes.Index(body, []byte{0xf3, 0xaa, 0x4c, 0x89, 0xc7, 0x5f}) // REP STOSB; MOV RDI,R8; POP RDI
+	if at < 0 {
+		t.Fatal("missing reviewed fill and restore sequence")
+	}
+	const expectedRDI, returnPC = 0x12cabc113314ef98, 0x12345678
+	stack := rw + 3584
+	stackBytes := binary.LittleEndian.AppendUint64(nil, expectedRDI)
+	stackBytes = binary.LittleEndian.AppendUint64(stackBytes, returnPC)
+	write(stack, stackBytes)
+	context := make([]byte, 1232)
+	pc := memory + uintptr(plan.BodyRVA) + uintptr(at)
+	binary.LittleEndian.PutUint32(context[48:], 0x0010000b)
+	binary.LittleEndian.PutUint64(context[152:], uint64(stack))
+	binary.LittleEndian.PutUint64(context[176:], 0xbadca11)
+	binary.LittleEndian.PutUint64(context[248:], uint64(pc))
+	write(rw+1024, context)
+	unwind := windows.NewLazySystemDLL("ntdll.dll").NewProc("RtlVirtualUnwind")
+	unwind.Call(0, memory, pc, memory+12288+12, rw+1024, rw+2560, rw+2568, 0)
+	got := read(rw+1024, len(context))
+	if binary.LittleEndian.Uint64(got[152:]) != uint64(stack+16) || binary.LittleEndian.Uint64(got[176:]) != expectedRDI || binary.LittleEndian.Uint64(got[248:]) != returnPC {
+		t.Fatal("Windows unwind lost the caller's RDI, stack or return PC at REP STOSB")
 	}
 }

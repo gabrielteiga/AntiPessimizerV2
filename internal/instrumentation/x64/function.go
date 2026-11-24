@@ -83,8 +83,17 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 	}
 	entry := entryJump(source, base)
 	body, prefix := code, 0
+	var table *indexedJumpTable
+	restoreRDI := false
 	if metadata.handlerRVA == 0 && len(metadata.chainBoundaries) == 0 && bytes.Equal(originalInfo, []byte{1, 0, 0, 0}) {
+		table = p.delphiFillTable(rva, code, len(entry))
 		switch {
+		case table != nil:
+			// The original saves RDI in R8 around REP STOSB. A fault can
+			// skip that reload. Save once in the clone's native unwind frame.
+			body = append([]byte{0x57}, table.plannerCode(code)...)
+			originalInfo = []byte{1, 1, 1, 0, 1, 0x70, 0, 0}
+			prefix, restoreRDI = 1, true
 		case bytes.Equal(code, delphiCPUIDLeaf):
 			// Delphi saves RBX in volatile R10. Its result stores can fault
 			// before RBX is restored. Add a real RBX save for the clone.
@@ -122,23 +131,24 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 	if len(selected) > 0 && (framed || originalInfo[1] != 0) {
 		restored = verifiedTailEpilogues(code, originalInfo)
 	}
-	var table *indexedJumpTable
 	if !framed && originalInfo[1] == 0 && metadata.handlerRVA == 0 && len(metadata.chainBoundaries) == 0 {
 		table = p.indexedJumpTable(rva, code, len(entry))
 		if table != nil {
 			body = table.plannerCode(code)
-			selected = nil
 		}
+	}
+	if table != nil {
+		selected = nil
 	}
 	// The original prologue was checked above. The exact replacement emits
 	// a matching PUSH RBX and unwind action together.
 	savedRBX := originalInfo[1] != 0 && body[0] == 0x53
-	flow, err := rewriteSelectedFunction(body, source, base, framed, int(originalInfo[1]), len(entry)+prefix, true, savedRBX, selected, restored)
+	flow, err := rewriteSelectedFunction(body, source-uint64(prefix), base, framed, int(originalInfo[1]), len(entry)+prefix, true, savedRBX, restoreRDI, selected, restored)
 	if err != nil {
 		return FunctionPlan{}, err
 	}
 	if table != nil {
-		if err := table.relocate(code, body, rva, source, base, &flow); err != nil {
+		if err := table.relocate(code, body, rva, source, base, prefix, &flow); err != nil {
 			return FunctionPlan{}, err
 		}
 	}

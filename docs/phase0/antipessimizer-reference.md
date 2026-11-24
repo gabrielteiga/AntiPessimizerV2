@@ -402,3 +402,11 @@ Os RVAs 0x9cd0 e 0x9d50 leem o controle x87 e MXCSR, respectivamente.
 O clone descreve o slot temporário de oito bytes no unwind. A suíte verifica
 os valores e cada fase da pilha. São 19 rotinas executadas, 1.900 pares
 e 8.655 planos estáticos aceitos.
+
+O RVA `0xaf70` usa uma tabela absoluta para contagens pequenas, ramos diretos
+até 32 bytes e um caminho SSE para contagens maiores. Um limite na seção de
+dados seleciona `REP STOSB`. O ensaio verifica os nove ponteiros `DIR64`,
+compara cem pares de preenchimentos com guardas em ambos os lados do buffer
+e usa `RtlVirtualUnwind` no `REP STOSB` para conferir a recuperação de `RDI`.
+O clone registra o save de `RDI` no unwind e restaura o registrador em todos
+os retornos. A análise estática passa a aceitar 8.656 entradas da DLL fixada.

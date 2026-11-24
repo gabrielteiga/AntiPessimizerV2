@@ -920,6 +920,13 @@ os endereços que o loader espera associar à base carregada para os slots
 `DIR64`. A fixture nativa confere os dois casos, o caminho padrão para índices
 de 64 bits acima do limite e uma exceção real num caso escolhido pela tabela.
 
+Também é aceita a rotina de preenchimento em `0xaf70` da DLL Delphi de
+referência. Ela usa nove ponteiros absolutos e um índice calculado em `RDX`.
+O planejador confere o corpo inteiro, as nove relocações e o endereço do
+limite de seleção entre SSE e `REP STOSB`. O clone registra `RDI` no unwind
+para restaurá-lo após uma falha durante a escrita. A execução compara o
+buffer preenchido e os bytes de guarda nos caminhos escalares, SSE e REP.
+
 ## Tail calls indiretas com destinos comprovados
 
 Em métodos sem frame ou handler, o planejador aceita `JMP R11` quando a

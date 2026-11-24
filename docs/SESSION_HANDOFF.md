@@ -30,8 +30,8 @@ já foram resolvidos. README/plano descrevem o estado atual.
 
 ## Estado confirmado no remoto
 
-A `main` integrou o PR #81 em `38a1e0eeb1276e5424f06f6c3869ee8738aae363`.
-[CI pós-merge](https://github.com/gabrielteiga/AntiPessimizerV2/actions/runs/45479591402).
+A `main` integrou o PR #83 em `dd25471fa1ad508dd42244ef8d47448b5f250998`.
+[CI pós-merge](https://github.com/gabrielteiga/AntiPessimizerV2/actions/runs/45481582417).
 
 Entregas integradas após a CI do commit exato.
 
@@ -70,6 +70,9 @@ Entregas integradas após a CI do commit exato.
 - #80 preserva saltos condicionais entre entradas exatas da seleção em folhas
   sem frame. #81 adiciona o histórico de diagnóstico com cópia no viewer.
 
+- #82 cobre um `SAVE_NONVOL` local num fragmento final. #83 grava largura e
+  ordem das colunas nas quatro tabelas de resultados e comparações.
+
 Já existiam TD32/TDS, lançamento próprio sem SDK, coletor/viewer separados,
 ETW, métricas, Clear sincronizado, perdas explícitas, replay/comparação,
 preferências e empacotamento Windows. Não recomece essas partes.
@@ -83,7 +86,7 @@ preferências e empacotamento Windows. Não recomece essas partes.
 
 ## Lacunas materiais que continuam abertas
 
-- Unwind encadeado com ações locais, handlers ou fragmentos descontínuos.
+- Unwind encadeado com outras ações locais, handlers ou fragmentos descontínuos.
   Outros formatos, epílogos, instruções e alvos de tail calls além do
   subconjunto conferido.
 - Outras variantes de handlers Delphi e testes de exceções aninhadas/recursivas.
@@ -93,9 +96,9 @@ preferências e empacotamento Windows. Não recomece essas partes.
   continuam explícitos. Attach arbitrário e instrumentação de DLLs/BPLs não são
   funcionalidades do launcher atual.
 
-A verificação estática da DLL original fixada aceita 8.655 de 8.777 entradas
+A verificação estática da DLL original fixada aceita 8.656 de 8.777 entradas
 runtime sem seleção, incluindo 523 métodos com scopes Delphi. Os ensaios de
-execução verificam 19 rotinas e 1.900 comparações, além do construtor e da
+execução verificam 20 rotinas e 2.000 comparações, além do construtor e da
 worker com RTL real. A cobertura de execução depende dessas fixtures.
 
 ## Ambiente e comandos
