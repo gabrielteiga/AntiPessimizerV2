@@ -59,6 +59,8 @@ type PEImage struct {
 	data                    []byte
 	sections                []peLeafSection
 	imageSize, directoryRVA uint32
+	preferredBase           uint64
+	relocRVA, relocSize     uint32
 	table                   []byte
 }
 
@@ -154,7 +156,10 @@ func parsePEImage(image []byte) (*PEImage, error) {
 		sections = append(sections, s)
 	}
 
-	p := &PEImage{data: image, sections: sections, imageSize: imageSize}
+	p := &PEImage{data: image, sections: sections, imageSize: imageSize, preferredBase: binary.LittleEndian.Uint64(h[24:])}
+	if directories > 5 {
+		p.relocRVA, p.relocSize = u32(h[152:]), u32(h[156:])
+	}
 	var directorySize uint32
 	if directories > 3 {
 		p.directoryRVA = u32(h[136:])

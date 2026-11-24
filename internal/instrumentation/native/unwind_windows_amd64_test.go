@@ -150,3 +150,26 @@ func testNativeInheritedChainedFrame(t *testing.T, symbol string, gap uint32, mo
 		}
 	}
 }
+
+func TestNativeProducerIndexedJumpTablePreservesCasesFlagsAndUnwind(t *testing.T) {
+	o := frameSelectionFixture(t, map[string]uint32{"APFrameIndexedTable": 1})
+	o.Args = append(o.Args, "--check-indexed-table", "1")
+	ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
+	defer cancel()
+	if data, err := exec.CommandContext(ctx, o.Image, o.Args...).CombinedOutput(); err != nil {
+		t.Fatal("original table did not preserve bounds, flags, or exception", err, string(data))
+	}
+	var output stressObserver
+	if err := Launch(ctx, o, &output); err != nil {
+		t.Fatal("instrumented table changed behavior", err)
+	}
+	s := output.last.Metrics
+	if s.Incomplete || s.OpenCalls != 0 || s.AbandonedCalls != 0 || output.last.NativeLostEvents != 0 || len(s.Rows) != 3 {
+		t.Fatal("indexed procedure left incomplete or missing frames", s)
+	}
+	for _, row := range s.Rows {
+		if row.ProcedureID != 1 || row.Calls != 6 || row.UnwoundCalls != 1 || row.InclusiveTicks != row.ExclusiveTicks {
+			t.Fatal("index paths did not record five returns and one unwind per thread", row)
+		}
+	}
+}

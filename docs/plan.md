@@ -54,7 +54,9 @@ sem converter esse valor em chamadas ou duração por chamada.
    outras versões de unwind, epílogos e instruções ainda recusados. Saltos diretos
    e saltos por R11 para destinos estáticos já aceitam epílogos ADD/LEA e POPs
    conferidos. Sem frame, dois LEAs e CMOV permitem escolher entre entradas
-   selecionadas. Outros destinos dinâmicos e formatos TD32 adicionais continuam pendentes.
+   selecionadas. Uma tabela interna de ponteiros `DIR64` admite índices
+   conferidos. Outros formatos de tabelas, destinos dinâmicos e layouts TD32
+   adicionais continuam pendentes.
 3. **Compatibilidade Delphi demonstrada.** As fixtures de integração atuais são
    C/GCC para o fluxo completo. Um ensaio separado compara dezenove rotinas conferidas
    da DLL Delphi original com seus corpos relocados; não inclui TDS. Um ensaio separado exige captura/retomada/reraise com o handler real da mesma DLL, inicializando seu RTL num filho próprio; ele cobre um construtor e a worker real com catch tipado Exception, sem certificar uma versão inteira do compilador.

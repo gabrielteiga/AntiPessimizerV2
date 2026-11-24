@@ -122,12 +122,25 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 	if len(selected) > 0 && (framed || originalInfo[1] != 0) {
 		restored = verifiedTailEpilogues(code, originalInfo)
 	}
+	var table *indexedJumpTable
+	if !framed && originalInfo[1] == 0 && metadata.handlerRVA == 0 && len(metadata.chainBoundaries) == 0 {
+		table = p.indexedJumpTable(rva, code, len(entry))
+		if table != nil {
+			body = table.plannerCode(code)
+			selected = nil
+		}
+	}
 	// The original prologue was checked above. The exact replacement emits
 	// a matching PUSH RBX and unwind action together.
 	savedRBX := originalInfo[1] != 0 && body[0] == 0x53
 	flow, err := rewriteSelectedFunction(body, source, base, framed, int(originalInfo[1]), len(entry)+prefix, true, savedRBX, selected, restored)
 	if err != nil {
 		return FunctionPlan{}, err
+	}
+	if table != nil {
+		if err := table.relocate(code, body, rva, source, base, &flow); err != nil {
+			return FunctionPlan{}, err
+		}
 	}
 	flow.overwrite -= prefix
 	if len(metadata.chainBoundaries) != 0 && flow.overwrite > metadata.chainBoundaries[0] {

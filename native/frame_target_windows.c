@@ -13,6 +13,7 @@
 
 enum { AP_FRAME_EXCEPTION=0xe0424242u };
 static BOOL check_chain;
+static BOOL check_indexed_table;
 static BOOL check_cpuid;
 extern void APFrameCPUID(uint32_t,uint32_t,uint32_t *);
 extern uint64_t APFrameCPUIDCatch(void);
@@ -144,6 +145,23 @@ __asm__(
  ".Lpadded_chain_catch:\n movl $903,%eax\n addq $40,%rsp\n ret\n"
  ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
  ".rva .Lpadded_chain_try,.Lpadded_chain_try_end,APFrameMemoryFilter,.Lpadded_chain_catch\n .text\n .seh_endproc\n"
+);
+extern uint64_t APFrameIndexedTable(uint64_t, const uint64_t *),APFrameIndexedTableCatch(void);
+__asm__(
+ ".text\n .globl APFrameIndexedTable\n .def APFrameIndexedTable; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameIndexedTable\n APFrameIndexedTable:\n .seh_endprologue\n"
+ "cmpq $1,%rcx\n ja .Lindexed_other\n leaq .Lindexed_table(%rip),%r11\n jmp *(%r11,%rcx,8)\n"
+ ".Lindexed_table:\n .quad .Lindexed_zero,.Lindexed_one\n"
+ ".Lindexed_zero:\n movl $0,%eax\n setb %al\n ret\n"
+ ".Lindexed_one:\n movq (%rdx),%rax\n ret\n"
+ ".Lindexed_other:\n movl $17,%eax\n ret\n .seh_endproc\n"
+ ".globl APFrameIndexedTableCatch\n .def APFrameIndexedTableCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameIndexedTableCatch\n APFrameIndexedTableCatch:\n subq $40,%rsp\n .seh_stackalloc 40\n .seh_endprologue\n"
+ ".Lindexed_try:\n movl $1,%ecx\n xorq %rdx,%rdx\n call APFrameIndexedTable\n nop\n"
+ ".Lindexed_try_end:\n xorl %eax,%eax\n addq $40,%rsp\n ret\n"
+ ".Lindexed_catch:\n movl $906,%eax\n addq $40,%rsp\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Lindexed_try,.Lindexed_try_end,APFrameMemoryFilter,.Lindexed_catch\n .text\n .seh_endproc\n"
 );
 extern uint64_t APFrameLocalSave(const uint64_t *),APFrameLocalSaveCatch(void);
 __asm__(
@@ -437,6 +455,12 @@ static DWORD WINAPI worker(void *unused){
   const uint64_t value=UINT64_C(0xabc123def4569870);
   if(APFrameStackProbe(&value)!=value || APFrameStackProbeCatch()!=904)return 14;
  }
+ if(check_indexed_table){
+  const uint64_t data=UINT64_C(0x1122334455667788);
+  if(APFrameIndexedTable(0,&data)!=1 || APFrameIndexedTable(1,&data)!=data || APFrameIndexedTable(2,&data)!=17 ||
+     APFrameIndexedTable(UINT64_C(0x100000000),&data)!=17 || APFrameIndexedTable(UINT64_MAX,&data)!=17 ||
+     APFrameIndexedTableCatch()!=906)return 16;
+ }
  if(check_chain){
   const uint64_t value=UINT64_C(0x1122334455667788);
   if(check_chain==3){
@@ -468,6 +492,7 @@ int wmain(int argc,wchar_t **argv){
   else if(!wcscmp(argv[i],L"--check-caller-context"))check_caller_context=(BOOL)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--check-delphi-cpuid"))check_delphi_cpuid=(DWORD)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--check-stack-probe"))check_stack_probe=(BOOL)wcstoul(argv[i+1],NULL,10);
+  else if(!wcscmp(argv[i],L"--check-indexed-table"))check_indexed_table=(BOOL)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--check-chain"))check_chain=(BOOL)wcstoul(argv[i+1],NULL,10);
   else return 2;
  }
