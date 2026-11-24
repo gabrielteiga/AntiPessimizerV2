@@ -119,10 +119,42 @@ func TestGlobalUnitContributionsRespectSegmentsBoundariesAndAmbiguity(t *testing
 	if lookup.unitFor(7, Procedure{Segment: 1, Offset: 40, Size: 1}) != "A" || lookup.unitFor(9, Procedure{Segment: 1, Offset: 40, Size: 1}) != "C" {
 		t.Fatal("matching module contribution lost to fallback ambiguity")
 	}
+	for _, c := range []struct {
+		offset uint32
+		want   string
+	}{
+		{0, "A"}, {24, "A"}, {25, ""}, {49, ""}, {50, ""}, {74, ""}, {75, "B"}, {99, "B"}, {100, ""},
+	} {
+		if got := lookup.unitFor(0, Procedure{Segment: 1, Offset: c.offset, Size: 1}); got != c.want {
+			t.Fatal("overlap erased a uniquely covered address or assigned an ambiguous address", c, got)
+		}
+	}
 	// Duplicate names describe the same unit even across directory entries.
 	modules = map[uint16]unitInfo{1: {name: "Same", ranges: []unitRange{{1, 0, 100}}}, 2: {name: "Same", ranges: []unitRange{{1, 20, 60}}}}
 	lookup = moduleUnits{directory: modules, coverage: unitCoverage(modules)}
 	if lookup.unitFor(0xffff, Procedure{Segment: 1, Offset: 40, Size: 1}) != "Same" {
 		t.Fatal("same-name contribution treated as ambiguous")
+	}
+}
+
+func TestGlobalUnitContributionsKeepUniquelyCoveredPartsOfNestedRanges(t *testing.T) {
+	lookup := moduleUnits{directory: map[uint16]unitInfo{
+		1: {name: "Outer", ranges: []unitRange{{1, 0, 100}, {2, 0, 8}}},
+		2: {name: "Outer", ranges: []unitRange{{1, 20, 30}, {1, 100, 110}}},
+		3: {name: "Inner", ranges: []unitRange{{1, 10, 40}, {1, 70, 90}}},
+		4: {name: "Third", ranges: []unitRange{{1, 10, 40}, {2, 4, 1 << 32}}},
+	}}
+	for _, c := range []struct {
+		segment uint16
+		offset  uint32
+		want    string
+	}{
+		{1, 9, "Outer"}, {1, 10, ""}, {1, 25, ""}, {1, 40, "Outer"}, {1, 70, ""},
+		{1, 90, "Outer"}, {1, 100, "Outer"}, {1, 110, ""}, {2, 3, "Outer"}, {2, 4, ""},
+		{2, 8, "Third"}, {2, ^uint32(0), "Third"}, {3, 0, ""},
+	} {
+		if got := lookup.unitFor(0xffff, Procedure{Segment: c.segment, Offset: c.offset, Size: 1}); got != c.want {
+			t.Fatal("wrong unit at boundary", c, got)
+		}
 	}
 }
