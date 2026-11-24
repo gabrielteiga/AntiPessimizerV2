@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -84,6 +85,41 @@ func TestInheritedUnwindChainRejectsUnverifiedFragments(t *testing.T) {
 	for _, extent := range [][2]uint32{{peLeafRVA, uint32(len(code)) - 1}, {peLeafRVA + 16, 8}} {
 		if _, err := BuildPEFunction(image, extent[0], extent[1], 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7); !errors.Is(err, ErrUnsupported) {
 			t.Fatal("partial or standalone inherited frame accepted", extent, err)
+		}
+	}
+}
+
+func TestChainedPaddingMustBeUnreachable(t *testing.T) {
+	image, original := chainedPE()
+	code := append(append(bytes.Clone(original[:16]), 0x90, 0x90, 0x90, 0x90), original[16:]...)
+	copy(code[14:16], []byte{0xeb, 4})
+	put := binary.LittleEndian.PutUint32
+	put(code[24:], 0x1080-(peLeafRVA+28))
+	put(image[0x40c:], peLeafRVA+20)
+	put(image[0x410:], peLeafRVA+28)
+	put(image[0x418:], peLeafRVA+28)
+	put(image[0x41c:], peLeafRVA+uint32(len(code)))
+	copy(image[0x4b4:], image[0x40c:0x418])
+	build := func(code []byte) (FunctionPlan, error) {
+		copy(image[0x220:], code)
+		return BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+	}
+	if p, err := build(code); err != nil || !bytes.Equal(p.Source, code) {
+		t.Fatal("valid padded chain rejected", err)
+	}
+	for _, bad := range []struct {
+		at     int
+		b      byte
+		reason string
+	}{
+		{14, 0x75, "falls through"},
+		{15, 3, "targets padding"},
+		{17, 0xcc, "not covered"},
+	} {
+		changed := bytes.Clone(code)
+		changed[bad.at] = bad.b
+		if _, err := build(changed); err == nil || !strings.Contains(err.Error(), bad.reason) {
+			t.Fatal("invalid chain gap", bad, err)
 		}
 	}
 }

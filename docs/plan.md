@@ -16,7 +16,7 @@ este documento organiza as entregas e os critérios que ainda faltam.
 | Coletor/viewer | Processos independentes, Named Pipe local, seleção/start/stop, filtros, tabela virtual, histórico, salvar/replay e comparação de sampling | Executáveis Windows, integração ETW e smoke da janela |
 | Contabilidade de chamadas | Calls, tempos inclusivos/exclusivos, médias, recursão, instâncias de thread, unwind, Clear e perdas | Semântica conferida em CoreProfiler; testes determinísticos e callbacks C/QPC |
 | Captura sem SDK no EXE | Lançamento próprio, barreira no ponto de entrada, DLL nativa, verificação do código original, finalizadores e cancelamento | EXE C sem imports do profiler, três threads e finalizador, fluxo até o viewer |
-| Frames, chamadas e unwind nativo | Cópia do corpo, prólogo/unwind v1 preservados, fragmentos adjacentes que herdam o frame, calls/recursão, branches internos e cleanup de exceção | SEH real com handler externo e contagens/tempos por thread, incluindo falha no fragmento secundário antes e depois da instrumentação |
+| Frames, chamadas e unwind nativo | Cópia do corpo, prólogo/unwind v1 preservados, fragmentos que herdam o frame, inclusive com padding inalcançável, calls/recursão, branches internos e cleanup de exceção | SEH real com handler externo e contagens/tempos por thread, incluindo falha no fragmento secundário antes e depois da instrumentação |
 | Controle instrumentado ao vivo | Catálogo pesquisável/paginado, identidades do EXE/catálogo, até 256 procedimentos ou unidades exatas, argumentos e prazo; serviço possui captura e histórico | Lifecycle/concorrência, observador desconectado, GUI, executáveis e instalação conjunta de 256 métodos em 16 threads (4.096 linhas/chamadas) e baseline de memória/handles no mesmo alvo |
 | Pré-validação de seleção | Imagem/tabela PE preparadas uma vez por lote; mesmo planejador da instalação, relatório por ID no catálogo/CLI e rejeição antes de abrir o processo | Testes de instruções/handlers não suportados, imagem alterada, histórico preservado e seleção pela janela |
 | Clear nativo | Barreira entre todos os produtores, drenagem anterior ao marcador, reinício dos frames abertos, ACK após publicação | PR #22: duas limpezas com seis frames abertos em três threads; recursão/SEH posteriores e RPC real |
@@ -49,7 +49,7 @@ sem converter esse valor em chamadas ou duração por chamada.
    preservar a busca do handler, seu cleanup e a retomada de execução, incluindo
    exceções aninhadas/recursivas, sem falsificar métricas nem quebrar o programa.
 2. **Cobertura de código e metadados.** Ampliar somente com casos conferidos:
-   unwind encadeado com ações adicionais, handlers ou fragmentos não contíguos,
+   unwind encadeado com ações adicionais, handlers ou lacunas além de padding inalcançável,
    outras versões de unwind, epílogos e instruções ainda recusados. Saltos diretos
    e saltos por R11 para destinos estáticos já aceitam epílogos ADD/LEA e POPs
    conferidos. Sem frame, dois LEAs e CMOV permitem escolher entre entradas

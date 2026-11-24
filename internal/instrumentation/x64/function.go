@@ -77,15 +77,8 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 	if err := validatePrologueActions(code, originalInfo); err != nil {
 		return FunctionPlan{}, err
 	}
-	for start, i := 0, 0; i < len(metadata.chainBoundaries); i++ {
-		end := metadata.chainBoundaries[i]
-		for start < end {
-			inst, err := x86asm.Decode(code[start:end], 64)
-			if err != nil || inst.Op == 0 || inst.Len == 0 || inst.Len > end-start {
-				return fail("unwind chain boundary splits an instruction")
-			}
-			start += inst.Len
-		}
+	if err := validateChainCode(code, metadata.chainBoundaries, metadata.chainGaps); err != nil {
+		return FunctionPlan{}, err
 	}
 	framed := originalInfo[2] != 0
 	entry := entryJump(source, base)
@@ -234,6 +227,44 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 		tails = append(tails, uint32(target-loadedBase))
 	}
 	return FunctionPlan{TailTargets: tails, Original: append([]byte(nil), code[:flow.overwrite]...), Source: append([]byte(nil), code...), Patch: patch, Image: data, BodyRVA: 512, ExitRVA: flow.exitRVA, OriginalHandlerRVA: metadata.handlerRVA, RelocatedHandler: len(scopes) != 0, HandlerScopeStyle: metadata.scopeStyle, Functions: [3]RuntimeFunction{{0, in.CodeSize, in.UnwindRVA}, {512, 512 + uint32(len(flow.code)), infoRVA}, {flow.exitRVA, flow.exitRVA + out.CodeSize, flow.exitRVA + out.UnwindRVA}}}, nil
+}
+
+func validateChainCode(code []byte, boundaries []int, gaps []chainGap) error {
+	var padding, starts []bool
+	if len(gaps) != 0 {
+		padding, starts = make([]bool, len(code)), make([]bool, len(code))
+		for _, gap := range gaps {
+			starts[gap.begin] = true
+			for at := gap.begin; at < gap.end; at++ {
+				padding[at] = true
+			}
+		}
+		// Branches in the final fragment can also target the padding.
+		boundaries = append(boundaries, len(code))
+	}
+	start := 0
+	for _, end := range boundaries {
+		for start < end {
+			inst, err := x86asm.Decode(code[start:end], 64)
+			if err != nil || inst.Op == 0 || inst.Len == 0 || inst.Len > end-start {
+				return fmt.Errorf("%w: unwind chain boundary splits an instruction", ErrUnsupported)
+			}
+			next := start + inst.Len
+			if padding != nil {
+				if next < len(code) && starts[next] && inst.Op != x86asm.RET && inst.Op != x86asm.JMP {
+					return fmt.Errorf("%w: unwind chain falls through into padding", ErrUnsupported)
+				}
+				if rel, ok := inst.Args[0].(x86asm.Rel); ok {
+					target := int64(next) + int64(rel)
+					if target >= 0 && target < int64(len(code)) && padding[target] {
+						return fmt.Errorf("%w: unwind chain targets padding", ErrUnsupported)
+					}
+				}
+			}
+			start = next
+		}
+	}
+	return nil
 }
 
 func validateUnwindCodes(info []byte) error {

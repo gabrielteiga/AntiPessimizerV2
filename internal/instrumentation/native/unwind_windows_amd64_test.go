@@ -90,17 +90,26 @@ func TestNativeProducerFrameRegisterUnwindMatchesOriginalStack(t *testing.T) {
 }
 
 func TestNativeProducerUnwindsInheritedChainedFrame(t *testing.T) {
-	o := frameSelectionFixture(t, map[string]uint32{"APFrameChain": 1, "APFrameChainCold": 2})
+	testNativeInheritedChainedFrame(t, "APFrameChain", 0, "1")
+}
+
+func TestNativeProducerUnwindsInheritedChainedFrameAcrossPadding(t *testing.T) {
+	testNativeInheritedChainedFrame(t, "APFramePaddedChain", 8, "2")
+}
+
+func testNativeInheritedChainedFrame(t *testing.T, symbol string, gap uint32, mode string) {
+	t.Helper()
+	o := frameSelectionFixture(t, map[string]uint32{symbol: 1, symbol + "Cold": 2})
 	primary, secondary := o.Procedures[0], o.Procedures[1]
 	if primary.ID == 2 {
 		primary, secondary = secondary, primary
 	}
-	if primary.RVA+primary.Size != secondary.RVA {
-		t.Fatal("expected contiguous runtime ranges", primary, secondary)
+	if primary.RVA+primary.Size+gap != secondary.RVA {
+		t.Fatal("wrong gap between runtime ranges", primary, secondary)
 	}
-	primary.Size += secondary.Size
+	primary.Size += secondary.Size + gap
 	o.Procedures = []SelectedProcedure{primary}
-	o.Args = []string{"--threads", "3", "--iterations", "1", "--delay-ms", "0", "--check-chain", "1"}
+	o.Args = []string{"--threads", "3", "--iterations", "1", "--delay-ms", "0", "--check-chain", mode}
 
 	ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 	defer cancel()
