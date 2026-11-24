@@ -1,6 +1,6 @@
 # Plano e estado de implementação
 
-Atualizado em 18 de novembro de 2026. O alvo é **Delphi 10.4, Windows 10/11 x64**
+Atualizado em 24 de novembro de 2026. O alvo é **Delphi 10.4, Windows 10/11 x64**
 (Intel ou AMD). Linux valida o núcleo portável. O README é a entrada de uso;
 este documento organiza as entregas e os critérios que ainda faltam.
 
@@ -25,7 +25,7 @@ este documento organiza as entregas e os critérios que ainda faltam.
 | Identidade nativa de frames | ID/RSP de entrada em pilha limitada por thread; fechamento por frame físico durante unwind repetido | ABI nativa preserva argumentos e slot original; AV em RBP com bias e demais testes de recursão/Clear/collision |
 | Cleanup original | Encaminhamento UHANDLER-only com PCs e metadados de origem; protocolo exige DLL compatível | Alvo C/assembly cobre retorno, saída antecipada, limpeza excepcional e exceção na própria limpeza; não comprova o compilador Delphi |
 | Controle/status SSE | MXCSR salvo/restaurado ao redor dos helpers; LDMXCSR/STMXCSR com validação normal de memória | Helper nativo clobbera status; setter/getter em três threads preservam todos os modos de arredondamento e 44 chamadas por método/thread |
-| Tail calls selecionadas | Salto direto ao início exato de outro método selecionado, sem handler e com pilha restaurada por epílogo conferido; metadados independentes e retorno original preservado | Alvo Windows exige seis argumentos, recursão mútua, fechamento normal/excepcional da cadeia e médias/conservação de QPC |
+| Tail calls selecionadas | Em métodos sem handler, salto direto sem frame ou após epílogo conferido. Salto via R11 sem frame com um endereço comprovado ou escolha entre dois por CMOV. Retorno original preservado | Alvo Windows exige seis argumentos, recursão mútua, contagens por destino, fechamento normal/excepcional e conservação de QPC |
 | Métodos até 8 KiB | Strides limitados de 32 KiB no APHOOK8; versões antigas recusam planos maiores | Programa Windows de quase 8 KiB com retornos/calls/unwind e instalação conjunta de 64 strides |
 | Métodos pequenos | E9 rel32 de cinco bytes quando próximo; fallback absoluto e rejeição sem invadir o vizinho | PR #23: método Windows de seis bytes com onze chamadas por thread e testes dos limites signed rel32 |
 | Threads nativas de longa duração | Fim real por EXIT_THREAD, proteção contra TID reutilizado e pool de 64 rings reutilizáveis | 300 instâncias Windows com contagens/tempos/SEH preservados, sem crescimento do pool |
