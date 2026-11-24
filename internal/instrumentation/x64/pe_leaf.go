@@ -43,6 +43,7 @@ type functionUnwind struct {
 	typeTables                      []delphiTypeTable
 	chainBoundaries                 []int
 	chainGaps                       []chainGap
+	localSave                       []byte
 }
 
 // readPELeaf deliberately reads only bounded headers, sections and .pdata.
@@ -235,11 +236,12 @@ func (p *PEImage) readCode(rva, size uint32, collectedUnwind *functionUnwind) ([
 			}
 			var chainBoundaries []int
 			var chainGaps []chainGap
+			var localSave []byte
 			if end != procedureEnd {
 				if collectedUnwind == nil || info[0] != 1 || uint32(info[1]) > end-begin {
 					return fail("partial runtime-function overlap")
 				}
-				chainBoundaries, chainGaps = p.inheritedUnwindBoundaries(offset, procedureEnd, info[3])
+				chainBoundaries, chainGaps, localSave = p.chainedUnwind(offset, procedureEnd, info[3])
 				if len(chainBoundaries) == 0 {
 					return fail("procedure extent is not covered by an inherited unwind chain")
 				}
@@ -265,7 +267,7 @@ func (p *PEImage) readCode(rva, size uint32, collectedUnwind *functionUnwind) ([
 				if err := validateUnwindCodes(original); err != nil {
 					return nil, 0, err
 				}
-				*collectedUnwind = functionUnwind{info: original, runtimeRVA: p.directoryRVA + uint32(offset), infoRVA: unwind, chainBoundaries: chainBoundaries, chainGaps: chainGaps}
+				*collectedUnwind = functionUnwind{info: original, runtimeRVA: p.directoryRVA + uint32(offset), infoRVA: unwind, chainBoundaries: chainBoundaries, chainGaps: chainGaps, localSave: localSave}
 				if info[0] != 1 {
 					if uint64(unwind)+uint64(length)+4 > uint64(p.imageSize) {
 						return fail("truncated original unwind handler")
@@ -334,7 +336,7 @@ func (p *PEImage) readCode(rva, size uint32, collectedUnwind *functionUnwind) ([
 // entry to the primary or the previous (already checked) fragment.
 type chainGap struct{ begin, end int }
 
-func (p *PEImage) inheritedUnwindBoundaries(primaryAt int, procedureEnd uint32, frame byte) ([]int, []chainGap) {
+func (p *PEImage) chainedUnwind(primaryAt int, procedureEnd uint32, frame byte) ([]int, []chainGap, []byte) {
 	u32 := binary.LittleEndian.Uint32
 	primary := p.table[primaryAt : primaryAt+12]
 	previous, end := primary, u32(primary[4:])
@@ -343,29 +345,40 @@ func (p *PEImage) inheritedUnwindBoundaries(primaryAt int, procedureEnd uint32, 
 	var gaps []chainGap
 	for at := primaryAt + 12; end < procedureEnd; at += 12 {
 		if at >= len(p.table) {
-			return nil, nil
+			return nil, nil, nil
 		}
 		entry := p.table[at : at+12]
 		nextBegin, nextEnd := u32(entry), u32(entry[4:])
 		if nextBegin < end || nextEnd > procedureEnd {
-			return nil, nil
+			return nil, nil, nil
 		}
 		info, ok := p.mapped(u32(entry[8:]), 16, false)
-		if !ok || info[0] != 33 || info[1] != 0 || info[2] != 0 || info[3] != frame {
-			return nil, nil
+		if !ok || info[0] != 33 || info[3] != frame {
+			return nil, nil, nil
 		}
-		if !bytes.Equal(info[4:], primary) && !bytes.Equal(info[4:], previous) {
-			return nil, nil
+		if info[2] != 0 {
+			// One contiguous final fragment can add one local nonvolatile save.
+			if frame != 0 || len(boundaries) != 0 || nextBegin != end || nextEnd != procedureEnd || info[2] != 2 {
+				return nil, nil, nil
+			}
+			info, ok = p.mapped(u32(entry[8:]), 20, false)
+			if !ok || info[5]&15 != 4 || !bytes.Equal(info[8:], primary) {
+				return nil, nil, nil
+			}
+			return []int{int(end - start)}, nil, append([]byte(nil), info[:8]...)
+		}
+		if info[1] != 0 || !bytes.Equal(info[4:], primary) && !bytes.Equal(info[4:], previous) {
+			return nil, nil, nil
 		}
 		boundaries = append(boundaries, int(end-start))
 		if nextBegin != end {
 			padding, ok := p.mapped(end, nextBegin-end, true)
 			if !ok {
-				return nil, nil
+				return nil, nil, nil
 			}
 			for _, b := range padding {
 				if b != 0x90 {
-					return nil, nil
+					return nil, nil, nil
 				}
 			}
 			gap := chainGap{int(end - start), int(nextBegin - start)}
@@ -374,5 +387,5 @@ func (p *PEImage) inheritedUnwindBoundaries(primaryAt int, procedureEnd uint32, 
 		}
 		previous, end = entry, nextEnd
 	}
-	return boundaries, gaps
+	return boundaries, gaps, nil
 }

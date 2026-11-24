@@ -15,7 +15,7 @@ type FunctionPlan struct {
 	TailTargets                    []uint32 // exact selected source RVAs; native adapter must close shared physical frames
 	Original, Source, Patch, Image []byte
 	BodyRVA, ExitRVA               uint32
-	Functions                      [3]RuntimeFunction
+	Functions                      []RuntimeFunction
 	OriginalHandlerRVA             uint32
 	RelocatedHandler               bool
 	HandlerScopeStyle              uint32
@@ -110,7 +110,12 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 		}
 		entry = []byte{0xcc}
 	}
-	if metadata.handlerRVA != 0 {
+	if len(metadata.localSave) != 0 {
+		if err := validateLocalSave(code, originalInfo, metadata.chainBoundaries[0], metadata.localSave); err != nil {
+			return FunctionPlan{}, err
+		}
+	}
+	if metadata.handlerRVA != 0 || len(metadata.localSave) != 0 {
 		selected = nil
 	}
 	var restored map[int]int
@@ -170,6 +175,11 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 		dataSize = scopeDescriptorSize + len(flow.pcMap)*4 + len(scopes) + 12 + len(originalInfo) + 4 + 16 + len(typeBlocks)
 	}
 	total := int(infoRVA) + len(originalInfo) + 4 + dataSize
+	var localInfoRVA uint32
+	if len(metadata.localSave) != 0 {
+		localInfoRVA = uint32(total)
+		total += len(metadata.localSave) + 12
+	}
 	if total > MaxFunctionImageBytes {
 		return fail("function image too large")
 	}
@@ -249,7 +259,27 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 	for _, target := range flow.tailTargets {
 		tails = append(tails, uint32(target-loadedBase))
 	}
-	return FunctionPlan{TailTargets: tails, Original: append([]byte(nil), code[:flow.overwrite]...), Source: append([]byte(nil), code...), Patch: patch, Image: data, BodyRVA: 512, ExitRVA: flow.exitRVA, OriginalHandlerRVA: metadata.handlerRVA, RelocatedHandler: len(scopes) != 0, HandlerScopeStyle: metadata.scopeStyle, Functions: [3]RuntimeFunction{{0, in.CodeSize, in.UnwindRVA}, {512, 512 + uint32(len(flow.code)), infoRVA}, {flow.exitRVA, flow.exitRVA + out.CodeSize, flow.exitRVA + out.UnwindRVA}}}, nil
+	functions := []RuntimeFunction{{0, in.CodeSize, in.UnwindRVA}, {512, 512 + uint32(len(flow.code)), infoRVA}}
+	if localInfoRVA != 0 {
+		translate, err := scopePCMap(code, flow, rva, 512)
+		if err != nil {
+			return FunctionPlan{}, err
+		}
+		localStart, ok := translate(rva + uint32(metadata.chainBoundaries[0]))
+		if !ok {
+			return fail("local unwind chain boundary is not an instruction start")
+		}
+		secondary := RuntimeFunction{localStart, functions[1].End, localInfoRVA}
+		functions[1].End = localStart
+		info := data[localInfoRVA:]
+		copy(info, metadata.localSave)
+		for i, word := range []uint32{functions[1].Begin, functions[1].End, functions[1].Unwind} {
+			binary.LittleEndian.PutUint32(info[len(metadata.localSave)+i*4:], word)
+		}
+		functions = append(functions, secondary)
+	}
+	functions = append(functions, RuntimeFunction{flow.exitRVA, flow.exitRVA + out.CodeSize, flow.exitRVA + out.UnwindRVA})
+	return FunctionPlan{TailTargets: tails, Original: append([]byte(nil), code[:flow.overwrite]...), Source: append([]byte(nil), code...), Patch: patch, Image: data, BodyRVA: 512, ExitRVA: flow.exitRVA, OriginalHandlerRVA: metadata.handlerRVA, RelocatedHandler: len(scopes) != 0, HandlerScopeStyle: metadata.scopeStyle, Functions: functions}, nil
 }
 
 // The pinned Delphi RTL copies four CPUID results into RCX and restores RBX

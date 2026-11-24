@@ -382,8 +382,14 @@ static void function_exit(uint32_t procedure,uintptr_t entry_sp){record_frame(AP
 /* Only verified v1 actions reach this callback. EstablisherFrame is the frame
  * base after allocation (including the documented frame-register bias); sum
  * original stack actions to recover the unmodified entry return-slot address. */
+static const unsigned char *function_unwind_info(PDISPATCHER_CONTEXT dispatcher){
+    const unsigned char *base=(const unsigned char *)(uintptr_t)dispatcher->ImageBase;
+    const unsigned char *info=base+dispatcher->FunctionEntry->UnwindData;
+    if(info[0]==33)return base+hook_u32(info+16); // one verified local SAVE_NONVOL links to the primary
+    return info;
+}
 static uintptr_t unwind_entry_sp(PVOID frame,PDISPATCHER_CONTEXT dispatcher){
-    const unsigned char *info=(const unsigned char *)(uintptr_t)(dispatcher->ImageBase+dispatcher->FunctionEntry->UnwindData);
+    const unsigned char *info=function_unwind_info(dispatcher);
     uint64_t depth=0;
     for(uint32_t i=0;i<info[2];){
         uint32_t op=info[5+i*2]&15,operand=info[5+i*2]>>4,extra=0;
@@ -417,7 +423,7 @@ static EXCEPTION_DISPOSITION WINAPI function_unwind(PEXCEPTION_RECORD exception,
        unwind. Recover our descriptor from the actual runtime metadata instead.
        The shadow record preserves this wrapper and a canonical descriptor alias
        when the language handler calls RtlUnwindEx without returning here. */
-    const unsigned char *info=(const unsigned char *)(uintptr_t)(dispatcher->ImageBase+dispatcher->FunctionEntry->UnwindData);
+    const unsigned char *info=function_unwind_info(dispatcher);
     const unsigned char *data=info+4+((info[2]+1)&~1)*2+4;
     if(hook_u32(data+4)==3)data=(const unsigned char *)(uintptr_t)hook_u64(data+8);
     /* Close only the physical frame still present at the top. A repeated
