@@ -62,8 +62,10 @@ conferem quatro finalizadores. A captura exige oito chamadas recursivas,
 quatro saídas por unwind e um retorno normal da rotina que trata a falha.
 O workflow guarda os relatórios originais, instrumentados e as métricas.
 
-O input `endurance_seconds` do workflow habilita pares baseline/instrumentado
-no mesmo EXE. A carga chama `CPUHotspotA` 30 vezes por segundo, verifica um
+Pushes na branch `test/delphi104-owned` executam o ensaio licenciado no SHA
+candidato e medem uma hora por modo. Em execução manual, o input
+`endurance_seconds` define a duração dos pares baseline/instrumentado no mesmo
+EXE. A carga chama `CPUHotspotA` 30 vezes por segundo, verifica um
 checksum determinístico e registra QPC, memória privada, working set e handles.
 O ensaio exige contagem exata, zero perdas e snapshots publicados durante o
 trabalho. O JSON guarda as medições brutas por modo e o intervalo máximo entre

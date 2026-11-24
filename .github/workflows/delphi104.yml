@@ -1,5 +1,7 @@
 name: Delphi 10.4 validation
 on:
+  push:
+    branches: [test/delphi104-owned]
   workflow_dispatch:
     inputs:
       endurance_seconds:
@@ -30,10 +32,10 @@ jobs:
         shell: pwsh
         run: ./scripts/test-delphi104.ps1 -Output "$env:RUNNER_TEMP/ap-delphi104"
       - name: Measure a paired Delphi endurance run
-        if: inputs.endurance_seconds != 0
+        if: github.event_name == 'push' || inputs.endurance_seconds != 0
         shell: pwsh
         env:
-          AP_DELPHI_ENDURANCE_SECONDS: ${{ inputs.endurance_seconds }}
+          AP_DELPHI_ENDURANCE_SECONDS: ${{ github.event_name == 'push' && 3600 || inputs.endurance_seconds }}
         run: ./scripts/test-delphi104-endurance.ps1 -Output "$env:RUNNER_TEMP/ap-delphi104" -Seconds $env:AP_DELPHI_ENDURANCE_SECONDS
       - uses: actions/upload-artifact@v4
         if: always()
