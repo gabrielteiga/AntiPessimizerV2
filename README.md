@@ -32,7 +32,7 @@ Revisado em 18 de novembro de 2026.
 | Arquivos e histórico | Salvar/replay, acompanhamento de arquivo crescente, filtros, ordenação e histórico limitado; comparação entre sessões de sampling e instrumentação |
 | Ciclos de vida de threads | Encerramento pelo evento real do Windows e reutilização do pool nativo; teste de 300 instâncias sem mesclar contagens |
 | Drenagem cooperativa | Worker ocioso desperta por evento coalescido, com rescan contra despertar perdido; entrega ao vivo conferida antes de encerrar a captura |
-| Evidência do original | Quatorze rotinas conferidas (1.400 pares), incluindo push/pop atômicos de 128 bits e RDTSC, sem inicialização; ensaio separado inicializa o RTL em filho próprio e exige 100 pares normal/falha, 200 chamadas e 100 unwinds de uma rotina com handler Delphi real; worker original com 100 falhas EReadError capturadas por Exception, 200 retornos e métricas Go; sem certificação de Delphi 10.4 |
+| Evidência do original | Quinze rotinas conferidas (1.500 pares), incluindo push/pop atômicos de 128 bits e RDTSC, sem inicialização; ensaio separado inicializa o RTL em filho próprio e exige 100 pares normal/falha, 200 chamadas e 100 unwinds de uma rotina com handler Delphi real; worker original com 100 falhas EReadError capturadas por Exception, 200 retornos e métricas Go; sem certificação de Delphi 10.4 |
 | Qualidade | Testes Go/race, integração nativa Windows, ETW, janela Win32, executáveis e empacotamento; merge somente com CI aprovado no commit exato |
 | Carga e recursos | 320 vidas de thread/32.001 chamadas, 32 capturas por bloco, dez repetições com heap/handles/goroutines limitados e zero objetos de depuração restantes e perda explícita sob saturação; dados no CI |
 | Contadores nativos | Leituras atômicas sequencialmente consistentes; CI compara DLLs com/sem RMW no mesmo alvo e runner |
@@ -44,7 +44,7 @@ continuam fora do subconjunto aceito. A limpeza de métricas já usa uma barreir
 preservando as chamadas em andamento e o histórico das épocas anteriores. A compatibilidade com todas as
 variantes do Delphi 10.4 e o overhead nesse ambiente ainda não foram comprovados.
 Fixtures C e TDS sintéticos não são apresentados como binários compilados no Delphi.
-O ensaio adicional da DLL original executa quatorze rotinas conferidas com buffers privados ou estado da thread;
+O ensaio adicional da DLL original executa quinze rotinas conferidas com buffers privados ou estado da thread;
 não comprova integração completa ou a versão do compilador. O ensaio de exceções separado
 usa uma rotina e o handler real da mesma DLL, com RTL inicializado num processo filho.
 

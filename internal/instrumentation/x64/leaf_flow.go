@@ -307,7 +307,11 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 				if !ok || target == 0 || target >= maxUserAddress {
 					return fail("invalid RIP target")
 				}
-				if target >= source && target < source+uint64(len(code)) {
+				// A LEA of the entry produces the original function pointer.
+				// Keep its identity across relocation. Reads of patched bytes
+				// and pointers into the original body remain unsupported.
+				entryAddress := nativeFunction && d.inst.Op == x86asm.LEA && target == source
+				if target >= source && target < source+uint64(len(code)) && !entryAddress {
 					return fail("RIP reference into replaced procedure")
 				}
 				delta := int64(target) - int64(base+512+uint64(d.relocated+d.inst.Len))
