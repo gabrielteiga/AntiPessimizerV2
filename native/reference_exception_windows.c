@@ -23,20 +23,40 @@ static HANDLE *reference_client;
 static uintptr_t reference_image;
 static uint32_t reference_pair;
 static BOOL reference_malformed;
+static BOOL reference_exception_class(const EXCEPTION_RECORD *record,char name[64]){
+ if(record->NumberParameters!=7 || !record->ExceptionInformation[1])return FALSE;
+ HANDLE self=GetCurrentProcess();
+ uintptr_t vmt=0,short_string=0;
+ unsigned char length=0;
+ if(!ReadProcessMemory(self,(const void *)record->ExceptionInformation[1],&vmt,sizeof(vmt),NULL) || vmt<136 ||
+    !ReadProcessMemory(self,(const void *)(vmt-136),&short_string,sizeof(short_string),NULL) ||
+    !ReadProcessMemory(self,(const void *)short_string,&length,sizeof(length),NULL) || !length || length>=64 ||
+    !ReadProcessMemory(self,(const void *)(short_string+1),name,length,NULL))return FALSE;
+ name[length]='\0';return TRUE;
+}
 static LONG CALLBACK reference_typed_exception(EXCEPTION_POINTERS *p){
- if(p->ExceptionRecord->ExceptionCode==EXCEPTION_ACCESS_VIOLATION){
-  const EXCEPTION_RECORD *r=p->ExceptionRecord;
+ const EXCEPTION_RECORD *r=p->ExceptionRecord;
+ DWORD error=GetLastError();
+ if(r->ExceptionCode==EXCEPTION_ACCESS_VIOLATION){
   uintptr_t address=r->NumberParameters>=2?(uintptr_t)r->ExceptionInformation[1]:0;
   fprintf(stderr,"typed reference access violation: pair=%u malformed=%d tid=%lu rip=%llx address=%llx image=%llx target=%llx rsp=%llx rbp=%llx\n",
       reference_pair,reference_malformed,GetCurrentThreadId(),(unsigned long long)p->ContextRecord->Rip,(unsigned long long)address,
       (unsigned long long)reference_image,(unsigned long long)reference_target,(unsigned long long)p->ContextRecord->Rsp,(unsigned long long)p->ContextRecord->Rbp);
  }
- if(GetCurrentThreadId()!=measurement_thread || p->ExceptionRecord->ExceptionCode!=0x0eedfadeu)return EXCEPTION_CONTINUE_SEARCH;
- if(p->ExceptionRecord->NumberParameters!=7 || !p->ExceptionRecord->ExceptionInformation[1]){InterlockedExchange(&bad,1);return EXCEPTION_CONTINUE_SEARCH;}
- const uintptr_t *object=(const uintptr_t *)p->ExceptionRecord->ExceptionInformation[1];
- const unsigned char *name=*(const unsigned char **)(object[0]-136);
- if(name[0]!=10 || memcmp(name+1,"EReadError",10))InterlockedExchange(&bad,1);
- InterlockedIncrement(&typed_exceptions);return EXCEPTION_CONTINUE_SEARCH;
+ if(GetCurrentThreadId()==measurement_thread && r->ExceptionCode==0x0eedfadeu){
+  char name[64];
+  BOOL known=reference_exception_class(r,name);
+  if(!known || strcmp(name,"EReadError")){
+   fprintf(stderr,"unexpected Delphi exception: pair=%u malformed=%d class=%s params=%lu flags=%lx raise_site=%llx object=%llx image=%llx target=%llx\n",
+       reference_pair,reference_malformed,known?name:"unreadable",r->NumberParameters,r->ExceptionFlags,
+       r->NumberParameters?(unsigned long long)r->ExceptionInformation[0]:0,
+       r->NumberParameters>=2?(unsigned long long)r->ExceptionInformation[1]:0,
+       (unsigned long long)reference_image,(unsigned long long)reference_target);
+   InterlockedExchange(&bad,1);
+  }
+  InterlockedIncrement(&typed_exceptions);
+ }
+ SetLastError(error);return EXCEPTION_CONTINUE_SEARCH;
 }
 static HANDLE original_worker(unsigned char *image){
  union {FARPROC proc;LONG (WINAPI *query)(HANDLE,ULONG,PVOID,ULONG,PULONG);} nt;
@@ -58,6 +78,7 @@ LONG APReferenceFilter(EXCEPTION_POINTERS *p,void *frame){
  if(!p)return EXCEPTION_CONTINUE_SEARCH;
  DWORD code=p->ExceptionRecord->ExceptionCode;
  if(code!=0x0eedfadeu)return EXCEPTION_CONTINUE_SEARCH;
+ if(worker_mode)fprintf(stderr,"Delphi exception escaped the typed handler: pair=%u malformed=%d flags=%lx\n",reference_pair,reference_malformed,p->ExceptionRecord->ExceptionFlags);
  if(p->ExceptionRecord->NumberParameters!=7 || !p->ExceptionRecord->ExceptionInformation[1])InterlockedExchange(&bad,1);
  observed_exception=code;InterlockedIncrement(&caught);return EXCEPTION_EXECUTE_HANDLER;
 }
