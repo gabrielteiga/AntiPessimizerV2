@@ -21,7 +21,7 @@ Revisado em 18 de novembro de 2026.
 | Memória e sincronização | MOVS/STOS com frame/unwind verificado e operações LOCK de memória; testes de cópia/preenchimento, compare/exchange de 64/128 bits e contador compartilhado |
 | Captura/retomada SEH | Tabelas CRT reconhecidas e scopes Delphi catch-all/finally e capturas tipadas com handler/resolvedor conferidos são traduzidos para a cópia; testes Windows de captura, recursão, continuação e cleanup com exceção |
 | Tail calls diretas | Chamador sem handler pode saltar para outro método selecionado após restauração conferida da pilha (ADD/LEA e POPs); testes Windows exigem seis argumentos, recursão mútua e unwind de toda a cadeia |
-| Tail calls indiretas com destino estático | Métodos sem frame ou handler podem saltar via R11 quando um LEA imediatamente anterior aponta para outro método selecionado; testes Windows exigem argumentos intactos, retorno e unwind |
+| Tail calls indiretas | O chamador sem frame ou handler pode saltar via R11 para um destino calculado por LEA ou escolher entre dois destinos comprovados com CMOV. O teste Windows confere argumentos, contagens, tempos e unwind |
 | Métodos maiores | Até 8 KiB de código por procedimento, com alocação limitada de 32 KiB para código/metadados; integração Windows exige retornos e unwind reais |
 | Estado SSE | Probes preservam controle/status MXCSR dos callbacks; setter/getter instrumentados conferem os quatro modos de arredondamento |
 | Preferências da janela | Restaura EXE, filtro de resultados, busca de símbolos e unidade de tempo por usuário ao reabrir |

@@ -99,3 +99,50 @@ func TestSelectedIndirectTailRequiresAnUnskippableExactAddress(t *testing.T) {
 		}
 	}
 }
+
+func TestConditionalIndirectTailRequiresBothExactAddresses(t *testing.T) {
+	const loaded, clone = uint64(0x100000), uint64(0x180000)
+	code := []byte{
+		0x75, 0x00, // JNE to the first LEA, so both destination assignments run
+		0x4c, 0x8d, 0x1d, 0, 0, 0, 0,
+		0x4c, 0x8d, 0x15, 0, 0, 0, 0,
+		0x4d, 0x0f, 0x45, 0xda,
+		0x41, 0xff, 0xe3,
+	}
+	binary.LittleEndian.PutUint32(code[5:], 0x1080-(peLeafRVA+9))
+	binary.LittleEndian.PutUint32(code[12:], 0x10a0-(peLeafRVA+16))
+	build := func(code []byte, selection []uint32) (FunctionPlan, error) {
+		p, err := NewPEImage(scalarImage(code))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p.BuildSelectedFunction(peLeafRVA, uint32(len(code)), loaded, clone, 0x300000, 0x400000, 0x500000, 1, selection)
+	}
+	selected := []uint32{0x1080, 0x10a0}
+	plan, err := build(code, selected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := plan.Image[plan.BodyRVA:plan.Functions[1].End]
+	for i, end := range []int{13, 20} {
+		address := int64(clone+uint64(plan.BodyRVA)+uint64(end)) + int64(int32(binary.LittleEndian.Uint32(body[end-4:])))
+		if address != int64(loaded)+int64(selected[i]) {
+			t.Fatal("conditional destination relocation changed the LEA", i, address)
+		}
+	}
+	if len(plan.TailTargets) != 2 || plan.TailTargets[0] != selected[0] || plan.TailTargets[1] != selected[1] || !bytes.Equal(body[20:], code[16:]) {
+		t.Fatal("conditional move or indirect transfer changed", body, plan.TailTargets)
+	}
+	for _, target := range []uint32{0x1080, 0x10a0} {
+		if _, err := build(code, []uint32{target}); !errors.Is(err, ErrUnsupported) {
+			t.Fatal("one missing destination was accepted", target, err)
+		}
+	}
+	for _, displacement := range []byte{7, 14, 18} {
+		bypass := bytes.Clone(code)
+		bypass[1] = displacement
+		if _, err := build(bypass, selected); !errors.Is(err, ErrUnsupported) {
+			t.Fatal("branch could bypass part of the destination assignment", displacement, err)
+		}
+	}
+}
