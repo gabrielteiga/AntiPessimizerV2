@@ -9,7 +9,7 @@ este documento organiza as entregas e os critérios que ainda faltam.
 | Área | Comportamento atual | Evidência |
 |---|---|---|
 | Núcleo de sampling | Janelas, correlação PID/TID, perda explícita, histórico limitado e snapshots imutáveis | Testes Go/race e ETW real sobre carga própria no Windows |
-| Símbolos | TD32/TDS FB09/FB0A, procedimentos, unidades Pascal por contribuição de código/diretórios globais, diretórios encadeados, nomes Delphi suportados e conversão por BaseOfCode | Casos derivados da JCL da revisão fixada, testes de corrupção/fuzz e TDS sintético ligado ao EXE de laboratório |
+| Símbolos | TD32/TDS FB09/FB0A, procedimentos, unidades Pascal por contribuição de código/diretórios globais, diretórios encadeados, nomes Delphi suportados e conversão por BaseOfCode | Casos derivados da JCL da revisão fixada, testes de corrupção/fuzz e TDS sintético ligado ao EXE de laboratório com duas seções de código |
 | Aliases de símbolos | Intervalos exatamente iguais compartilham nome primário/ID; nomes e unidades alternativos preservados na busca | Ordem de FindProc da JCL, testes de TD32/ASLR/catálogo/CLI, limites de metadados e janela Windows |
 | Arquivo e linha TD32 | `symresolve --source` resolve o endereço observado via `sstSrcModule` em símbolos embutidos ou sidecar | Layout da JCL fixada; fixtures verificam limites, conflitos, ASLR e duas linhas no mesmo procedimento |
 | Preferências do viewer | Caminho do EXE, filtros de resultados/símbolos, nomes das unidades inteiras e unidade de tempo persistidos por usuário | Roundtrip/limites/corrupção e janela Windows reaberta; arquivo desconhecido preservado ao usar padrões |
@@ -64,7 +64,13 @@ sem converter esse valor em chamadas ou duração por chamada.
    O CI mede pares em loop C e 20 rodadas de reutilização com memória/handles e
    saturação deliberada. O workflow Native endurance permite pares no mesmo alvo
    C com até duas horas por modo, com memória, handles, perdas e cadência de
-   publicação. A evidência de overhead e operação prolongada em Delphi
+   publicação. O primeiro par de uma hora por modo no Windows registrou 108.001
+   chamadas esperadas e medidas, zero perdas, 12.683 snapshots ao vivo e
+   intervalo máximo de 364,22 ms entre publicações. O alvo instrumentado terminou
+   com os mesmos 49 handles e 4 KiB a mais de memória privada que no início.
+   A taxa de 30 chamadas por segundo foi definida pelo ritmo da carga.
+   [Execução e relatório bruto](https://github.com/gabrielteiga/AntiPessimizerV2/actions/runs/45257756767).
+   A evidência de overhead e operação prolongada em Delphi
    continua pendente. Não subtrair overhead presumido. Sampling e instrumentação mantêm metodologias
    próprias. Limites atuais de seleção/buffer só aumentam junto dessas medições.
 5. **Complementos do fluxo principal.** Demais preferências/diagnósticos do

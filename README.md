@@ -208,8 +208,8 @@ Com `--source`, o symresolve mostra arquivo e linha para cada endereço com
 informação TD32 correspondente. O parser cobre sstModule e procedimentos
 LPROC32/GPROC32. Nomes `_ZN` suportados
 são apresentados como nomes Delphi legíveis; o dump preserva nomes originais.
-A conversão automática cobre segmento TD32 1 em uma única seção executável,
-derivando RVA de BaseOfCode. Outros layouts mantêm módulo/endereço desconhecido
+A conversão automática associa o segmento TD32 1 à seção executável em
+BaseOfCode. Seções adicionais podem coexistir com ela. Outros segmentos mantêm módulo/endereço desconhecido
 no sampling e não permitem lançamento instrumentado sem seleção resolvida.
 EXE/TDS devem ser do mesmo build; ainda não há autenticação de correspondência
 de TDS externo. [Formato, evidência e limites](docs/td32.md).
