@@ -33,4 +33,7 @@ jobs:
             ${{ runner.temp }}/ap-delphi104/baseline.tsv
             ${{ runner.temp }}/ap-delphi104/instrumented.tsv
             ${{ runner.temp }}/ap-delphi104/metrics.ndjson
+            ${{ runner.temp }}/ap-delphi104/exception-baseline.tsv
+            ${{ runner.temp }}/ap-delphi104/exception-instrumented.tsv
+            ${{ runner.temp }}/ap-delphi104/exception-metrics.ndjson
           if-no-files-found: ignore

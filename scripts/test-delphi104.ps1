@@ -49,6 +49,22 @@ function Read-LabReport([string]$Path) {
     return @{ Tags = $tags; Workers = $workers; PID = [uint32]$begin[0].pid }
 }
 
+function Read-ExceptionReport([string]$Path) {
+    $rows = @(Import-Csv -Path $Path -Delimiter "`t")
+    if ($rows.Count -ne 2) { throw "Invalid Delphi exception report: $Path" }
+    foreach ($index in 0, 1) {
+        $worker, $checksum = if ($index -eq 0) { 'normal', '4' } else { 'nested', '2' }
+        $row = $rows[$index]
+        if ($row.event -ne 'exception_result' -or $row.phase -ne 'delphi_exception' -or
+            $row.worker -ne $worker -or $row.iterations -ne '4' -or $row.checksum -ne $checksum -or
+            [uint32]$row.pid -eq 0 -or [uint32]$row.tid -eq 0 -or
+            $row.pid -ne $rows[0].pid -or $row.tid -ne $rows[0].tid) {
+            throw "Unexpected Delphi exception result: $Path row $index"
+        }
+    }
+    return @{ PID = [uint32]$rows[0].pid; TID = [uint32]$rows[0].tid }
+}
+
 $baseline = Read-LabReport (Join-Path $lab 'logs/smoke-Symbols.tsv')
 $compilerPath = Join-Path $env:BDS 'bin/dcc64.exe'
 $os = Get-CimInstance Win32_OperatingSystem
@@ -151,7 +167,48 @@ try {
             }
         }
     }
-    Write-Host 'PASS: Delphi 10.4 owned EXE, original TD32 source, two procedures, four exact calls and matching workload checksums.'
+    $exceptionBaseline = Join-Path $Output 'exception-baseline.tsv'
+    & $image --exception-report $exceptionBaseline
+    if ($LASTEXITCODE -ne 0) { throw 'The original Delphi EXE failed its nested exception run.' }
+    $null = Read-ExceptionReport $exceptionBaseline
+
+    $exceptionArgs = @('--image', $image, '--unit', 'LabWorkload',
+        '--procedure', 'LabWorkload.RecursiveExceptionWork', '--procedure', 'LabWorkload.NestedExceptionWork')
+    $exceptionCatalogText = & $inProbe @exceptionArgs --list --check
+    if ($LASTEXITCODE -ne 0) { throw 'Delphi exception catalog preflight failed.' }
+    $exceptionCatalog = ($exceptionCatalogText -join "`n") | ConvertFrom-Json
+    if (@($exceptionCatalog.procedures).Count -ne 2 -or @($exceptionCatalog.checks).Count -ne 2 -or
+        @($exceptionCatalog.checks | Where-Object plan_supported -ne $true).Count -ne 0 -or
+        $exceptionCatalog.image_id -ne $catalog.image_id) {
+        throw "Delphi exception procedures are outside the supported native subset: $($exceptionCatalog.checks | ConvertTo-Json -Compress)"
+    }
+    $exceptionReport = Join-Path $Output 'exception-instrumented.tsv'
+    $exceptionArchive = Join-Path $Output 'exception-metrics.ndjson'
+    & $inProbe @exceptionArgs --dll (Join-Path $adapter 'AntiPessimizerNative.dll') --output $exceptionArchive `
+        --arg=--exception-report "--arg=$exceptionReport"
+    if ($LASTEXITCODE -ne 0) { throw 'The instrumented Delphi EXE failed its nested exception run.' }
+    $exceptionTarget = Read-ExceptionReport $exceptionReport
+    $exceptionLast = Get-Content $exceptionArchive | Select-Object -Last 1 | ConvertFrom-Json
+    if ($exceptionLast.source -ne 'native-hook' -or $exceptionLast.target.pid -ne $exceptionTarget.PID -or
+        $exceptionLast.metrics.incomplete -or $exceptionLast.metrics.open_call_count -ne 0 -or
+        $exceptionLast.metrics.abandoned_call_count -ne 0 -or
+        ($exceptionLast.PSObject.Properties['native_lost_event_count'] -and [uint64]$exceptionLast.native_lost_event_count -ne 0) -or
+        @($exceptionLast.metrics.procedures).Count -ne 2) {
+        throw 'The Delphi exception capture is incomplete or belongs to another process.'
+    }
+    foreach ($case in @(
+        @{ Name = 'LabWorkload.RecursiveExceptionWork'; Calls = 8; Unwinds = 4 },
+        @{ Name = 'LabWorkload.NestedExceptionWork'; Calls = 1; Unwinds = 0 }
+    )) {
+        $row = @($exceptionLast.metrics.procedures | Where-Object procedure -eq $case.Name)
+        if ($row.Count -ne 1 -or $row[0].thread_id -ne $exceptionTarget.TID -or
+            $row[0].module_id -ne $catalog.image_id -or $row[0].call_count -ne $case.Calls -or
+            $row[0].unwound_call_count -ne $case.Unwinds -or [uint64]$row[0].inclusive_ticks -eq 0 -or
+            $row[0].exclusive_ticks -gt $row[0].inclusive_ticks) {
+            throw "Delphi exception call counts or timing changed for $($case.Name)"
+        }
+    }
+    Write-Host 'PASS: Delphi 10.4 owned EXE, original TD32 source, exact calls, nested typed catches and recursive unwind.'
 } finally {
     Pop-Location
 }

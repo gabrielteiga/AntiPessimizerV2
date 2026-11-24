@@ -55,6 +55,13 @@ As contagens são comparadas com os TIDs e checksums dos quatro workers.
 O relatório guarda versão do Windows e hashes do compilador, EXE e fonte de
 símbolos. A aprovação desse ensaio exige sua execução nesse runner.
 
+O modo `--exception-report` executa recursão normal e uma falha tipada na
+folha de uma recursão com quatro frames. O caso excepcional passa por dois
+blocos `except` aninhados, com reraise no primeiro. Ambos os caminhos
+conferem quatro finalizadores. A captura exige oito chamadas recursivas,
+quatro saídas por unwind e um retorno normal da rotina que trata a falha.
+O workflow guarda os relatórios originais, instrumentados e as métricas.
+
 ## Testes manuais
 
 ```bat

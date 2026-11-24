@@ -22,6 +22,7 @@ const
 
 type
   TWorkKind = (wkShift, wkModulo);
+  EExpectedLabFailure = class(Exception);
 
   TLabLog = class
   private
@@ -265,6 +266,78 @@ begin
   Log.Emit('selftest_pass', 'selftest', 'main', 0, 0, 'checks=10');
 end;
 
+function RecursiveExceptionWork(Depth: Integer; FailAtLeaf: Boolean;
+  var Finalizers: Integer): Integer;
+begin
+  try
+    if Depth = 0 then
+    begin
+      if FailAtLeaf then
+        raise EExpectedLabFailure.Create('deliberate recursive failure');
+      Result := 1;
+    end
+    else
+      Result := 1 + RecursiveExceptionWork(Depth - 1, FailAtLeaf, Finalizers);
+  finally
+    Inc(Finalizers);
+  end;
+end;
+
+function NestedExceptionWork(var Finalizers: Integer): Integer;
+var
+  Caught: Integer;
+begin
+  Caught := 0;
+  try
+    try
+      RecursiveExceptionWork(3, True, Finalizers);
+    except
+      on E: EExpectedLabFailure do
+      begin
+        if E.Message <> 'deliberate recursive failure' then
+          raise;
+        Inc(Caught);
+        raise;
+      end;
+    end;
+  except
+    on E: EExpectedLabFailure do
+    begin
+      if E.Message <> 'deliberate recursive failure' then
+        raise;
+      Inc(Caught);
+    end;
+  end;
+  Result := Caught;
+end;
+
+procedure RunExceptionLab(const ReportPath: string);
+var
+  Log: TLabLog;
+  Finalizers, Value: Integer;
+begin
+  if ReportPath = '' then
+    raise Exception.Create('Empty exception report path');
+  Log := TLabLog.Create(ReportPath);
+  try
+    Finalizers := 0;
+    Value := RecursiveExceptionWork(3, False, Finalizers);
+    CheckEqual('recursive result', UInt64(Value), 4);
+    CheckEqual('normal finalizers', UInt64(Finalizers), 4);
+    Log.Emit('exception_result', 'delphi_exception', 'normal', UInt64(Finalizers),
+      UInt64(Value));
+
+    Finalizers := 0;
+    Value := NestedExceptionWork(Finalizers);
+    CheckEqual('typed catches', UInt64(Value), 2);
+    CheckEqual('unwind finalizers', UInt64(Finalizers), 4);
+    Log.Emit('exception_result', 'delphi_exception', 'nested', UInt64(Finalizers),
+      UInt64(Value));
+  finally
+    Log.Free;
+  end;
+end;
+
 procedure RunLab;
 var
   Iterations, WaitMS, I, Value: Integer;
@@ -278,6 +351,7 @@ begin
   begin
     Writeln('ProfilerLab [--iterations 1..1000000000] [--wait-ms 0..120000] [--report path]');
     Writeln('ProfilerLab --self-test');
+    Writeln('ProfilerLab --exception-report path');
     Exit;
   end;
   if (ParamCount = 1) and (ParamStr(1) = '--self-test') then
@@ -288,6 +362,11 @@ begin
     finally
       Log.Free;
     end;
+    Exit;
+  end;
+  if (ParamCount = 2) and (ParamStr(1) = '--exception-report') then
+  begin
+    RunExceptionLab(ParamStr(2));
     Exit;
   end;
   I := 1;
