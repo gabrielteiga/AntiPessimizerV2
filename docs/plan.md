@@ -75,9 +75,13 @@ sem converter esse valor em chamadas ou duração por chamada.
    com os mesmos 49 handles e 4 KiB a mais de memória privada que no início.
    A taxa de 30 chamadas por segundo foi definida pelo ritmo da carga.
    [Execução e relatório bruto](https://github.com/gabrielteiga/AntiPessimizerV2/actions/runs/45257756767).
-   A evidência de overhead e operação prolongada em Delphi
-   continua pendente. Não subtrair overhead presumido. Sampling e instrumentação mantêm metodologias
-   próprias. Limites atuais de seleção/buffer só aumentam junto dessas medições.
+
+   O ensaio automatizado de Delphi 10.4 prepara a mesma comparação de custo e
+   operação prolongada. A evidência em Delphi depende da execução no runner
+   licenciado. O relatório mantém os resultados medidos de cada modo. Sampling
+   e instrumentação mantêm metodologias próprias. Limites atuais de seleção e
+   buffer só aumentam junto dessas medições.
+   [PR #61](https://github.com/gabrielteiga/AntiPessimizerV2/pull/61).
 5. **Complementos do fluxo principal.** Demais preferências/diagnósticos do
    original, conforme a auditoria de fidelidade. Attach a processo arbitrário e
    DLLs/BPLs não são apresentados como implementados pelo lançamento do EXE.
