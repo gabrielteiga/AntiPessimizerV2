@@ -145,3 +145,21 @@ func TestFramedColdBlockCanEndInInternalJump(t *testing.T) {
 		t.Fatal("fallthrough outside selected extent accepted")
 	}
 }
+
+func TestCPUIDRequiresVerifiedRBXSave(t *testing.T) {
+	image, code := framedPE()
+	copy(code[5:], []byte{0x0f, 0xa2})
+	copy(image[0x220:], code)
+	plan := func() (FunctionPlan, error) {
+		return BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 1)
+	}
+	p, err := plan()
+	if err != nil || !bytes.Equal(p.Image[p.BodyRVA+5:p.BodyRVA+7], []byte{0x0f, 0xa2}) {
+		t.Fatal("CPUID with verified RBX save did not survive relocation", err)
+	}
+	image[0x220] = 0x56 // PUSH RSI and matching unwind metadata
+	image[0x487] = 0x60
+	if _, err := plan(); !errors.Is(err, ErrUnsupported) {
+		t.Fatal("CPUID without an RBX save was accepted", err)
+	}
+}

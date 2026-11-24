@@ -96,7 +96,9 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 	if len(selected) > 0 && (framed || originalInfo[1] != 0) {
 		restored = verifiedTailEpilogues(code, originalInfo)
 	}
-	flow, err := rewriteSelectedFunction(code, source, base, framed, int(originalInfo[1]), len(entry), true, selected, restored)
+	// validatePrologueActions already matched every push to its unwind action.
+	savedRBX := originalInfo[1] != 0 && code[0] == 0x53
+	flow, err := rewriteSelectedFunction(code, source, base, framed, int(originalInfo[1]), len(entry), true, savedRBX, selected, restored)
 	if err != nil {
 		return FunctionPlan{}, err
 	}
