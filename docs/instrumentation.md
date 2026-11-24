@@ -686,11 +686,12 @@ de saturação exige contador positivo junto de ErrLoss e incomplete=true.
 
 ## Corpus de execução da DLL Delphi original
 
-O CI Windows inclui um ensaio separado de treze rotinas com bytes conferidos na
-DLL v0.3 do Hoshoyo, comparando 1.300 pares original/corpo relocado com resultados
+O CI Windows inclui um ensaio separado de quatorze rotinas com bytes conferidos na
+DLL v0.3 do Hoshoyo, comparando 1.400 pares original/corpo relocado com resultados
 esperados e um helper nativo que altera GPR voláteis. Inclui push/pop com CMPXCHG16B
 sobre buffers privados e cem leituras RDTSC relocalizadas, cada uma entre leituras
-do corpo original na mesma CPU lógica. O ensaio chama as rotinas sem inicializar
+do corpo original na mesma CPU lógica. A leitura de StackBase via GS é comparada
+com GetCurrentThreadStackLimits na mesma thread Windows. O ensaio chama as rotinas sem inicializar
 a DLL ou suas dependências. O original
 não é modificado. Hashes, RVAs, bytes e limites de evidência estão no
 [mapa do original](phase0/antipessimizer-reference.md#execução-limitada-do-código-delphi-distribuído-pelo-original).

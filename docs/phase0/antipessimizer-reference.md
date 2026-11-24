@@ -367,3 +367,8 @@ entre duas leituras da rotina original na mesma CPU lógica. O resultado deve
 cair dentro do intervalo original. A afinidade da thread de teste é restaurada.
 O corpus agora tem 1.300 pares em treze rotinas e 8.646 planos estáticos de
 8.777 entradas. O profiler continua a medir chamadas em ticks QPC.
+
+A rotina de RVA 0x177c60 lê StackBase em GS:[8]. O corpus executa 100
+comparações desse corpo original e relocado com GetCurrentThreadStackLimits
+na mesma thread. O total passa a 14 rotinas, 1.400 pares e 8.647 planos estáticos
+aceitos de 8.777. A execução cobre os corpos selecionados para o ensaio.
