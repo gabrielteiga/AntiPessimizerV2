@@ -92,7 +92,7 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 	if metadata.handlerRVA != 0 {
 		selected = nil
 	}
-	var restored map[int]bool
+	var restored map[int]int
 	if len(selected) > 0 && (framed || originalInfo[1] != 0) {
 		restored = verifiedTailEpilogues(code, originalInfo)
 	}

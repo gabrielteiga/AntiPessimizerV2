@@ -896,8 +896,13 @@ seguem as mesmas regras das tail calls diretas.
 O planejador também aceita `LEA R11`, `LEA R10`, `CMOVcc R11, R10`, `JMP R11`
 quando os dois endereços RIP-relative apontam para entradas exatas selecionadas.
 A cópia conserva o CMOV e o JMP indireto, com a mesma decisão pelas flags em
-tempo de execução. Desvios para o meio da sequência são recusados. Outros
-saltos indiretos ou chamadores com frame ou handler ficam fora desse suporte.
+tempo de execução. Desvios para o meio da sequência são recusados.
+
+Um chamador com frame e sem handler pode carregar um endereço selecionado
+em R11 imediatamente antes de restaurar a pilha com ADD/LEA e POPs conferidos.
+O planejador conserva a restauração e o valor de R11 e emite um salto direto
+ao destino. Ramos precisam executar tanto a atribuição quanto a restauração.
+A escolha entre dois alvos com CMOV exige um chamador sem frame.
 
 O teste Windows executa o EXE baseline e a captura instrumentada em três
 threads, com seis argumentos, onze chamadas externas por worker e uma saída

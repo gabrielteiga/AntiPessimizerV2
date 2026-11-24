@@ -41,7 +41,7 @@ func rewriteFunctionBody(code []byte, source, base uint64, framed bool, prologue
 func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, prologue, patchSize int, nativeFunction bool) (leafBody, error) {
 	return rewriteSelectedFunction(code, source, base, framed, prologue, patchSize, nativeFunction, false, nil, nil)
 }
-func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prologue, patchSize int, nativeFunction, savedRBX bool, selected map[uint64]bool, restored map[int]bool) (leafBody, error) {
+func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prologue, patchSize int, nativeFunction, savedRBX bool, selected map[uint64]bool, restored map[int]int) (leafBody, error) {
 	fail := func(reason string) (leafBody, error) {
 		return leafBody{}, fmt.Errorf("%w: leaf: %s", ErrUnsupported, reason)
 	}
@@ -76,9 +76,25 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 		case inst.Op == x86asm.JMP && (code[offset] == 0xeb && inst.Len == 2 || code[offset] == 0xe9 && inst.Len == 5):
 			d.kind = 2
 			d.length = 5
-		case nativeFunction && !framed && prologue == 0 && inst.Op == x86asm.JMP &&
+		case nativeFunction && inst.Op == x86asm.JMP &&
 			inst.Len == 3 && code[offset] == 0x41 && code[offset+1] == 0xff && code[offset+2] == 0xe3:
-			targets, start := indirectTailTargets(code, source, instructions)
+			var targets []uint64
+			var start int
+			if framed || prologue != 0 {
+				epilogue, ok := restored[offset]
+				if !ok || offsets[epilogue] == 0 {
+					return fail("indirect tail jump requires verified stack restoration")
+				}
+				start = offsets[epilogue] - 1
+				if instructions[start].offset < prologue {
+					return fail("indirect tail destination must be loaded after the prologue")
+				}
+				if target, ok := ripTailAddress(code, source, instructions[start], x86asm.R11); ok {
+					targets = []uint64{target}
+				}
+			} else {
+				targets, start = indirectTailTargets(code, source, instructions)
+			}
 			if len(targets) == 0 {
 				return fail("indirect tail jump requires an exact selected destination")
 			}
@@ -140,7 +156,7 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 			}
 			target, ok := address(source+uint64(offset+inst.Len), int64(rel))
 			if !ok || target < source || target >= source+uint64(len(code)) {
-				if !ok || d.kind != 2 || !nativeFunction || (framed || prologue != 0) && !restored[offset] || !selected[target] {
+				if !ok || d.kind != 2 || !nativeFunction || (framed || prologue != 0) && restored[offset] == 0 || !selected[target] {
 					return fail("branch leaves the procedure; direct tail calls require selecting their exact target and verified stack restoration")
 				}
 				d.kind = 5

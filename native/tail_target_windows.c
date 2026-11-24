@@ -11,6 +11,7 @@ static DWORD tail_indirect_mode;
 extern uint64_t APTailStart(uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
 extern uint64_t APTailIndirectStart(uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
 extern uint64_t APTailConditionalStart(uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
+extern uint64_t APTailFramedIndirect(uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
 extern uint64_t APTailFramedStack(uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
 extern uint64_t APTailRecursive(uint64_t,uint64_t),APTailRecursiveStep(uint64_t,uint64_t),APTailCatch(void);
 __attribute__((noinline)) uint64_t APTailWork(uint64_t n,uint64_t a,uint64_t b,uint64_t c,uint64_t d,uint64_t e){
@@ -26,6 +27,9 @@ __asm__(
  ".text\n .globl APTailFramedStack\n .def APTailFramedStack; .scl 2; .type 32; .endef\n"
  ".seh_proc APTailFramedStack\n APTailFramedStack:\n pushq %rbx\n .seh_pushreg %rbx\n subq $32,%rsp\n .seh_stackalloc 32\n .seh_endprologue\n"
  "movq %rcx,%rbx\n addq $32,%rsp\n popq %rbx\n jmp APTailFramedRBP\n .seh_endproc\n"
+ ".globl APTailFramedIndirect\n .def APTailFramedIndirect; .scl 2; .type 32; .endef\n"
+ ".seh_proc APTailFramedIndirect\n APTailFramedIndirect:\n pushq %rbx\n .seh_pushreg %rbx\n subq $32,%rsp\n .seh_stackalloc 32\n .seh_endprologue\n"
+ "movq %rcx,%rbx\n leaq APTailFramedRBP(%rip),%r11\n addq $32,%rsp\n popq %rbx\n jmp *%r11\n .seh_endproc\n"
  ".globl APTailFramedRBP\n .def APTailFramedRBP; .scl 2; .type 32; .endef\n"
  ".seh_proc APTailFramedRBP\n APTailFramedRBP:\n pushq %rbp\n .seh_pushreg %rbp\n subq $64,%rsp\n .seh_stackalloc 64\n leaq 32(%rsp),%rbp\n .seh_setframe %rbp,32\n .seh_endprologue\n"
  "movq %rcx,-16(%rbp)\n movq -16(%rbp),%rcx\n leaq 32(%rbp),%rsp\n popq %rbp\n jmp APTailStart\n .seh_endproc\n"
@@ -50,9 +54,11 @@ __asm__(
  ".globl APTailCatch\n .def APTailCatch; .scl 2; .type 32; .endef\n"
  ".seh_proc APTailCatch\n APTailCatch:\n subq $56,%rsp\n .seh_stackalloc 56\n .seh_endprologue\n"
  ".Ltail_try:\n movl $999,%ecx\n movl $2,%edx\n movl $3,%r8d\n movl $5,%r9d\n movq $7,32(%rsp)\n movq $11,40(%rsp)\n"
+ "cmpl $3,tail_indirect_mode(%rip)\n je .Ltail_framed_indirect_call\n"
  "cmpl $2,tail_indirect_mode(%rip)\n je .Ltail_conditional_call\n"
  "cmpl $0,tail_indirect_mode(%rip)\n je .Ltail_direct_call\n call APTailIndirectStart\n jmp .Ltail_after_call\n"
  ".Ltail_conditional_call:\n call APTailConditionalStart\n jmp .Ltail_after_call\n"
+ ".Ltail_framed_indirect_call:\n call APTailFramedIndirect\n jmp .Ltail_after_call\n"
  ".Ltail_direct_call:\n call APTailFramedStack\n .Ltail_after_call:\n nop\n"
  ".Ltail_end:\n xorl %eax,%eax\n addq $56,%rsp\n ret\n"
  ".Ltail_catch:\n movl $903,%eax\n addq $56,%rsp\n ret\n"
@@ -67,6 +73,7 @@ static DWORD WINAPI worker(void *unused){
   uint64_t result;
   if(tail_indirect_mode==2)result=APTailConditionalStart(i+10,2,3,5,7,11);
   else if(tail_indirect_mode==1)result=APTailIndirectStart(i+10,2,3,5,7,11);
+  else if(tail_indirect_mode==3)result=APTailFramedIndirect(i+10,2,3,5,7,11);
   else result=APTailFramedStack(i+10,2,3,5,7,11);
   if(result!=i+41)return 2;
  }
@@ -84,7 +91,7 @@ int wmain(int argc,wchar_t **argv){
   else if(!wcscmp(argv[i],L"--indirect"))tail_indirect_mode=(DWORD)wcstoul(argv[i+1],NULL,10);
   else return 2;
  }
- if(tail_delay_ms>5000||tail_indirect_mode>2||!threads||threads>16||!iterations||iterations>100)return 2;
+ if(tail_delay_ms>5000||tail_indirect_mode>3||!threads||threads>16||!iterations||iterations>100)return 2;
  barrier=CreateEventW(NULL,TRUE,FALSE,NULL);if(!barrier)return 3;
  HANDLE handles[16];DWORD result=0;
  for(uint32_t i=0;i<threads;i++){handles[i]=CreateThread(NULL,0,worker,NULL,0,NULL);if(!handles[i])return 3;}

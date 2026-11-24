@@ -10,22 +10,26 @@ import (
 )
 
 func TestNativeProducerSelectedTailCallsPreserveArgumentsRecursionAndUnwind(t *testing.T) {
-	testTailCalls(t, "APTailStart", false)
+	testTailCalls(t, "APTailStart", "")
 }
 func TestNativeProducerVerifiedStackAndBiasedFrameTailCalls(t *testing.T) {
-	testTailCalls(t, "APTailStart", true)
+	testTailCalls(t, "APTailStart", "APTailFramedStack")
 }
 func TestNativeProducerVerifiedIndirectTailPreservesArgumentsAndUnwind(t *testing.T) {
-	testTailCalls(t, "APTailIndirectStart", false)
+	testTailCalls(t, "APTailIndirectStart", "")
 }
 func TestNativeProducerConditionalIndirectTailMeasuresBothDestinations(t *testing.T) {
-	testTailCalls(t, "APTailConditionalStart", false)
+	testTailCalls(t, "APTailConditionalStart", "")
 }
-func testTailCalls(t *testing.T, start string, framed bool) {
+func TestNativeProducerFramedIndirectTailPreservesUnwind(t *testing.T) {
+	testTailCalls(t, "APTailStart", "APTailFramedIndirect")
+}
+func testTailCalls(t *testing.T, start, framedStart string) {
 	t.Helper()
 	names := map[string]uint32{start: 1, "APTailMiddle": 2, "APTailWork": 3, "APTailRecursive": 4, "APTailRecursiveStep": 5, "APTailCatch": 6}
+	framed := framedStart != ""
 	if framed {
-		names["APTailFramedStack"] = 7
+		names[framedStart] = 7
 		names["APTailFramedRBP"] = 8
 	}
 	conditional := start == "APTailConditionalStart"
@@ -38,6 +42,8 @@ func testTailCalls(t *testing.T, start string, framed bool) {
 		o.Args = append(o.Args, "--indirect", "1")
 	} else if conditional {
 		o.Args = append(o.Args, "--indirect", "2")
+	} else if framedStart == "APTailFramedIndirect" {
+		o.Args = append(o.Args, "--indirect", "3")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

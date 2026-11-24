@@ -8,7 +8,7 @@ import (
 // Verify a deliberately small tail epilogue against the original unwind
 // actions. Saved-register MOVs/SSE, interleaved push/allocation and LEAVE need
 // independent evidence. The caller separately excludes all language handlers.
-func verifiedTailEpilogues(code, info []byte) map[int]bool {
+func verifiedTailEpilogues(code, info []byte) map[int]int {
 	if validateUnwindCodes(info) != nil {
 		return nil
 	}
@@ -63,12 +63,12 @@ func verifiedTailEpilogues(code, info []byte) map[int]bool {
 		decoded = append(decoded, instruction{at, inst})
 		at += inst.Len
 	}
-	result := map[int]bool{}
+	result := map[int]int{}
 	for i, d := range decoded {
 		if d.inst.Op != x86asm.JMP {
 			continue
 		}
-		if _, direct := d.inst.Args[0].(x86asm.Rel); !direct {
+		if _, direct := d.inst.Args[0].(x86asm.Rel); !direct && d.inst.Args[0] != x86asm.R11 {
 			continue
 		}
 		begin := i - len(pops)
@@ -122,7 +122,7 @@ func verifiedTailEpilogues(code, info []byte) map[int]bool {
 			}
 		}
 		if valid {
-			result[d.at] = true
+			result[d.at] = decoded[begin].at
 		}
 	}
 	return result

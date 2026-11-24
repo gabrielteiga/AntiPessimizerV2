@@ -25,7 +25,7 @@ este documento organiza as entregas e os critérios que ainda faltam.
 | Identidade nativa de frames | ID/RSP de entrada em pilha limitada por thread; fechamento por frame físico durante unwind repetido | ABI nativa preserva argumentos e slot original; AV em RBP com bias e demais testes de recursão/Clear/collision |
 | Cleanup original | Encaminhamento UHANDLER-only com PCs e metadados de origem; protocolo exige DLL compatível | Alvo C/assembly cobre retorno, saída antecipada, limpeza excepcional e exceção na própria limpeza; não comprova o compilador Delphi |
 | Controle/status SSE | MXCSR salvo/restaurado ao redor dos helpers; LDMXCSR/STMXCSR com validação normal de memória | Helper nativo clobbera status; setter/getter em três threads preservam todos os modos de arredondamento e 44 chamadas por método/thread |
-| Tail calls selecionadas | Em métodos sem handler, salto direto sem frame ou após epílogo conferido. Salto via R11 sem frame com um endereço comprovado ou escolha entre dois por CMOV. Retorno original preservado | Alvo Windows exige seis argumentos, recursão mútua, contagens por destino, fechamento normal/excepcional e conservação de QPC |
+| Tail calls selecionadas | Em métodos sem handler, salto direto ou via R11 para endereço comprovado, incluindo epílogos conferidos. Escolha entre dois alvos por CMOV em métodos sem frame. Retorno original preservado | Alvo Windows exige seis argumentos, recursão mútua, contagens por destino, fechamento normal/excepcional e conservação de QPC |
 | Métodos até 8 KiB | Strides limitados de 32 KiB no APHOOK8; versões antigas recusam planos maiores | Programa Windows de quase 8 KiB com retornos/calls/unwind e instalação conjunta de 64 strides |
 | Métodos pequenos | E9 rel32 de cinco bytes quando próximo; fallback absoluto e rejeição sem invadir o vizinho | PR #23: método Windows de seis bytes com onze chamadas por thread e testes dos limites signed rel32 |
 | Threads nativas de longa duração | Fim real por EXIT_THREAD, proteção contra TID reutilizado e pool de 64 rings reutilizáveis | 300 instâncias Windows com contagens/tempos/SEH preservados, sem crescimento do pool |
@@ -51,9 +51,9 @@ sem converter esse valor em chamadas ou duração por chamada.
 2. **Cobertura de código e metadados.** Ampliar somente com casos conferidos:
    unwind encadeado com ações adicionais, handlers ou fragmentos não contíguos,
    outras versões de unwind, epílogos e instruções ainda recusados. Saltos diretos
-   já aceitam epílogos ADD/LEA e POPs conferidos. Saltos via R11 em método sem
-   frame aceitam LEA para um destino ou dois LEAs com escolha por CMOV, sempre
-   para entradas selecionadas. Outros destinos dinâmicos, funções menores que
+   e saltos por R11 para destinos estáticos já aceitam epílogos ADD/LEA e POPs
+   conferidos. Sem frame, dois LEAs e CMOV permitem escolher entre entradas
+   selecionadas. Outros destinos dinâmicos, funções menores que
    cinco bytes e formatos TD32 adicionais continuam pendentes.
 3. **Compatibilidade Delphi demonstrada.** As fixtures de integração atuais são
    C/GCC para o fluxo completo. Um ensaio separado compara treze rotinas conferidas

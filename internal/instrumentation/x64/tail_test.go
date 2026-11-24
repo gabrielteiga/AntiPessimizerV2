@@ -146,3 +146,50 @@ func TestConditionalIndirectTailRequiresBothExactAddresses(t *testing.T) {
 		}
 	}
 }
+
+func TestFramedIndirectTailRequiresDestinationAndRestoration(t *testing.T) {
+	image, _ := framedPE()
+	code := []byte{
+		0x53, 0x48, 0x83, 0xec, 0x20, // PUSH RBX; SUB RSP,32
+		0x75, 0, // both paths enter the destination assignment
+		0x4c, 0x8d, 0x1d, 0, 0, 0, 0, // LEA R11
+		0x48, 0x83, 0xc4, 0x20, 0x5b, // ADD RSP,32; POP RBX
+		0x41, 0xff, 0xe3, // JMP R11
+	}
+	binary.LittleEndian.PutUint32(code[10:], 0x1080-(peLeafRVA+14))
+	binary.LittleEndian.PutUint32(image[0x404:], peLeafRVA+uint32(len(code)))
+	build := func(code []byte, selected uint32) (FunctionPlan, error) {
+		copy(image[0x220:], code)
+		p, err := NewPEImage(image)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p.BuildSelectedFunction(peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 1, []uint32{selected})
+	}
+	plan, err := build(code, 0x1080)
+	if err != nil || len(plan.TailTargets) != 1 || plan.TailTargets[0] != 0x1080 {
+		t.Fatal("verified indirect tail was not linked", plan.TailTargets, err)
+	}
+	body := plan.Image[plan.BodyRVA:plan.Functions[1].End]
+	if !bytes.Equal(body[len(body)-10:len(body)-5], code[14:19]) || body[len(body)-5] != 0xe9 {
+		t.Fatal("stack restoration or direct transfer changed", body)
+	}
+	if _, err := build(code, 0x1081); !errors.Is(err, ErrUnsupported) {
+		t.Fatal("non-exact target accepted", err)
+	}
+	for _, change := range []struct {
+		offset int
+		value  byte
+	}{
+		{6, 7},     // branch bypasses LEA but runs the full epilogue
+		{6, 11},    // branch bypasses stack release
+		{17, 0x28}, // mismatched allocation
+		{18, 0x5d}, // incorrect nonvolatile register
+	} {
+		bad := bytes.Clone(code)
+		bad[change.offset] = change.value
+		if _, err := build(bad, 0x1080); !errors.Is(err, ErrUnsupported) {
+			t.Fatal("unsafe framed jump accepted", change, err)
+		}
+	}
+}
