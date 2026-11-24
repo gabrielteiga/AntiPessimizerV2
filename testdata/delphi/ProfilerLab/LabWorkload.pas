@@ -338,6 +338,81 @@ begin
   end;
 end;
 
+type
+  TLabProcessMemory = record
+    Size, PageFaultCount: Cardinal;
+    PeakWorkingSetSize, WorkingSetSize, PeakPagedPool, PagedPool,
+      PeakNonPagedPool, NonPagedPool, PagefileUsage, PeakPagefileUsage,
+      PrivateUsage: NativeUInt;
+  end;
+
+function ReadLabProcessMemory(Process: THandle; var Counters: TLabProcessMemory;
+  Size: Cardinal): BOOL; stdcall; external 'psapi.dll' name 'GetProcessMemoryInfo';
+function ReadLabHandleCount(Process: THandle; var Count: Cardinal): BOOL;
+  stdcall; external 'kernel32.dll' name 'GetProcessHandleCount';
+
+procedure RunEnduranceLab(const ReportPath: string; Seconds: Integer);
+const
+  CallsPerSecond = 30;
+var
+  Log: TLabLog;
+  I: Integer;
+  Started, Deadline, BeforeCall, AfterCall, CallTicks: Int64;
+  Checksum: UInt64;
+
+  function QPC: Int64;
+  begin
+    if not QueryPerformanceCounter(Result) then
+      RaiseLastOSError;
+  end;
+
+  procedure Sample(const EventName: string; Calls: Integer);
+  var
+    Counters: TLabProcessMemory;
+    Handles: Cardinal;
+  begin
+    FillChar(Counters, SizeOf(Counters), 0);
+    Counters.Size := SizeOf(Counters);
+    if not ReadLabProcessMemory(GetCurrentProcess, Counters, Counters.Size) or
+       not ReadLabHandleCount(GetCurrentProcess, Handles) then
+      RaiseLastOSError;
+    Log.Emit(EventName, 'delphi_endurance', 'A', UInt64(Calls), Checksum,
+      'frequency=' + IntToStr(Log.Frequency) + ';call_ticks=' + IntToStr(CallTicks) +
+      ';private_bytes=' + UIntToStr(UInt64(Counters.PrivateUsage)) +
+      ';working_set_bytes=' + UIntToStr(UInt64(Counters.WorkingSetSize)) +
+      ';handles=' + UIntToStr(UInt64(Handles)));
+  end;
+
+begin
+  if (ReportPath = '') or (Seconds < 6) or (Seconds > 7200) then
+    raise Exception.Create('Endurance requires a report and duration of 6 to 7200 seconds');
+  Log := TLabLog.Create(ReportPath);
+  try
+    Checksum := 0;
+    CallTicks := 0;
+    Sample('endurance_begin', 0);
+    Started := QPC;
+    for I := 0 to Seconds * CallsPerSecond - 1 do
+    begin
+      Deadline := Started + (Int64(I) * Log.Frequency) div CallsPerSecond;
+      repeat
+        BeforeCall := QPC;
+        if BeforeCall >= Deadline then
+          Break;
+        Sleep(1);
+      until False;
+      Checksum := Checksum + CPUHotspotA(1000);
+      AfterCall := QPC;
+      Inc(CallTicks, AfterCall - BeforeCall);
+      if ((I + 1) mod CallsPerSecond) = 0 then
+        Sample('endurance_sample', I + 1);
+    end;
+    Sample('endurance_end', Seconds * CallsPerSecond);
+  finally
+    Log.Free;
+  end;
+end;
+
 procedure RunLab;
 var
   Iterations, WaitMS, I, Value: Integer;
@@ -352,6 +427,7 @@ begin
     Writeln('ProfilerLab [--iterations 1..1000000000] [--wait-ms 0..120000] [--report path]');
     Writeln('ProfilerLab --self-test');
     Writeln('ProfilerLab --exception-report path');
+    Writeln('ProfilerLab --endurance-report path --duration-sec 6..7200');
     Exit;
   end;
   if (ParamCount = 1) and (ParamStr(1) = '--self-test') then
@@ -367,6 +443,14 @@ begin
   if (ParamCount = 2) and (ParamStr(1) = '--exception-report') then
   begin
     RunExceptionLab(ParamStr(2));
+    Exit;
+  end;
+  if (ParamCount = 4) and (ParamStr(1) = '--endurance-report') and
+     (ParamStr(3) = '--duration-sec') then
+  begin
+    if not TryStrToInt(ParamStr(4), Value) then
+      raise Exception.Create('Invalid duration');
+    RunEnduranceLab(ParamStr(2), Value);
     Exit;
   end;
   I := 1;

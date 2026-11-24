@@ -1,12 +1,17 @@
 name: Delphi 10.4 validation
 on:
   workflow_dispatch:
+    inputs:
+      endurance_seconds:
+        description: Seconds per endurance mode (0 skips, 6–7200 runs)
+        type: number
+        default: 0
 permissions:
   contents: read
 jobs:
   verify-delphi104:
     runs-on: [self-hosted, windows, x64, delphi-10-4]
-    timeout-minutes: 25
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -24,6 +29,12 @@ jobs:
       - name: Verify original symbols and capture exact calls
         shell: pwsh
         run: ./scripts/test-delphi104.ps1 -Output "$env:RUNNER_TEMP/ap-delphi104"
+      - name: Measure a paired Delphi endurance run
+        if: inputs.endurance_seconds != 0
+        shell: pwsh
+        env:
+          AP_DELPHI_ENDURANCE_SECONDS: ${{ inputs.endurance_seconds }}
+        run: ./scripts/test-delphi104-endurance.ps1 -Output "$env:RUNNER_TEMP/ap-delphi104" -Seconds $env:AP_DELPHI_ENDURANCE_SECONDS
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -36,4 +47,8 @@ jobs:
             ${{ runner.temp }}/ap-delphi104/exception-baseline.tsv
             ${{ runner.temp }}/ap-delphi104/exception-instrumented.tsv
             ${{ runner.temp }}/ap-delphi104/exception-metrics.ndjson
+            ${{ runner.temp }}/ap-delphi104/endurance.json
+            ${{ runner.temp }}/ap-delphi104/endurance-baseline.tsv
+            ${{ runner.temp }}/ap-delphi104/endurance-instrumented.tsv
+            ${{ runner.temp }}/ap-delphi104/endurance-metrics.ndjson
           if-no-files-found: ignore
