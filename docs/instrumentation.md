@@ -906,6 +906,20 @@ Lacunas entre fragmentos podem conter bytes NOP se o fluxo anterior termina
 antes delas e nenhum salto tem destino dentro da lacuna. O ensaio Windows
 confere retorno e uma falha no fragmento após oito bytes de padding.
 
+## Tabelas de salto internas verificadas
+
+Um método sem frame nem handler pode usar uma tabela de 2 a 32 endereços
+internos. O formato aceito compara todo `RCX` com o índice máximo, desvia com
+`JA` quando excede o limite e carrega a tabela em `R11`. Cada entrada precisa
+ter uma realocação `DIR64` e apontar para uma instrução após a tabela. Os casos
+não podem entrar no despacho nem usar o endereço temporário em `R11`.
+
+O clone mantém a condição, as flags e os destinos, com ponteiros para os
+casos relocados. A verificação do alvo confere todos os bytes originais e usa
+os endereços que o loader espera associar à base carregada para os slots
+`DIR64`. A fixture nativa confere os dois casos, o caminho padrão para índices
+de 64 bits acima do limite e uma exceção real num caso escolhido pela tabela.
+
 ## Tail calls indiretas com destinos comprovados
 
 Em métodos sem frame ou handler, o planejador aceita `JMP R11` quando a
