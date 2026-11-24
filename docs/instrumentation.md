@@ -696,6 +696,12 @@ não é modificado. Hashes, RVAs, bytes e limites de evidência estão no
 [mapa do original](phase0/antipessimizer-reference.md#execução-limitada-do-código-delphi-distribuído-pelo-original).
 Isso não certifica Delphi 10.4, handlers privados ou o fluxo completo num EXE Delphi.
 
+O planejador nativo aceita `CPUID` sem prefixo depois de um prólogo que começa
+com `PUSH RBX` e registra esse salvamento no unwind. O ensaio Windows confere
+os quatro resultados e a recuperação de RBX após uma falha de memória.
+A rotina CPUID da DLL original fica fora desse subconjunto porque seu unwind
+não descreve o salvamento de RBX.
+
 ## Planejamento de várias funções na mesma imagem
 
 Pré-validação e instalação preparam um snapshot PE imutável por lote. Cabeçalhos,

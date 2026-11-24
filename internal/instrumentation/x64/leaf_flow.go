@@ -39,9 +39,9 @@ func rewriteFunctionBody(code []byte, source, base uint64, framed bool, prologue
 	return rewriteFunctionWithPatch(code, source, base, framed, prologue, JumpSize, false)
 }
 func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, prologue, patchSize int, nativeFunction bool) (leafBody, error) {
-	return rewriteSelectedFunction(code, source, base, framed, prologue, patchSize, nativeFunction, nil, nil)
+	return rewriteSelectedFunction(code, source, base, framed, prologue, patchSize, nativeFunction, false, nil, nil)
 }
-func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prologue, patchSize int, nativeFunction bool, selected map[uint64]bool, restored map[int]bool) (leafBody, error) {
+func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prologue, patchSize int, nativeFunction, savedRBX bool, selected map[uint64]bool, restored map[int]bool) (leafBody, error) {
 	fail := func(reason string) (leafBody, error) {
 		return leafBody{}, fmt.Errorf("%w: leaf: %s", ErrUnsupported, reason)
 	}
@@ -122,6 +122,11 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 			// the precise encoding and keep it in the full native planner.
 			if !nativeFunction || inst.Len != 2 || code[offset] != 0x0f || code[offset+1] != 0x31 {
 				return fail("unsupported timestamp counter instruction")
+			}
+		case inst.Op == x86asm.CPUID:
+			// CPUID implicitly overwrites EBX and zeroes the high half of RBX.
+			if !savedRBX || offset < prologue || inst.Len != 2 || code[offset] != 0x0f || code[offset+1] != 0xa2 {
+				return fail("CPUID requires an unprefixed instruction and an unwind-described RBX push")
 			}
 		default:
 			if !leafOperations[inst.Op.String()] && !scalarOperations[inst.Op.String()] && !(framed && frameOperations[inst.Op.String()]) && !(nativeFunction && (atomicOperations[inst.Op.String()] || mxcsrOperations[inst.Op.String()] || framed && (stringOperations[inst.Op.String()] || wideAtomicOperation(inst)))) {

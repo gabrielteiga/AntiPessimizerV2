@@ -4,6 +4,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <stdint.h>
+#include <cpuid.h>
 #include <stdlib.h>
 #include <wchar.h>
 #include <xmmintrin.h>
@@ -12,6 +13,26 @@
 
 enum { AP_FRAME_EXCEPTION=0xe0424242u };
 static BOOL check_chain;
+static BOOL check_cpuid;
+extern void APFrameCPUID(uint32_t,uint32_t,uint32_t *);
+extern uint64_t APFrameCPUIDCatch(void);
+__asm__(
+ ".text\n .globl APFrameCPUID\n .def APFrameCPUID; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameCPUID\n APFrameCPUID:\n pushq %rbx\n .seh_pushreg %rbx\n .seh_endprologue\n"
+ "movl %ecx,%eax\n movl %edx,%ecx\n cpuid\n"
+ "movl %eax,(%r8)\n movl %ebx,4(%r8)\n movl %ecx,8(%r8)\n movl %edx,12(%r8)\n popq %rbx\n ret\n .seh_endproc\n"
+ ".globl APFrameCPUIDCatch\n .def APFrameCPUIDCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameCPUIDCatch\n APFrameCPUIDCatch:\n"
+ "pushq %rbx\n .seh_pushreg %rbx\n subq $32,%rsp\n .seh_stackalloc 32\n .seh_endprologue\n"
+ "movabsq $0x1122334455667788,%rbx\n"
+ ".Lcpuid_try:\n xorl %ecx,%ecx\n xorl %edx,%edx\n xorq %r8,%r8\n call APFrameCPUID\n nop\n"
+ ".Lcpuid_end:\n xorl %eax,%eax\n addq $32,%rsp\n popq %rbx\n ret\n"
+ ".Lcpuid_catch:\n movabsq $0x1122334455667788,%rax\n cmpq %rax,%rbx\n sete %al\n movzbl %al,%eax\n"
+ "addq $32,%rsp\n popq %rbx\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Lcpuid_try,.Lcpuid_end,APFrameMemoryFilter,.Lcpuid_catch\n .text\n .seh_endproc\n"
+);
+
 extern uint64_t APFrameChain(const uint64_t *),APFrameChainCatch(void);
 
 /* GAS has no chain-info directive. Emit both ordinary .pdata entries and the
@@ -285,6 +306,13 @@ static DWORD WINAPI worker(void *unused){
  if(APFrameMemoryCatch()!=888)return 4;
  if(APFrameRBPCatch()!=889 || APFrameLargeCatch()!=901)return 7;
  if(APFrameCompare128Catch(NULL)!=902 || APFrameCompare128Catch((uint64_t *)((unsigned char *)atomic128_total+1))!=902)return 8;
+ if(check_cpuid){
+  uint32_t expected[4],actual[4];
+  __cpuid_count(0,0,expected[0],expected[1],expected[2],expected[3]);
+  APFrameCPUID(0,0,actual);
+  for(unsigned i=0;i<4;i++)if(actual[i]!=expected[i])return 13;
+  if(APFrameCPUIDCatch()!=1)return 13;
+ }
  if(check_chain){
   const uint64_t value=UINT64_C(0x1122334455667788);
   if(APFrameChain(&value)!=value || APFrameChainCatch()!=903)return 12;
@@ -308,6 +336,7 @@ int wmain(int argc,wchar_t **argv){
   else if(!wcscmp(argv[i],L"--cleanup-throws"))cleanup_throws=(BOOL)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--normal-cleanup-throws"))normal_cleanup_throws=(BOOL)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--unselected-id"))unselected_id=(uint32_t)wcstoul(argv[i+1],NULL,10);
+  else if(!wcscmp(argv[i],L"--check-cpuid"))check_cpuid=(BOOL)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--check-chain"))check_chain=(BOOL)wcstoul(argv[i+1],NULL,10);
   else return 2;
  }
