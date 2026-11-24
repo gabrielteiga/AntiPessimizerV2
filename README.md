@@ -101,9 +101,9 @@ marca a captura interrompida como incompleta; fechar o viewer mantém o coletor 
 o alvo independentes. O prazo padrão é 60 segundos. **Limpar métricas** zera os resultados e reinicia o tempo das chamadas abertas
 numa nova época, sem encerrar o programa. A tabela mostra chamadas,
 totais e médias inclusivas/exclusivas, thread, unidade, unwind e frames abertos.
-As preferências da janela são salvas ao fechar em
-`%AppData%\AntiPessimizerV2\viewer.json`: caminho do EXE, filtros e unidade de tempo.
-Reabrir restaura esses campos; a captura continua sendo iniciada pelos controles.
+Ao fechar, a janela salva caminho do EXE, filtros, unidade de tempo e layout das
+colunas em `%AppData%\AntiPessimizerV2\viewer.json`. **Diagnóstico** abre o
+histórico recente de estados e falhas da janela, com opção de copiar.
 
 O seletor de tempo oferece ns, us, ms, s e ticks do relógio. Ticks QPC não são
 ciclos de CPU. A troca de unidade preserva contagens, ordenação e arquivo.
