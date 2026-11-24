@@ -74,7 +74,8 @@ o caminho completo, e clique em
 Use **Selecionar busca** para marcar todas as correspondências quando couberem
 na seleção, ou **Limpar seleção** para desmarcá-las. Para selecionar unidades inteiras,
 marque **Unidades inteiras**, informe os nomes exatos separados por vírgulas e use
-**Ler símbolos**. O modo seleciona até 256 procedimentos no total e conta cada
+**Ler símbolos**. Marque **Omitir RTL e JCL** para aplicar o filtro do profiler
+original a nomes com prefixos `System.`, `Winapi.` e `Jcl`. O modo seleciona até 256 procedimentos no total e conta cada
 intervalo uma vez, mesmo quando aparece em várias unidades. A prévia informa se
 alguma unidade estiver ausente ou se o conjunto ultrapassar o limite. Se algum
 método for recusado pelo planejador, o início informa o motivo. Na busca por
@@ -172,7 +173,8 @@ viewer.exe --op stop
 
 `--unit` no início seleciona a unidade exata inteira, em alternativa a `--procedure-ids`.
 O serviço resolve o catálogo completo e refaz a pré-validação antes de lançar.
-`--arg` é repetível. Catálogo aceita `--unit` e `--catalog-offset`; `--address`
+`--arg` é repetível. Use `--exclude-runtime` por terminal para aplicar o filtro
+de RTL e JCL, tanto no catálogo quanto na captura. Catálogo aceita `--unit` e `--catalog-offset`; `--address`
 seleciona outro Named Pipe local. Assinaturas são observadores: desconectá-las não
 cancela a captura. Um novo lançamento cria outra sessão. `latest` distingue
 `metric` instrumentado de `snapshot` de sampling. [Protocolo](docs/live.md).

@@ -92,6 +92,15 @@ func (c Catalog) Select(ids []uint32) ([]SelectedProcedure, error) {
 // including aliases. It never truncates to a page or silently skips a unit.
 // The final selection still requires the ordinary code/ABI preflight.
 func (c Catalog) SelectUnits(units []string) ([]SelectedProcedure, error) {
+	return c.selectUnits(units, false)
+}
+
+// SelectUnitsWithoutRuntime applies the runtime filter before bounding the selection.
+func (c Catalog) SelectUnitsWithoutRuntime(units []string) ([]SelectedProcedure, error) {
+	return c.selectUnits(units, true)
+}
+
+func (c Catalog) selectUnits(units []string, excludeRuntime bool) ([]SelectedProcedure, error) {
 	if len(units) == 0 || len(units) > MaxSelectedProcedures {
 		return nil, fmt.Errorf("select 1..%d exact Pascal units", MaxSelectedProcedures)
 	}
@@ -109,6 +118,12 @@ func (c Catalog) SelectUnits(units []string) ([]SelectedProcedure, error) {
 		}
 	}
 	matched := c.Match(units, nil)
+	if excludeRuntime {
+		matched = c.WithoutRuntime(matched)
+		if len(matched) == 0 {
+			return nil, errors.New("no procedures remain after excluding Delphi runtime and JCL")
+		}
+	}
 	ids := make([]uint32, 0, len(matched))
 	for _, p := range matched {
 		ids = append(ids, p.ID)
@@ -117,6 +132,28 @@ func (c Catalog) SelectUnits(units []string) ([]SelectedProcedure, error) {
 		return nil, fmt.Errorf("units contain %d procedures; selection limit is %d; choose fewer units or explicit IDs", len(ids), MaxSelectedProcedures)
 	}
 	return c.Select(ids)
+}
+
+// WithoutRuntime excludes physical procedures with a primary name or an alias
+// under one of the original profiler's excluded prefixes.
+func (c Catalog) WithoutRuntime(procedures []SelectedProcedure) []SelectedProcedure {
+	excluded := make(map[uint32]bool)
+	for _, a := range c.Aliases {
+		if runtimeProcedure(a.Name) {
+			excluded[a.ID] = true
+		}
+	}
+	var filtered []SelectedProcedure
+	for _, p := range procedures {
+		if !excluded[p.ID] && !runtimeProcedure(p.Name) {
+			filtered = append(filtered, p)
+		}
+	}
+	return filtered
+}
+
+func runtimeProcedure(name string) bool {
+	return strings.HasPrefix(name, "System.") || strings.HasPrefix(name, "Winapi.") || strings.HasPrefix(name, "Jcl")
 }
 
 func (c Catalog) Match(units, names []string) []SelectedProcedure {

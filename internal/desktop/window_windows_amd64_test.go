@@ -245,7 +245,7 @@ func TestNativeInstrumentedControlWindowSmoke(t *testing.T) {
 	address := listener.Addr().String()
 	c := service.New()
 	c.LoadCatalog = func(string) (native.Catalog, error) {
-		return native.Catalog{CatalogID: "catalog-token", ImageID: "smoke-build", Procedures: []native.SelectedProcedure{{ID: 7, RVA: 0x1000, Size: 32, Name: "Lab.Parent", Unit: "Lab"}, {ID: 8, RVA: 0x2000, Size: 32, Name: "Lab.Handler", Unit: "Lab"}}, Aliases: []native.ProcedureAlias{{ID: 7, Name: "Lab.ParentAlias", Unit: "Shared"}, {ID: 7, Name: "Fonte.ParentAlias", Unit: "Fonte"}}}, nil
+		return native.Catalog{CatalogID: "catalog-token", ImageID: "smoke-build", Procedures: []native.SelectedProcedure{{ID: 7, RVA: 0x1000, Size: 32, Name: "Lab.Parent", Unit: "Lab"}, {ID: 8, RVA: 0x2000, Size: 32, Name: "Lab.Handler", Unit: "Lab"}}, Aliases: []native.ProcedureAlias{{ID: 7, Name: "Lab.ParentAlias", Unit: "Shared"}, {ID: 7, Name: "Fonte.ParentAlias", Unit: "Fonte"}, {ID: 8, Name: "System.Internal", Unit: "System"}}}, nil
 	}
 	c.CheckCatalog = func(_ native.Catalog, procedures []native.SelectedProcedure) ([]native.ProcedureCheck, error) {
 		var checks []native.ProcedureCheck
@@ -432,6 +432,20 @@ func TestNativeInstrumentedControlWindowSmoke(t *testing.T) {
 		}
 		if c.Status().State != "stopped" {
 			return fmt.Errorf("whole-unit Stop did not join owner")
+		}
+		send.Call(w.excludeRuntime, 0xf5, 0, 0)
+		if !w.excludesRuntime() || w.catalog != nil {
+			return fmt.Errorf("runtime filter did not invalidate the old catalog")
+		}
+		text(w.symbolSearch, "Lab")
+		w.command(2)
+		deadline = time.Now().Add(2 * time.Second)
+		for w.catalog == nil && time.Now().Before(deadline) {
+			w.tick()
+			time.Sleep(10 * time.Millisecond)
+		}
+		if w.catalog == nil || !w.catalogExcludesRuntime || len(w.catalog.Procedures) != 1 || w.catalog.Procedures[0].ID != 7 {
+			return fmt.Errorf("runtime alias was kept in the whole-unit preview")
 		}
 		const other = `D:\teste\outra aplicação.exe`
 		w.executablePicker = func(uintptr) (string, error) { return other, nil }
