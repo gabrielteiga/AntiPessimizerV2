@@ -26,7 +26,8 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 	if _, err := io.ReadFull(conn, offer[:]); err != nil {
 		return fmt.Errorf("hook allocation offer: %w", err)
 	}
-	tinyPlans := string(offer[:8]) == "APHOOKB\x00"
+	chainPlans := string(offer[:8]) == "APHOOKC\x00"
+	tinyPlans := chainPlans || string(offer[:8]) == "APHOOKB\x00"
 	tailPlans := tinyPlans || string(offer[:8]) == "APHOOKA\x00"
 	expandedSelection := tailPlans || string(offer[:8]) == "APHOOK9\x00"
 	largePlans := expandedSelection || string(offer[:8]) == "APHOOK8\x00"
@@ -53,7 +54,11 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 		return errors.New("update the native adapter DLL: selections larger than 64 require APHOOK9")
 	}
 	codeCapacity := count * stride
-	if count != uint32(len(procedures)) || capacity != codeCapacity && capacity != codeCapacity+count*3*12 || allocation == 0 || allocation%4096 != 0 || allocation >= maxAddress || uint64(capacity) >= maxAddress-allocation || enter == exit {
+	tableCapacity := count * 3 * 12
+	if chainPlans {
+		tableCapacity = count * 4 * 12
+	}
+	if count != uint32(len(procedures)) || capacity != codeCapacity+tableCapacity && (chainPlans || capacity != codeCapacity) || allocation == 0 || allocation%4096 != 0 || allocation >= maxAddress || uint64(capacity) >= maxAddress-allocation || enter == exit {
 		return errors.New("invalid native hook allocation")
 	}
 	var cleanup uint64
@@ -85,6 +90,10 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 	// A whole stride per procedure keeps its relative RVAs independent. The
 	// final runtime table follows code and is relative to allocation.
 	tableOffset := capacity - uint32(int(count)*per*12)
+	if chainPlans {
+		tableOffset = codeCapacity
+	}
+	entries := 0
 	targets := make([]uint32, 0, len(procedures))
 	for _, p := range procedures {
 		targets = append(targets, p.RVA)
@@ -99,6 +108,9 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 			plan, err := prepared.BuildSelectedFunction(proc.RVA, size, loaded, allocation+uint64(offset), enter, exit, cleanup, proc.ID, targets)
 			if err != nil {
 				return fmt.Errorf("procedure %d frame plan: %w", proc.ID, err)
+			}
+			if len(plan.Functions) == 4 && !chainPlans {
+				return errors.New("update the native adapter DLL: chained nonvolatile saves require APHOOKC")
 			}
 			if len(plan.Patch) == 1 && !tinyPlans {
 				return errors.New("breakpoint entries require APHOOKB and an owned target")
@@ -137,12 +149,20 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 			u := int(offset) + int(functions[1].Unwind)
 			handler := u + 4 + ((int(payload[u+2])+1)&^1)*2
 			binary.LittleEndian.PutUint32(payload[handler:], u32(payload[handler:])+offset)
+			if len(functions) == 4 {
+				local := int(offset+functions[2].Unwind) + 8
+				for field := 0; field < 3; field++ {
+					word := payload[local+field*4:]
+					binary.LittleEndian.PutUint32(word, u32(word)+offset)
+				}
+			}
 		}
-		for j, f := range functions {
-			at := int(tableOffset) + (i*per+j)*12
+		for _, f := range functions {
+			at := int(tableOffset) + entries*12
 			binary.LittleEndian.PutUint32(payload[at:], offset+f.Begin)
 			binary.LittleEndian.PutUint32(payload[at+4:], offset+f.End)
 			binary.LittleEndian.PutUint32(payload[at+8:], offset+f.Unwind)
+			entries++
 		}
 		plans = append(plans, selectedPlan{patch: patch, source: source})
 	}
@@ -151,7 +171,7 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 	binary.LittleEndian.PutUint32(header[8:], count)
 	binary.LittleEndian.PutUint32(header[12:], capacity)
 	binary.LittleEndian.PutUint32(header[16:], tableOffset)
-	binary.LittleEndian.PutUint32(header[20:], count*uint32(per))
+	binary.LittleEndian.PutUint32(header[20:], uint32(entries))
 	if err := writeHookBytes(conn, header[:]); err != nil {
 		return err
 	}

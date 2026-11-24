@@ -139,3 +139,27 @@ func TestNativeSelfEntryLEARetainsOriginalAddress(t *testing.T) {
 		}
 	}
 }
+
+func TestNativeLeafCapturesReturnPCWithoutWritingIt(t *testing.T) {
+	code := []byte{0x48, 0x8b, 0x04, 0x24, 0x48, 0x89, 0x59, 0x10, 0x66, 0x0f, 0x29, 0x71, 0x20, 0xc3}
+	build := func(code []byte) (FunctionPlan, error) {
+		return BuildPEFunction(scalarImage(code), peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 1)
+	}
+	p, err := build(code)
+	if err != nil || !bytes.Equal(p.Image[p.BodyRVA:p.BodyRVA+uint32(len(code))-1], code[:len(code)-1]) {
+		t.Fatal("caller context was not preserved", err)
+	}
+	for _, at := range []int{1, 5, 10} {
+		changed := bytes.Clone(code)
+		if at == 1 {
+			changed[at] = 0x89
+		} else if at == 5 {
+			changed[at] = 0x8b
+		} else {
+			changed[at] = 0x28
+		}
+		if _, err := build(changed); err == nil {
+			t.Fatal("caller context write accepted", changed)
+		}
+	}
+}

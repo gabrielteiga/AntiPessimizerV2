@@ -13,7 +13,7 @@ type leafInstruction struct {
 
 	offset, relocated, length int
 	inst                      x86asm.Inst
-	kind                      byte // 0=ordinary, 1=return, 2=jump, 3=conditional, 4=call, 5=direct tail, 6=indirect tail
+	kind                      byte // 0=ordinary, 1=return, 2=jump, 3=conditional, 4=call, 5=direct tail, 6=indirect tail, 7=conditional tail
 	condition                 byte
 	target                    int
 	requiresPrevious          bool
@@ -40,9 +40,9 @@ func rewriteFunctionBody(code []byte, source, base uint64, framed bool, prologue
 	return rewriteFunctionWithPatch(code, source, base, framed, prologue, JumpSize, false)
 }
 func rewriteFunctionWithPatch(code []byte, source, base uint64, framed bool, prologue, patchSize int, nativeFunction bool) (leafBody, error) {
-	return rewriteSelectedFunction(code, source, base, framed, prologue, patchSize, nativeFunction, false, nil, nil)
+	return rewriteSelectedFunction(code, source, base, framed, prologue, patchSize, nativeFunction, false, false, nil, nil)
 }
-func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prologue, patchSize int, nativeFunction, savedRBX bool, selected map[uint64]bool, restored map[int]int) (leafBody, error) {
+func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prologue, patchSize int, nativeFunction, savedRBX, restoreRDI bool, selected map[uint64]bool, restored map[int]int) (leafBody, error) {
 	fail := func(reason string) (leafBody, error) {
 		return leafBody{}, fmt.Errorf("%w: leaf: %s", ErrUnsupported, reason)
 	}
@@ -75,6 +75,9 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 			}
 			d.kind = 1
 			d.length = JumpSize
+			if restoreRDI {
+				d.length++
+			}
 		case inst.Op == x86asm.JMP && (code[offset] == 0xeb && inst.Len == 2 || code[offset] == 0xe9 && inst.Len == 5):
 			d.kind = 2
 			d.length = 5
@@ -150,6 +153,12 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 			if !savedRBX || offset < prologue || inst.Len != 2 || code[offset] != 0x0f || code[offset+1] != 0xa2 {
 				return fail("CPUID requires an unprefixed instruction and an unwind-described RBX push")
 			}
+		case restoreRDI && (inst.Op == x86asm.CLD || inst.Op == x86asm.PSHUFD):
+			// Both instructions are part of the exact Delphi fill pattern.
+		case inst.Op == x86asm.FNSTCW:
+			if !nativeFunction || !framed || inst.Len != 3 || !bytes.Equal(code[offset:offset+3], []byte{0xd9, 0x3c, 0x24}) {
+				return fail("FNSTCW requires a verified native stack destination")
+			}
 		default:
 			if !leafOperations[inst.Op.String()] && !scalarOperations[inst.Op.String()] && !(framed && frameOperations[inst.Op.String()]) && !(nativeFunction && (atomicOperations[inst.Op.String()] || mxcsrOperations[inst.Op.String()] || framed && (stringOperations[inst.Op.String()] || wideAtomicOperation(inst)))) {
 				return fail("unsupported operation: " + inst.Op.String())
@@ -162,10 +171,19 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 			}
 			target, ok := address(source+uint64(offset+inst.Len), int64(rel))
 			if !ok || target < source || target >= source+uint64(len(code)) {
-				if !ok || d.kind != 2 || !nativeFunction || (framed || prologue != 0) && restored[offset] == 0 || !selected[target] {
+				if !ok || !nativeFunction || !selected[target] {
 					return fail("branch leaves the procedure; direct tail calls require selecting their exact target and verified stack restoration")
 				}
-				d.kind = 5
+				if framed || prologue != 0 {
+					if d.kind != 2 || restored[offset] == 0 {
+						return fail("external branch requires verified stack restoration")
+					}
+				}
+				if d.kind == 3 {
+					d.kind = 7
+				} else {
+					d.kind = 5
+				}
 				d.absolute = target
 				tailTargets = append(tailTargets, target)
 			} else {
@@ -215,6 +233,10 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 	for _, d := range instructions {
 		dst := out.code[d.relocated : d.relocated+d.length]
 		if d.kind == 1 {
+			if restoreRDI {
+				dst[0] = 0x5f // POP RDI
+				dst = dst[1:]
+			}
 			copy(dst, jump(base+uint64(out.exitRVA)))
 			continue
 		}
@@ -239,16 +261,20 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 			binary.LittleEndian.PutUint32(dst[at:], uint32(delta))
 			continue
 		}
-		if d.kind == 4 || d.kind == 5 {
-			delta := int64(d.absolute) - int64(base+512+uint64(d.relocated+5))
+		if d.kind == 4 || d.kind == 5 || d.kind == 7 {
+			delta := int64(d.absolute) - int64(base+512+uint64(d.relocated+d.length))
 			if delta < -1<<31 || delta > 1<<31-1 {
 				return fail("call target too far from clone")
 			}
-			dst[0] = 0xe8
-			if d.kind == 5 {
+			switch d.kind {
+			case 4:
+				dst[0] = 0xe8
+			case 5:
 				dst[0] = 0xe9
+			case 7:
+				dst[0], dst[1] = 0x0f, 0x80|d.condition
 			}
-			binary.LittleEndian.PutUint32(dst[1:], uint32(int32(delta)))
+			binary.LittleEndian.PutUint32(dst[d.length-4:], uint32(int32(delta)))
 			continue
 		}
 		copy(dst, code[d.offset:d.offset+d.inst.Len])
@@ -258,7 +284,8 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 			case x86asm.Rel:
 				return fail("unsupported relative control flow")
 			case x86asm.Reg:
-				if !volatileLeafRegister(arg) && !(framed && nativeFrameRegister(arg)) {
+				if !volatileLeafRegister(arg) && !(framed && nativeFrameRegister(arg)) &&
+					!(nativeFunction && operand == 1 && nonvolatileSnapshotStore(d.inst, arg)) {
 					return fail("stack, nonvolatile or unsupported register")
 				}
 			case x86asm.Mem:
@@ -275,7 +302,11 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 					return fail("stack index")
 				}
 				if !framed && arg.Base == x86asm.RSP {
-					if arg.Index != 0 || arg.Disp < 8 {
+					// The entry probe restores the original stack before the
+					// clone runs. A qword MOV can read the caller's return PC.
+					readReturnPC := nativeFunction && operand == 1 && d.inst.Op == x86asm.MOV &&
+						d.inst.MemBytes == 8 && arg.Disp == 0
+					if arg.Index != 0 || arg.Disp < 8 && !readReturnPC {
 						return fail("return slot or indexed stack memory")
 					}
 					readOnly := d.inst.Op == x86asm.CMP || d.inst.Op == x86asm.TEST || d.inst.Op == x86asm.BT || d.inst.Op == x86asm.MUL || d.inst.Op == x86asm.IMUL || d.inst.Op == x86asm.DIV || d.inst.Op == x86asm.IDIV || d.inst.Op == x86asm.LDMXCSR
@@ -397,4 +428,19 @@ var frameOperations = map[string]bool{"PUSH": true, "POP": true, "LEAVE": true, 
 
 func nativeFrameRegister(r x86asm.Reg) bool {
 	return r >= x86asm.AL && r <= x86asm.R15B || r >= x86asm.AX && r <= x86asm.R15W || r >= x86asm.EAX && r <= x86asm.R15L || r >= x86asm.RAX && r <= x86asm.R15 || r >= x86asm.X0 && r <= x86asm.X15
+}
+
+func nonvolatileSnapshotStore(inst x86asm.Inst, source x86asm.Reg) bool {
+	if _, ok := inst.Args[0].(x86asm.Mem); !ok {
+		return false
+	}
+	switch inst.Op {
+	case x86asm.MOV:
+		return source == x86asm.RBX || source == x86asm.RBP || source == x86asm.RSI ||
+			source == x86asm.RDI || source >= x86asm.R12 && source <= x86asm.R15
+	case x86asm.MOVAPD:
+		return source >= x86asm.X6 && source <= x86asm.X15
+	default:
+		return false
+	}
 }

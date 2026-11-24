@@ -196,3 +196,74 @@ func TestInlineDelphiStackProbeKeepsShortBranchAndUnwind(t *testing.T) {
 		t.Fatal("inconsistent probe limit accepted", err)
 	}
 }
+
+func TestDelphiCPUIDLeafSynthesizesRBXUnwindWithoutChangingSourceExtent(t *testing.T) {
+	code := bytes.Clone(delphiCPUIDLeaf)
+	build := func(code []byte, clone uint64) (FunctionPlan, error) {
+		return BuildPEFunction(scalarImage(code), peLeafRVA, uint32(len(code)), 0x100000, clone, 0x300000, 0x400000, 0x500000, 1)
+	}
+	for _, placement := range []struct {
+		base  uint64
+		patch int
+	}{{0x180000, 6}, {0x100000000, 16}} {
+		p, err := build(code, placement.base)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(p.Source, code) || len(p.Patch) != placement.patch || !bytes.Equal(p.Original, code[:placement.patch]) {
+			t.Fatal("synthetic push changed the source extent", len(p.Patch), p.Original)
+		}
+		info := p.Functions[1].Unwind
+		if !bytes.Equal(p.Image[info:info+8], []byte{17, 1, 1, 0, 1, 0x30, 0, 0}) ||
+			p.Image[p.BodyRVA] != 0x53 || !bytes.Equal(p.Image[p.BodyRVA+1:p.BodyRVA+29], code[:28]) || p.Image[p.BodyRVA+29] != 0x5b {
+			t.Fatal("native CPUID body lost its Windows RBX save/restore")
+		}
+	}
+	code[19]++
+	if _, err := build(code, 0x180000); !errors.Is(err, ErrUnsupported) {
+		t.Fatal("unreviewed CPUID leaf shape accepted", err)
+	}
+}
+
+func TestExactDelphiCPUFeatureMaskAddsOnlyUnwind(t *testing.T) {
+	code := bytes.Clone(delphiCPUFeatureMask)
+	build := func(code []byte) (FunctionPlan, error) {
+		return BuildPEFunction(scalarImage(code), peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 1)
+	}
+	p, err := build(code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := p.Functions[1].Unwind
+	body := p.Image[p.BodyRVA:p.Functions[1].End]
+	if !bytes.Equal(p.Source, code) || !bytes.Equal(p.Original, code[:6]) ||
+		!bytes.Equal(p.Image[info:info+8], []byte{17, 1, 1, 0, 1, 0x30, 0, 0}) || !bytes.Equal(body[:13], code[:13]) || body[len(body)-JumpSize-1] != 0x5b {
+		t.Fatal("incorrect original extent, RBX unwind or CPU query")
+	}
+	code[len(code)-2] = 0x5d
+	if _, err := build(code); !errors.Is(err, ErrUnsupported) {
+		t.Fatal("CPU query with a different epilogue accepted", err)
+	}
+}
+
+func TestDelphiControlWordLeavesDescribeEightByteStack(t *testing.T) {
+	for _, code := range [][]byte{delphiX87ControlLeaf, delphiMXCSRLeaf} {
+		build := func(code []byte) (FunctionPlan, error) {
+			return BuildPEFunction(scalarImage(code), peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 1)
+		}
+		p, err := build(code)
+		if err != nil {
+			t.Fatal(err)
+		}
+		info := p.Functions[1].Unwind
+		if !bytes.Equal(p.Image[info:info+8], []byte{17, 2, 1, 0, 2, 2, 0, 0}) ||
+			!bytes.Equal(p.Image[p.BodyRVA:p.BodyRVA+uint32(len(code))-1], code[:len(code)-1]) {
+			t.Fatal("control-word allocation or bytes changed")
+		}
+		changed := bytes.Clone(code)
+		changed[1] = 1
+		if _, err := build(changed); !errors.Is(err, ErrUnsupported) {
+			t.Fatal("unreviewed temporary initialization accepted", err)
+		}
+	}
+}

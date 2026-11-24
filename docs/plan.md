@@ -12,11 +12,12 @@ este documento organiza as entregas e os critérios que ainda faltam.
 | Símbolos | TD32/TDS FB09/FB0A, procedimentos, unidades Pascal por contribuição de código/diretórios globais, diretórios encadeados, nomes Delphi suportados e conversão por BaseOfCode | Casos derivados da JCL da revisão fixada, testes de corrupção/fuzz e TDS sintético ligado ao EXE de laboratório com duas seções de código |
 | Aliases de símbolos | Intervalos exatamente iguais compartilham nome primário/ID; nomes e unidades alternativos preservados na busca | Ordem de FindProc da JCL, testes de TD32/ASLR/catálogo/CLI, limites de metadados e janela Windows |
 | Arquivo e linha TD32 | `symresolve --source` resolve o endereço observado via `sstSrcModule` em símbolos embutidos ou sidecar | Layout da JCL fixada; fixtures verificam limites, conflitos, ASLR e duas linhas no mesmo procedimento |
-| Preferências do viewer | Caminho do EXE, filtros de resultados/símbolos, nomes das unidades inteiras e unidade de tempo persistidos por usuário | Roundtrip/limites/corrupção e janela Windows reaberta; arquivo desconhecido preservado ao usar padrões |
+| Preferências do viewer | Caminho do EXE, filtros de resultados/símbolos, nomes das unidades inteiras, unidade de tempo, largura e ordem das colunas persistidos por usuário | Roundtrip/limites/corrupção e janela Windows reaberta; arquivo desconhecido preservado ao usar padrões |
+| Diagnóstico do viewer | Histórico limitado de estados, erros de conexão e operações da janela, com cópia para a área de transferência | Teste portável de retenção e smoke do painel Win32 |
 | Coletor/viewer | Processos independentes, Named Pipe local, seleção/start/stop, filtros, tabela virtual, histórico, salvar/replay e comparação de sampling | Executáveis Windows, integração ETW e smoke da janela |
 | Contabilidade de chamadas | Calls, tempos inclusivos/exclusivos, médias, recursão, instâncias de thread, unwind, Clear e perdas | Semântica conferida em CoreProfiler; testes determinísticos e callbacks C/QPC |
 | Captura sem SDK no EXE | Lançamento próprio, barreira no ponto de entrada, DLL nativa, verificação do código original, finalizadores e cancelamento | EXE C sem imports do profiler, três threads e finalizador, fluxo até o viewer |
-| Frames, chamadas e unwind nativo | Cópia do corpo, prólogo/unwind v1 preservados, fragmentos adjacentes que herdam o frame, calls/recursão, branches internos e cleanup de exceção | SEH real com handler externo e contagens/tempos por thread, incluindo falha no fragmento secundário antes e depois da instrumentação |
+| Frames, chamadas e unwind nativo | Cópia do corpo, prólogo/unwind v1 preservados, fragmentos que herdam o frame, inclusive com padding inalcançável, calls/recursão, branches internos e cleanup de exceção | SEH real com handler externo e contagens/tempos por thread, incluindo falha no fragmento secundário antes e depois da instrumentação |
 | Controle instrumentado ao vivo | Catálogo pesquisável/paginado, identidades do EXE/catálogo, até 256 procedimentos ou unidades exatas, argumentos e prazo; serviço possui captura e histórico | Lifecycle/concorrência, observador desconectado, GUI, executáveis e instalação conjunta de 256 métodos em 16 threads (4.096 linhas/chamadas) e baseline de memória/handles no mesmo alvo |
 | Pré-validação de seleção | Imagem/tabela PE preparadas uma vez por lote; mesmo planejador da instalação, relatório por ID no catálogo/CLI e rejeição antes de abrir o processo | Testes de instruções/handlers não suportados, imagem alterada, histórico preservado e seleção pela janela |
 | Clear nativo | Barreira entre todos os produtores, drenagem anterior ao marcador, reinício dos frames abertos, ACK após publicação | PR #22: duas limpezas com seis frames abertos em três threads; recursão/SEH posteriores e RPC real |
@@ -25,7 +26,7 @@ este documento organiza as entregas e os critérios que ainda faltam.
 | Identidade nativa de frames | ID/RSP de entrada em pilha limitada por thread; fechamento por frame físico durante unwind repetido | ABI nativa preserva argumentos e slot original; AV em RBP com bias e demais testes de recursão/Clear/collision |
 | Cleanup original | Encaminhamento UHANDLER-only com PCs e metadados de origem; protocolo exige DLL compatível | Alvo C/assembly cobre retorno, saída antecipada, limpeza excepcional e exceção na própria limpeza; não comprova o compilador Delphi |
 | Controle/status SSE | MXCSR salvo/restaurado ao redor dos helpers; LDMXCSR/STMXCSR com validação normal de memória | Helper nativo clobbera status; setter/getter em três threads preservam todos os modos de arredondamento e 44 chamadas por método/thread |
-| Tail calls selecionadas | Em métodos sem handler, salto direto ou via R11 para endereço comprovado, incluindo epílogos conferidos. Escolha entre dois alvos por CMOV em métodos sem frame. Retorno original preservado | Alvo Windows exige seis argumentos, recursão mútua, contagens por destino, fechamento normal/excepcional e conservação de QPC |
+| Tail calls selecionadas | Em métodos sem handler, salto direto ou via R11 para endereço comprovado, incluindo epílogos conferidos. Com unwind vazio, a escolha entre dois alvos também pode usar Jcc ou CMOV. Retorno original preservado | Alvo Windows exige seis argumentos, recursão mútua, contagens por destino, fechamento normal/excepcional e conservação de QPC |
 | Métodos até 8 KiB | Strides limitados de 32 KiB no APHOOK8; versões antigas recusam planos maiores | Programa Windows de quase 8 KiB com retornos/calls/unwind e instalação conjunta de 64 strides |
 | Métodos pequenos | E9 rel32 de cinco bytes quando próximo. Funções folha de 1 a 4 bytes usam um único breakpoint no lançamento próprio | Alvos Windows conferem seleção, função vizinha, breakpoint da aplicação e chamadas por thread |
 | Threads nativas de longa duração | Fim real por EXIT_THREAD, proteção contra TID reutilizado e pool de 64 rings reutilizáveis | 300 instâncias Windows com contagens/tempos/SEH preservados, sem crescimento do pool |
@@ -49,13 +50,15 @@ sem converter esse valor em chamadas ou duração por chamada.
    preservar a busca do handler, seu cleanup e a retomada de execução, incluindo
    exceções aninhadas/recursivas, sem falsificar métricas nem quebrar o programa.
 2. **Cobertura de código e metadados.** Ampliar somente com casos conferidos:
-   unwind encadeado com ações adicionais, handlers ou fragmentos não contíguos,
+   unwind encadeado com ações além de um `SAVE_NONVOL` local, handlers ou lacunas além de padding inalcançável,
    outras versões de unwind, epílogos e instruções ainda recusados. Saltos diretos
    e saltos por R11 para destinos estáticos já aceitam epílogos ADD/LEA e POPs
    conferidos. Sem frame, dois LEAs e CMOV permitem escolher entre entradas
-   selecionadas. Outros destinos dinâmicos e formatos TD32 adicionais continuam pendentes.
+   selecionadas. Uma tabela interna de ponteiros `DIR64` admite índices
+   conferidos. Outros formatos de tabelas, destinos dinâmicos e layouts TD32
+   adicionais continuam pendentes.
 3. **Compatibilidade Delphi demonstrada.** As fixtures de integração atuais são
-   C/GCC para o fluxo completo. Um ensaio separado compara quinze rotinas conferidas
+   C/GCC para o fluxo completo. Um ensaio separado compara vinte rotinas conferidas
    da DLL Delphi original com seus corpos relocados; não inclui TDS. Um ensaio separado exige captura/retomada/reraise com o handler real da mesma DLL, inicializando seu RTL num filho próprio; ele cobre um construtor e a worker real com catch tipado Exception, sem certificar uma versão inteira do compilador.
    Exigir evidência reproduzível
    para prólogos, métodos, exceções e bibliotecas efetivamente suportados. A fixture

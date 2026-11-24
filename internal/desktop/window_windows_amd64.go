@@ -101,6 +101,9 @@ type update struct {
 	Note                   string
 }
 type window struct {
+	diagnosticButton, diagnosticText, copyDiagnosticsButton                        uintptr
+	diagnosticVisible                                                              bool
+	diagnostics                                                                    diagnosticLog
 	excludeRuntime                                                                 uintptr
 	catalogExcludesRuntime                                                         bool
 	preferences                                                                    Preferences
@@ -126,7 +129,7 @@ type window struct {
 	inspect                                                                                                                   func(*window) error // smoke-test observation on the UI thread before destruction
 	inspection                                                                                                                error
 	initialPath                                                                                                               string
-	tableColumns                                                                                                              int
+	tableColumns, tableView                                                                                                   int
 	threads, cursor                                                                                                           uintptr
 	hwnd, processes, start, stop, demo, refresh, filter, thread, seconds, path, save, replay, compare, status, table, details uintptr
 	address                                                                                                                   string
@@ -331,8 +334,13 @@ func (a *window) open() error {
 	a.thread = child(a.hwnd, "EDIT", "0", 0x00810080, 7)
 	a.seconds = child(a.hwnd, "EDIT", "10", 0x00810080, 8)
 	a.status = child(a.hwnd, "STATIC", "Conectando ao collector...", 0, 9)
+	a.diagnosticButton = child(a.hwnd, "BUTTON", "Diagnóstico", 0x10000, 31)
+	a.copyDiagnosticsButton = child(a.hwnd, "BUTTON", "Copiar diagnóstico", 0x10000, 32)
+	a.diagnosticText = child(a.hwnd, "EDIT", "", 0x00a10844, 33) // read-only multiline with vertical scrolling
+	user.NewProc("ShowWindow").Call(a.copyDiagnosticsButton, 0)
+	user.NewProc("ShowWindow").Call(a.diagnosticText, 0)
 	a.table = child(a.hwnd, "SysListView32", "", 0x00811005, 10)
-	send.Call(a.table, 0x1036, 0, 0x10021)
+	send.Call(a.table, 0x1036, 0, 0x10031) // includes LVS_EX_HEADERDRAGDROP
 	a.syncColumns()
 	a.path = child(a.hwnd, "EDIT", "session.ndjson", 0x00810080, 11)
 	a.save = child(a.hwnd, "BUTTON", "Salvar histórico", 0x10000, 12)
@@ -376,7 +384,7 @@ func (a *window) open() error {
 			user.NewProc("EnableWindow").Call(h, 0)
 		}
 		text(a.stop, "Desconectar")
-		text(a.status, "Aguardando contagens no arquivo...")
+		a.setStatus("Aguardando contagens no arquivo...")
 	} else {
 		a.wg.Add(1)
 		go a.poll()
@@ -392,7 +400,9 @@ func (a *window) open() error {
 	}
 	defer func() { a.cancel(); a.wg.Wait() }()
 	if a.preferencesProblem != nil {
-		text(a.details, "Usando preferências padrão: "+a.preferencesProblem.Error())
+		message := "Usando preferências padrão: " + a.preferencesProblem.Error()
+		text(a.details, message)
+		a.logDiagnostic(message)
 	}
 	var m message
 	for {
@@ -441,7 +451,8 @@ func (a *window) persistPreferences() {
 	}
 	a.preferencesSaved = true
 	whole, _, _ := send.Call(a.wholeUnit, 0xf0, 0, 0)
-	p := Preferences{ExcludeRuntime: a.excludesRuntime(), WholeUnit: whole == 1, Version: 1, ImagePath: value(a.imagePath), ResultFilter: value(a.filter), SymbolFilter: value(a.symbolSearch), TimeUnit: Milliseconds}
+	a.storeColumnLayout()
+	p := Preferences{Columns: a.preferences.Columns, ExcludeRuntime: a.excludesRuntime(), WholeUnit: whole == 1, Version: 1, ImagePath: value(a.imagePath), ResultFilter: value(a.filter), SymbolFilter: value(a.symbolSearch), TimeUnit: Milliseconds}
 	index, _, _ := send.Call(a.metricUnits, 0x147, 0, 0)
 	units := []MetricTimeUnit{Nanoseconds, Microseconds, Milliseconds, Seconds, ClockTicks}
 	if index < uintptr(len(units)) {
@@ -478,8 +489,11 @@ func (a *window) layout() {
 	pos(a.metricUnits, w-140, 52, 125, 180)
 	pos(a.status, 12, 90, w-24, 42)
 	pos(a.table, 12, 140, w-24, h-350)
+	pos(a.diagnosticText, 12, 140, w-24, h-350)
 	pos(a.cursor, 12, h-205, w-24, 25)
-	pos(a.details, 12, h-174, w-24, 44)
+	pos(a.details, 12, h-174, w-300, 44)
+	pos(a.diagnosticButton, w-280, h-174, 105, 28)
+	pos(a.copyDiagnosticsButton, w-165, h-174, 150, 28)
 	pos(a.path, 12, h-52, w-480, 28)
 	pos(a.save, w-455, h-52, 140, 28)
 	pos(a.replay, w-305, h-52, 140, 28)
@@ -507,6 +521,7 @@ func (a *window) layout() {
 		user.NewProc("ShowWindow").Call(a.selectFiltered, show)
 		user.NewProc("ShowWindow").Call(a.clearSelection, show)
 		pos(a.table, 12, 280, w-24, h-490)
+		pos(a.diagnosticText, 12, 280, w-24, h-490)
 	}
 }
 func (a *window) send(u update) {
@@ -591,7 +606,7 @@ func (a *window) command(id int) {
 				a.followCancel()
 				a.followCancel = nil
 			}
-			text(a.status, "Acompanhamento parado. O coletor continua independente.")
+			a.setStatus("Acompanhamento parado. O coletor continua independente.")
 			user.NewProc("EnableWindow").Call(a.stop, 0)
 			user.NewProc("EnableWindow").Call(a.replay, 1)
 			return
@@ -614,18 +629,26 @@ func (a *window) command(id int) {
 		return
 	}
 	switch id {
+	case 31:
+		a.toggleDiagnostics()
+	case 32:
+		if a.diagnosticVisible {
+			send.Call(a.diagnosticText, 0xb1, 0, ^uintptr(0)) // EM_SETSEL
+			send.Call(a.diagnosticText, 0x301, 0, 0)          // WM_COPY
+			send.Call(a.diagnosticText, 0xb1, ^uintptr(0), 0)
+		}
 	case 26:
 		a.layout()
 	case 30:
 		a.catalog = nil
 		send.Call(a.procedureList, 0x184, 0, 0)
-		text(a.status, "Leia os símbolos com o filtro atual.")
+		a.setStatus("Leia os símbolos com o filtro atual.")
 	case 28, 29:
 		if !a.instrumentMode {
 			return
 		}
 		if whole, _, _ := send.Call(a.wholeUnit, 0xf0, 0, 0); whole == 1 {
-			text(a.status, "Unidades inteiras seleciona todos os procedimentos dessas unidades.")
+			a.setStatus("Unidades inteiras seleciona todos os procedimentos dessas unidades.")
 			return
 		}
 		if id == 29 {
@@ -634,11 +657,11 @@ func (a *window) command(id int) {
 		}
 		page := a.catalog
 		if page == nil || a.catalogExcludesRuntime != a.excludesRuntime() || a.catalogPath != value(a.imagePath) || a.catalogUnit != "" || a.catalogText != value(a.symbolSearch) {
-			text(a.status, "Leia os símbolos da busca atual.")
+			a.setStatus("Leia os símbolos da busca atual.")
 			return
 		}
 		if page.Total == 0 || page.Total != len(page.Procedures) || page.Total > service.MaxInstrumentedProcedures {
-			text(a.status, fmt.Sprintf("A busca contém %d procedimentos. Selecione de 1 a %d ou refine a busca.", page.Total, service.MaxInstrumentedProcedures))
+			a.setStatus(fmt.Sprintf("A busca contém %d procedimentos. Selecione de 1 a %d ou refine a busca.", page.Total, service.MaxInstrumentedProcedures))
 			return
 		}
 		send.Call(a.procedureList, 0x185, 1, ^uintptr(0))
@@ -648,7 +671,7 @@ func (a *window) command(id int) {
 		}
 		path, err := a.executablePicker(a.hwnd)
 		if err != nil {
-			text(a.status, err.Error())
+			a.setStatus(err.Error())
 			return
 		}
 		if path != "" && path != value(a.imagePath) {
@@ -663,7 +686,7 @@ func (a *window) command(id int) {
 	case 3:
 		selected, _, _ := send.Call(a.processes, 0x147, 0, 0)
 		if int(selected) < 0 || int(selected) >= len(a.targets) {
-			text(a.status, "Selecione um processo.")
+			a.setStatus("Selecione um processo.")
 			return
 		}
 		a.offline.Store(false)
@@ -812,7 +835,7 @@ func (a *window) tick() {
 			if u.record.Protocol != "" && (len(a.model.Metrics) == 0 || u.record.Sequence > a.model.Last) {
 				first := len(a.model.Metrics) == 0
 				if err := a.model.AppendMetrics(u.record); err != nil {
-					text(a.status, "Erro no acompanhamento: "+err.Error())
+					a.setStatus("Erro no acompanhamento: " + err.Error())
 				} else {
 					if first && u.firstSequence > 0 {
 						a.model.Omitted = u.record.Sequence - u.firstSequence
@@ -821,11 +844,13 @@ func (a *window) tick() {
 					if u.record.Metrics.Incomplete {
 						state += " | DADOS INCOMPLETOS"
 					}
-					text(a.status, fmt.Sprintf("%s | PID %d | %s | atualizações omitidas=%d", state, u.record.Target.PID, u.record.Target.Image, a.model.Omitted))
+					message := fmt.Sprintf("%s | PID %d | %s", state, u.record.Target.PID, u.record.Target.Image)
+					text(a.status, fmt.Sprintf("%s | atualizações omitidas=%d", message, a.model.Omitted))
+					a.logDiagnostic(message)
 				}
 			}
 			if u.err != nil {
-				text(a.status, "Erro no acompanhamento: "+u.err.Error())
+				a.setStatus("Erro no acompanhamento: " + u.err.Error())
 			}
 			if u.stopped {
 				if a.followCancel != nil {
@@ -846,7 +871,7 @@ func (a *window) tick() {
 				continue
 			}
 			if u.Error != nil {
-				text(a.status, "Erro / desconectado: "+u.Error.Error())
+				a.setStatus("Erro / desconectado: " + u.Error.Error())
 				continue
 			}
 			if u.MetricComparison != nil {
@@ -856,7 +881,7 @@ func (a *window) tick() {
 				a.model.SortColumn = 5
 				a.model.Ascending = false
 				a.lastBuild = ""
-				text(a.status, "COMPARAÇÃO INSTRUMENTADA — arquivo → snapshot atual; todas as threads")
+				a.setStatus("COMPARAÇÃO INSTRUMENTADA — arquivo → snapshot atual; todas as threads")
 			}
 			if u.Comparison != nil {
 				a.model.Comparison = u.Comparison
@@ -864,7 +889,7 @@ func (a *window) tick() {
 				a.model.SortColumn = 2
 				a.model.Ascending = false
 				a.lastBuild = ""
-				text(a.status, "COMPARAÇÃO — arquivo versus série atual")
+				a.setStatus("COMPARAÇÃO — arquivo versus série atual")
 			}
 			if u.Offline {
 				a.model = Model{}
@@ -875,17 +900,18 @@ func (a *window) tick() {
 					err = a.model.Replace(u.History)
 				}
 				if err != nil {
-					text(a.status, err.Error())
+					a.setStatus(err.Error())
 					continue
 				}
-				text(a.status, "REPLAY — use a barra para navegar pelos snapshots")
+				a.setStatus("REPLAY — use a barra para navegar pelos snapshots")
 				if r, ok := a.model.CurrentMetrics(); ok {
-					text(a.status, fmt.Sprintf("REPLAY | instrumentação | %s | PID %d | %s", r.Source, r.Target.PID, r.Target.Image))
+					a.setStatus(fmt.Sprintf("REPLAY | instrumentação | %s | PID %d | %s", r.Source, r.Target.PID, r.Target.Image))
 				}
 				a.lastBuild = ""
 			}
 			if u.Note != "" {
 				text(a.details, u.Note)
+				a.logDiagnostic(u.Note)
 			}
 			if u.Response.Processes != nil {
 				a.targets = u.Response.Processes
@@ -899,14 +925,14 @@ func (a *window) tick() {
 			if !a.offline.Load() && len(u.History) > 0 {
 				for _, s := range u.History {
 					if err := a.model.Append(s); err != nil {
-						text(a.status, err.Error())
+						a.setStatus(err.Error())
 						break
 					}
 				}
 			}
 			if s := u.Response.Snapshot; s != nil && !a.offline.Load() {
 				if err := a.model.Append(*s); err != nil {
-					text(a.status, err.Error())
+					a.setStatus(err.Error())
 				}
 			}
 			if page := u.Response.Catalog; page != nil && a.currentCatalogQuery(u) {
@@ -947,7 +973,7 @@ func (a *window) tick() {
 				for _, record := range u.Metrics {
 					if record.Sequence > a.model.Last {
 						if err := a.model.AppendMetrics(record); err != nil {
-							text(a.status, err.Error())
+							a.setStatus(err.Error())
 							break
 						}
 					}
@@ -960,7 +986,7 @@ func (a *window) tick() {
 				}
 				if metric.Sequence > a.model.Last {
 					if err := a.model.AppendMetrics(*metric); err != nil {
-						text(a.status, err.Error())
+						a.setStatus(err.Error())
 						continue
 					}
 				}
@@ -970,7 +996,7 @@ func (a *window) tick() {
 				if mode == "" {
 					mode = "sampling"
 				}
-				text(a.status, fmt.Sprintf("%s | PID %d | %s | %s | %s", strings.ToUpper(st.State), st.Target.PID, st.Target.Image, mode, st.Error))
+				a.setStatus(fmt.Sprintf("%s | PID %d | %s | %s | %s", strings.ToUpper(st.State), st.Target.PID, st.Target.Image, mode, st.Error))
 			}
 		default:
 			draining = false
@@ -1001,7 +1027,7 @@ func (a *window) tick() {
 			tid = 0
 		}
 		if err := a.model.Rebuild(seconds, report.Filter{Text: value(a.filter), Thread: uint32(tid)}); err != nil {
-			text(a.status, err.Error())
+			a.setStatus(err.Error())
 			return
 		}
 		a.syncColumns()
@@ -1113,12 +1139,15 @@ func (a *window) draw() {
 
 func (a *window) syncColumns() {
 	headers := a.model.Headers()
-	changedMode := a.tableColumns != len(headers)
-	widths := []int32{90, 80, 90, 180, 420, 160, 100, 180}
-	if a.model.MetricComparison != nil {
-		widths = []int32{120, 130, 120, 160, 170, 180, 160, 170, 180, 180, 180, 180, 180, 420, 180, 180, 160}
-	} else if len(a.model.Metrics) > 0 {
-		widths = []int32{100, 140, 170, 140, 170, 90, 160, 180, 420, 160, 180, 90, 130}
+	view := a.model.columnView()
+	changedMode := a.tableColumns == 0 || a.tableView != view
+	if changedMode {
+		a.storeColumnLayout()
+	}
+	widths := defaultColumnWidths[view]
+	layout := a.preferences.Columns[view]
+	if layout != (columnLayout{}) {
+		widths = layout.Widths[:len(headers)]
 	}
 	for a.tableColumns > len(headers) {
 		send.Call(a.table, 0x101c, uintptr(a.tableColumns-1), 0)
@@ -1136,6 +1165,10 @@ func (a *window) syncColumns() {
 		} else {
 			send.Call(a.table, 0x1060, uintptr(i), uintptr(unsafe.Pointer(&col)))
 		}
+	}
+	if changedMode {
+		a.applyColumnOrder(view)
+		a.tableView = view
 	}
 }
 
@@ -1199,7 +1232,7 @@ func (a *window) instrumentCommand(id int) {
 	if unitMode {
 		units = exactUnits(search)
 		if len(units) == 0 {
-			text(a.status, "Informe os nomes exatos das unidades Pascal, separados por vírgulas.")
+			a.setStatus("Informe os nomes exatos das unidades Pascal, separados por vírgulas.")
 			return
 		}
 	}
@@ -1213,51 +1246,51 @@ func (a *window) instrumentCommand(id int) {
 		return
 	}
 	if a.catalog == nil || a.catalogPath != path || a.catalogExcludesRuntime != a.excludesRuntime() {
-		text(a.status, "Leia os símbolos do EXE antes de iniciar.")
+		a.setStatus("Leia os símbolos do EXE antes de iniciar.")
 		return
 	}
 	var ids []uint32
 	if unitMode {
 		if !strings.EqualFold(strings.Join(units, ", "), a.catalogUnit) {
-			text(a.status, "Leia os símbolos das unidades atuais antes de iniciar.")
+			a.setStatus("Leia os símbolos das unidades atuais antes de iniciar.")
 			return
 		}
 		if a.catalog.Total < 1 || a.catalog.Total > service.MaxInstrumentedProcedures || len(a.catalog.Procedures) != a.catalog.Total {
-			text(a.status, fmt.Sprintf("As unidades contêm %d procedimentos. Escolha de 1 a %d.", a.catalog.Total, service.MaxInstrumentedProcedures))
+			a.setStatus(fmt.Sprintf("As unidades contêm %d procedimentos. Escolha de 1 a %d.", a.catalog.Total, service.MaxInstrumentedProcedures))
 			return
 		}
 		for _, check := range a.catalog.Checks {
 			if !check.PlanSupported {
-				text(a.status, "As unidades contêm um procedimento não suportado: "+check.Reason)
+				a.setStatus("As unidades contêm um procedimento não suportado: " + check.Reason)
 				return
 			}
 		}
 	} else {
 		if a.catalogUnit != "" {
-			text(a.status, "Leia os símbolos da busca atual antes de iniciar.")
+			a.setStatus("Leia os símbolos da busca atual antes de iniciar.")
 			return
 		}
 		count, _, _ := send.Call(a.procedureList, 0x190, 0, 0)
 		if count < 1 || count > service.MaxInstrumentedProcedures {
-			text(a.status, fmt.Sprintf("Selecione de 1 a %d procedimentos (Ctrl/Shift).", service.MaxInstrumentedProcedures))
+			a.setStatus(fmt.Sprintf("Selecione de 1 a %d procedimentos (Ctrl/Shift).", service.MaxInstrumentedProcedures))
 			return
 		}
 		var indexes [service.MaxInstrumentedProcedures]int32
 		n, _, _ := send.Call(a.procedureList, 0x191, count, uintptr(unsafe.Pointer(&indexes[0])))
 		if n != count {
-			text(a.status, "Falha ao ler seleção de procedimentos.")
+			a.setStatus("Falha ao ler seleção de procedimentos.")
 			return
 		}
 
 		for _, index := range indexes[:count] {
 			if index < 0 || int(index) >= len(a.catalog.Procedures) {
-				text(a.status, "Seleção inválida; leia os símbolos novamente.")
+				a.setStatus("Seleção inválida; leia os símbolos novamente.")
 				return
 			}
 			procedureID := a.catalog.Procedures[index].ID
 			for _, check := range a.catalog.Checks {
 				if check.ID == procedureID && !check.PlanSupported {
-					text(a.status, "Procedimento não suportado: "+check.Reason)
+					a.setStatus("Procedimento não suportado: " + check.Reason)
 					return
 				}
 			}
@@ -1267,12 +1300,12 @@ func (a *window) instrumentCommand(id int) {
 
 	seconds, err := strconv.ParseInt(value(a.launchTimeout), 10, 64)
 	if err != nil || seconds < 1 || seconds > 86400 {
-		text(a.status, "Prazo de captura deve ser de 1 a 86400 segundos.")
+		a.setStatus("Prazo de captura deve ser de 1 a 86400 segundos.")
 		return
 	}
 	args, err := windows.DecomposeCommandLine("target " + value(a.programArgs))
 	if err != nil {
-		text(a.status, err.Error())
+		a.setStatus(err.Error())
 		return
 	}
 	a.offline.Store(false)

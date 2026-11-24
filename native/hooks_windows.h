@@ -14,7 +14,7 @@ static struct {
     BOOL registered;
     void *breakpoint_handler;
     unsigned char originals[AP_HOOK_LIMIT][AP_HOOK_PREFIX];
-    uint32_t lengths[AP_HOOK_LIMIT];
+    uint32_t lengths[AP_HOOK_LIMIT], entry_index[AP_HOOK_LIMIT];
     DWORD protections[AP_HOOK_LIMIT];
 } hooks;
 static uint32_t hook_u32(const unsigned char *p) { uint32_t n=0; for(unsigned i=0;i<4;i++) n|=(uint32_t)p[i]<<(i*8); return n; }
@@ -51,7 +51,7 @@ static LONG CALLBACK hook_breakpoint(EXCEPTION_POINTERS *exception) {
     uintptr_t image=(uintptr_t)hooks.image;
     for(uint32_t i=0;i<hooks.count;i++) {
         if(hooks.lengths[i]==1 && address==image+hooks.selected[i].rva) {
-            exception->ContextRecord->Rip=(uintptr_t)hooks.memory+hooks.table[i*3].BeginAddress;
+            exception->ContextRecord->Rip=(uintptr_t)hooks.memory+hooks.table[hooks.entry_index[i]].BeginAddress;
             return EXCEPTION_CONTINUE_EXECUTION;
         }
     }
@@ -92,7 +92,7 @@ static BOOL hook_select(const APHookProcedure *procedures,uint32_t count,BOOL al
     hooks.image=image;
     return TRUE;
 }
-static BOOL hook_allocate(BOOL general) {
+static BOOL hook_allocate(BOOL general,BOOL chains) {
     SYSTEM_INFO system;
     GetSystemInfo(&system);
     uintptr_t image=(uintptr_t)GetModuleHandleW(NULL);
@@ -102,9 +102,9 @@ static BOOL hook_allocate(BOOL general) {
     uintptr_t high=image+0x70000000;
     if(high>(uintptr_t)system.lpMaximumApplicationAddress) high=(uintptr_t)system.lpMaximumApplicationAddress;
     /* Keep every code stride complete. A large selection must not consume the
-       last procedure's space with the three-entry-per-function runtime table. */
+       last procedure's space with the runtime table. */
     hooks.stride=general?AP_HOOK_LARGE_STRIDE:AP_HOOK_STRIDE;
-    hooks.bytes=(hooks.stride+3*sizeof(RUNTIME_FUNCTION))*hooks.count;
+    hooks.bytes=(hooks.stride+(chains?4:3)*sizeof(RUNTIME_FUNCTION))*hooks.count;
     for(unsigned attempt=0;cursor<high && attempt<4096;attempt++) {
         MEMORY_BASIC_INFORMATION m;
         if(!VirtualQuery((void *)cursor,&m,sizeof(m))) return FALSE;
@@ -220,8 +220,26 @@ static BOOL hook_forward_info_at(unsigned char *image,const unsigned char *data,
     for(uint32_t i=0;i<typed_count;i++)if(!typed_used[i])return FALSE;
     return TRUE;
 }
+static const unsigned char *hook_local_save(APHookProcedure procedure) {
+    DWORD64 base=0;
+    RUNTIME_FUNCTION *last=RtlLookupFunctionEntry((uintptr_t)hooks.image+procedure.rva+procedure.size-1,&base,NULL);
+    if(!last || base!=(uintptr_t)hooks.image || last->BeginAddress<=procedure.rva || last->EndAddress!=procedure.rva+procedure.size)return NULL;
+    const IMAGE_NT_HEADERS64 *nt=(const IMAGE_NT_HEADERS64 *)(hooks.image+((const IMAGE_DOS_HEADER *)hooks.image)->e_lfanew);
+    if(last->UnwindData%4 || (uint64_t)last->UnwindData+20>nt->OptionalHeader.SizeOfImage)return NULL;
+    const unsigned char *info=hooks.image+last->UnwindData;
+    MEMORY_BASIC_INFORMATION memory;
+    if(!VirtualQuery(info,&memory,sizeof(memory)) || memory.AllocationBase!=hooks.image || memory.State!=MEM_COMMIT ||
+       (memory.Protect&PAGE_GUARD) || (memory.Protect&0xff)==PAGE_NOACCESS ||
+       (uintptr_t)info+20>(uintptr_t)memory.BaseAddress+memory.RegionSize)return NULL;
+    return info[0]==33 && info[2]==2?info:NULL;
+}
+static BOOL hook_has_local_save(void) {
+    for(uint32_t i=0;i<hooks.count;i++)if(hook_local_save(hooks.selected[i]))return TRUE;
+    return FALSE;
+}
 static BOOL hook_exchange(HANDLE pipe,BOOL general) {
-    if(!hook_allocate(general)) return FALSE;
+    BOOL chains=general && hook_has_local_save();
+    if(!hook_allocate(general,chains)) return FALSE;
     unsigned char offer[56]={'A','P','H','O','O','K','1',0};
     hook_put64(offer+8,(uintptr_t)GetModuleHandleW(NULL));
     hook_put64(offer+16,(uintptr_t)hooks.memory);
@@ -234,6 +252,7 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
         if(!general)return FALSE;
         offer[6]='B';
     }
+    if(chains)offer[6]='C';
     if(!hook_io(pipe,offer,general?56:48,TRUE)) return FALSE;
     for(uint32_t i=0;i<hooks.count;i++) {
         unsigned char extent[4]; hook_put32(extent,hooks.selected[i].size);
@@ -243,24 +262,39 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
     if(!hook_io(pipe,header,sizeof(header),FALSE) || memcmp(header,"APPLAN1",8)) return FALSE;
     uint32_t per=general?3:2;
     uint32_t count=hook_u32(header+8),size=hook_u32(header+12),table=hook_u32(header+16),entries=hook_u32(header+20);
-    if(count!=hooks.count || size>hooks.bytes || size<16 || entries!=per*count || table%4 || (uint64_t)table+entries*12>size) return FALSE;
+    if(count!=hooks.count || size>hooks.bytes || size<16 || entries<per*count || entries>(per+(chains?1:0))*count || table%4 || (uint64_t)table+entries*12>size) return FALSE;
     if(!hook_io(pipe,hooks.memory,size,FALSE)) return FALSE;
     hooks.table=(RUNTIME_FUNCTION *)(hooks.memory+table);
-    uint32_t previous=0;
-    for(uint32_t i=0;i<entries;i++) {
-        RUNTIME_FUNCTION *f=&hooks.table[i];
-        if(f->BeginAddress<previous || f->EndAddress<=f->BeginAddress || f->EndAddress>table || f->UnwindData%4 || (uint64_t)f->UnwindData+8>table) return FALSE;
-        unsigned char *info=hooks.memory+f->UnwindData;
-        if(general && i%per==1) {
-            uint32_t extra=4+((info[2]+1)&~1)*2;
-            if((info[0]!=17 && info[0]!=25) || (uint64_t)f->UnwindData+extra+12>table) return FALSE;
-            uint32_t handler=hook_u32(info+extra);
-            if((uint64_t)handler+14>table || memcmp(hooks.memory+handler,"\xff\x25\0\0\0\0",6) || hook_u64(hooks.memory+handler+6)!=(uintptr_t)function_unwind || hook_u32(info+extra+4)!=hooks.selected[i/per].id) return FALSE;
-            uint32_t data_at=f->UnwindData+extra+4;
-            if(!hook_forward_info_at((unsigned char *)GetModuleHandleW(NULL),hooks.memory+data_at,table-data_at,f,i/per,info,extra) || (info[0]==25)!=(hook_u32(hooks.memory+data_at+4)==2))return FALSE;
-        } else if(info[0]!=1 || info[1]!=7 || info[2]!=2 || info[3]!=0 || info[4]!=7 || info[5]!=1 || info[6]!=25 || info[7]!=0) return FALSE;
-        previous=f->EndAddress;
+    uint32_t index=0,previous=0;
+    for(uint32_t owner=0;owner<count;owner++){
+        uint32_t stride_start=owner*hooks.stride,stride_end=stride_start+hooks.stride;
+        if(index+per>entries || hooks.table[index].BeginAddress!=stride_start)return FALSE;
+        BOOL local=chains && index+3<entries && hooks.table[index+3].BeginAddress<stride_end;
+        uint32_t rows=per+(local?1:0);
+        hooks.entry_index[owner]=index;
+        RUNTIME_FUNCTION *primary=general?&hooks.table[index+1]:NULL;
+        for(uint32_t role=0;role<rows;role++,index++){
+            RUNTIME_FUNCTION *f=&hooks.table[index];
+            if(f->BeginAddress<previous || f->EndAddress<=f->BeginAddress || f->EndAddress>table || f->EndAddress>stride_end ||
+               f->UnwindData%4 || f->UnwindData<stride_start || (uint64_t)f->UnwindData+8>table || (uint64_t)f->UnwindData+8>stride_end)return FALSE;
+            unsigned char *info=hooks.memory+f->UnwindData;
+            if(general && role==1){
+                uint32_t extra=4+((info[2]+1)&~1)*2;
+                if((info[0]!=17 && info[0]!=25) || (uint64_t)f->UnwindData+extra+12>table || (uint64_t)f->UnwindData+extra+12>stride_end)return FALSE;
+                uint32_t handler=hook_u32(info+extra);
+                if((uint64_t)handler+14>table || memcmp(hooks.memory+handler,"\xff\x25\0\0\0\0",6) || hook_u64(hooks.memory+handler+6)!=(uintptr_t)function_unwind || hook_u32(info+extra+4)!=hooks.selected[owner].id)return FALSE;
+                uint32_t data_at=f->UnwindData+extra+4;
+                if(!hook_forward_info_at(hooks.image,hooks.memory+data_at,table-data_at,f,owner,info,extra) || (info[0]==25)!=(hook_u32(hooks.memory+data_at+4)==2) || (local && hook_u32(hooks.memory+data_at+4)))return FALSE;
+            }else if(local && role==2){
+                const unsigned char *source=hook_local_save(hooks.selected[owner]);
+                if(!source || f->BeginAddress!=primary->EndAddress || (uint64_t)f->UnwindData+20>table || (uint64_t)f->UnwindData+20>stride_end ||
+                   info[0]!=33 || !info[1] || info[1]!=info[4] || info[2]!=2 || info[3] || (info[5]&15)!=4 || memcmp(info,source,8) ||
+                   hook_u32(info+8)!=primary->BeginAddress || hook_u32(info+12)!=primary->EndAddress || hook_u32(info+16)!=primary->UnwindData)return FALSE;
+            }else if(info[0]!=1 || info[1]!=7 || info[2]!=2 || info[3]!=0 || info[4]!=7 || info[5]!=1 || info[6]!=25 || info[7]!=0)return FALSE;
+            previous=f->EndAddress;
+        }
     }
+    if(index!=entries)return FALSE;
     unsigned char patches[AP_HOOK_LIMIT][AP_HOOK_PREFIX];
     unsigned char *image=(unsigned char *)GetModuleHandleW(NULL);
     for(uint32_t i=0;i<count;i++) {
@@ -270,11 +304,11 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
         if(length!=hooks.selected[i].size || prefix==0 || prefix>AP_HOOK_PREFIX || prefix>length) return FALSE;
         if(!hook_io(pipe,expected,length,FALSE) || !hook_io(pipe,patches[i],prefix,FALSE)) return FALSE;
         if(memcmp(expected,image+hooks.selected[i].rva,length)) return FALSE;
-        uintptr_t target=(uintptr_t)hooks.memory+hooks.table[i*per].BeginAddress;
+        uintptr_t target=(uintptr_t)hooks.memory+hooks.table[hooks.entry_index[i]].BeginAddress;
         uint32_t jump_size=14;
         if(length<5){
             if(prefix!=1 || patches[i][0]!=0xcc || expected[0]==0xcc)return FALSE;
-            const unsigned char *info=hooks.memory+hooks.table[i*per+1].UnwindData;
+            const unsigned char *info=hooks.memory+hooks.table[hooks.entry_index[i]+1].UnwindData;
             if(info[0]!=17 || info[1]!=0 || info[2]!=0 || info[3]!=0 || hook_u32(info+12)!=0)return FALSE;
             jump_size=1;
         }else if(patches[i][0]==0xe9 && prefix>=5){

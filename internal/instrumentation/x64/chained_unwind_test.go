@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -84,6 +85,98 @@ func TestInheritedUnwindChainRejectsUnverifiedFragments(t *testing.T) {
 	for _, extent := range [][2]uint32{{peLeafRVA, uint32(len(code)) - 1}, {peLeafRVA + 16, 8}} {
 		if _, err := BuildPEFunction(image, extent[0], extent[1], 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7); !errors.Is(err, ErrUnsupported) {
 			t.Fatal("partial or standalone inherited frame accepted", extent, err)
+		}
+	}
+}
+
+func TestChainedPaddingMustBeUnreachable(t *testing.T) {
+	image, original := chainedPE()
+	code := append(append(bytes.Clone(original[:16]), 0x90, 0x90, 0x90, 0x90), original[16:]...)
+	copy(code[14:16], []byte{0xeb, 4})
+	put := binary.LittleEndian.PutUint32
+	put(code[24:], 0x1080-(peLeafRVA+28))
+	put(image[0x40c:], peLeafRVA+20)
+	put(image[0x410:], peLeafRVA+28)
+	put(image[0x418:], peLeafRVA+28)
+	put(image[0x41c:], peLeafRVA+uint32(len(code)))
+	copy(image[0x4b4:], image[0x40c:0x418])
+	build := func(code []byte) (FunctionPlan, error) {
+		copy(image[0x220:], code)
+		return BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+	}
+	if p, err := build(code); err != nil || !bytes.Equal(p.Source, code) {
+		t.Fatal("valid padded chain rejected", err)
+	}
+	for _, bad := range []struct {
+		at     int
+		b      byte
+		reason string
+	}{
+		{14, 0x75, "falls through"},
+		{15, 3, "targets padding"},
+		{17, 0xcc, "not covered"},
+	} {
+		changed := bytes.Clone(code)
+		changed[bad.at] = bad.b
+		if _, err := build(changed); err == nil || !strings.Contains(err.Error(), bad.reason) {
+			t.Fatal("invalid chain gap", bad, err)
+		}
+	}
+}
+
+func localSavePE() ([]byte, []byte) {
+	const split = 8
+	code := []byte{
+		0x48, 0x83, 0xec, 0x28, 0x90, 0x90, 0xeb, 0, // SUB RSP,40; NOPs; JMP secondary
+		0x48, 0x89, 0x5c, 0x24, 24, // MOV [RSP+24],RBX
+		0x48, 0x89, 0xcb, 0x48, 0x8b, 0x03, // MOV RBX,RCX; MOV RAX,[RBX]
+		0x48, 0x8b, 0x5c, 0x24, 24, // MOV RBX,[RSP+24]
+		0x48, 0x83, 0xc4, 0x28, 0xc3, // ADD RSP,40; RET
+	}
+	image := scalarImage(code)
+	put := binary.LittleEndian.PutUint32
+	put(image[0x404:], peLeafRVA+split)
+	put(image[0x40c:], peLeafRVA+split)
+	put(image[0x410:], peLeafRVA+uint32(len(code)))
+	put(image[0x414:], 0x20a0)
+	copy(image[0x480:], []byte{1, 4, 1, 0, 4, 0x42, 0, 0})
+	copy(image[0x4a0:], []byte{33, 5, 2, 0, 5, 0x34, 3, 0})
+	copy(image[0x4a8:], image[0x400:0x40c])
+	return image, code
+}
+
+func TestChainedLocalSavePreservesSeparateUnwindRange(t *testing.T) {
+	image, code := localSavePE()
+	plan, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+	if err != nil || len(plan.Functions) != 4 {
+		t.Fatal("missing separate native runtime range", plan.Functions, err)
+	}
+	primary, secondary := plan.Functions[1], plan.Functions[2]
+	if primary.End != plan.BodyRVA+11 || secondary.Begin != primary.End || secondary.End >= plan.ExitRVA {
+		t.Fatal("short jump relocation changed the fragment boundary", plan.Functions)
+	}
+	info := plan.Image[secondary.Unwind:]
+	u32 := binary.LittleEndian.Uint32
+	if !bytes.Equal(info[:8], []byte{33, 5, 2, 0, 5, 0x34, 3, 0}) || u32(info[8:]) != primary.Begin || u32(info[12:]) != primary.End || u32(info[16:]) != primary.Unwind {
+		t.Fatal("local save lost its primary record", info)
+	}
+}
+
+func TestChainedLocalSaveRejectsSkippedOrMismatchedSave(t *testing.T) {
+	for _, change := range []struct {
+		at int
+		b  byte
+	}{
+		{0x227, 5},    // jumps over the save
+		{0x22c, 16},   // save uses a different slot
+		{0x237, 16},   // reload uses a different slot
+		{0x4a5, 0x54}, // unwind names RBP instead of RBX
+		{0x4a6, 5},    // offset is outside the fixed allocation
+	} {
+		image, code := localSavePE()
+		image[change.at] = change.b
+		if _, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7); !errors.Is(err, ErrUnsupported) {
+			t.Fatal("invalid local save accepted", change, err)
 		}
 	}
 }

@@ -381,3 +381,32 @@ Os RVAs 0x3f300 e 0x1729b0 calculam o próprio endereço de entrada com LEA.
 A realocação mantém o endereço original. O ensaio de 0x1729b0 verifica os
 dois limites de um intervalo de código, com cem comparações entre o corpo
 original e o realocado. A cobertura estática chega a 8.650 de 8.777 entradas.
+
+A consulta CPUID de RVA 0xb5e0 recebe o buffer, a folha e a subfolha. Ela
+guarda RBX em R10 e grava EAX, EBX, ECX e EDX no buffer de saída. O clone do
+padrão exato preserva os resultados e registra a pilha usada para salvar RBX.
+O corpus compara 100 pares dessa consulta no mesmo processador lógico.
+São 16 rotinas executadas, 1.600 pares e 8.651 planejamentos estáticos aceitos.
+
+O RVA 0xea80 salva o endereço de retorno, a pilha do chamador, GPRs não
+voláteis e XMM6–15. Esse caso amplia o corpus estático para 8.652 entradas.
+O teste Windows usa uma fixture de captura de contexto para conferir PC,
+RSP, RBX, XMM6 e o unwind quando a gravação falha.
+
+O RVA 0x60210 consulta a folha 1 de CPUID e forma uma máscara de recursos.
+O planejador mantém o PUSH/POP RBX original e acrescenta o unwind v1 no
+clone. O ensaio confere a máscara pelos bits de ECX da mesma CPU lógica.
+São 17 rotinas executadas, 1.700 pares e 8.653 planos estáticos aceitos.
+
+Os RVAs 0x9cd0 e 0x9d50 leem o controle x87 e MXCSR, respectivamente.
+O clone descreve o slot temporário de oito bytes no unwind. A suíte verifica
+os valores e cada fase da pilha. São 19 rotinas executadas, 1.900 pares
+e 8.655 planos estáticos aceitos.
+
+O RVA `0xaf70` usa uma tabela absoluta para contagens pequenas, ramos diretos
+até 32 bytes e um caminho SSE para contagens maiores. Um limite na seção de
+dados seleciona `REP STOSB`. O ensaio verifica os nove ponteiros `DIR64`,
+compara cem pares de preenchimentos com guardas em ambos os lados do buffer
+e usa `RtlVirtualUnwind` no `REP STOSB` para conferir a recuperação de `RDI`.
+O clone registra o save de `RDI` no unwind e restaura o registrador em todos
+os retornos. A análise estática passa a aceitar 8.656 entradas da DLL fixada.

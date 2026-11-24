@@ -1,6 +1,7 @@
 package x64
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 
@@ -14,7 +15,7 @@ type FunctionPlan struct {
 	TailTargets                    []uint32 // exact selected source RVAs; native adapter must close shared physical frames
 	Original, Source, Patch, Image []byte
 	BodyRVA, ExitRVA               uint32
-	Functions                      [3]RuntimeFunction
+	Functions                      []RuntimeFunction
 	OriginalHandlerRVA             uint32
 	RelocatedHandler               bool
 	HandlerScopeStyle              uint32
@@ -77,18 +78,40 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 	if err := validatePrologueActions(code, originalInfo); err != nil {
 		return FunctionPlan{}, err
 	}
-	for start, i := 0, 0; i < len(metadata.chainBoundaries); i++ {
-		end := metadata.chainBoundaries[i]
-		for start < end {
-			inst, err := x86asm.Decode(code[start:end], 64)
-			if err != nil || inst.Op == 0 || inst.Len == 0 || inst.Len > end-start {
-				return fail("unwind chain boundary splits an instruction")
-			}
-			start += inst.Len
+	if err := validateChainCode(code, metadata.chainBoundaries, metadata.chainGaps); err != nil {
+		return FunctionPlan{}, err
+	}
+	entry := entryJump(source, base)
+	body, prefix := code, 0
+	var table *indexedJumpTable
+	restoreRDI := false
+	if metadata.handlerRVA == 0 && len(metadata.chainBoundaries) == 0 && bytes.Equal(originalInfo, []byte{1, 0, 0, 0}) {
+		table = p.delphiFillTable(rva, code, len(entry))
+		switch {
+		case table != nil:
+			// The original saves RDI in R8 around REP STOSB. A fault can
+			// skip that reload. Save once in the clone's native unwind frame.
+			body = append([]byte{0x57}, table.plannerCode(code)...)
+			originalInfo = []byte{1, 1, 1, 0, 1, 0x70, 0, 0}
+			prefix, restoreRDI = 1, true
+		case bytes.Equal(code, delphiCPUIDLeaf):
+			// Delphi saves RBX in volatile R10. Its result stores can fault
+			// before RBX is restored. Add a real RBX save for the clone.
+			body = append([]byte{0x53}, code[:len(code)-4]...)
+			body = append(body, 0x5b, 0xc3)
+			originalInfo = []byte{1, 1, 1, 0, 1, 0x30, 0, 0}
+			prefix = 1
+		case bytes.Equal(code, delphiCPUFeatureMask):
+			// The original already saves RBX at entry and restores it on
+			// every path. Supply only the missing unwind description.
+			originalInfo = []byte{1, 1, 1, 0, 1, 0x30, 0, 0}
+		case bytes.Equal(code, delphiX87ControlLeaf), bytes.Equal(code, delphiMXCSRLeaf):
+			// The exact RTL leaf allocates eight bytes with PUSH 0. The
+			// matching POP RAX releases the slot after loading the result.
+			originalInfo = []byte{1, 2, 1, 0, 2, 2, 0, 0}
 		}
 	}
 	framed := originalInfo[2] != 0
-	entry := entryJump(source, base)
 	tiny := size < NearJumpSize
 	if tiny {
 		if !selected[source] || framed || originalInfo[1] != 0 || metadata.handlerRVA != 0 || len(metadata.chainBoundaries) != 0 {
@@ -96,19 +119,40 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 		}
 		entry = []byte{0xcc}
 	}
-	if metadata.handlerRVA != 0 {
+	if len(metadata.localSave) != 0 {
+		if err := validateLocalSave(code, originalInfo, metadata.chainBoundaries[0], metadata.localSave); err != nil {
+			return FunctionPlan{}, err
+		}
+	}
+	if metadata.handlerRVA != 0 || len(metadata.localSave) != 0 {
 		selected = nil
 	}
 	var restored map[int]int
 	if len(selected) > 0 && (framed || originalInfo[1] != 0) {
 		restored = verifiedTailEpilogues(code, originalInfo)
 	}
-	// validatePrologueActions already matched every push to its unwind action.
-	savedRBX := originalInfo[1] != 0 && code[0] == 0x53
-	flow, err := rewriteSelectedFunction(code, source, base, framed, int(originalInfo[1]), len(entry), true, savedRBX, selected, restored)
+	if !framed && originalInfo[1] == 0 && metadata.handlerRVA == 0 && len(metadata.chainBoundaries) == 0 {
+		table = p.indexedJumpTable(rva, code, len(entry))
+		if table != nil {
+			body = table.plannerCode(code)
+		}
+	}
+	if table != nil {
+		selected = nil
+	}
+	// The original prologue was checked above. The exact replacement emits
+	// a matching PUSH RBX and unwind action together.
+	savedRBX := originalInfo[1] != 0 && body[0] == 0x53
+	flow, err := rewriteSelectedFunction(body, source-uint64(prefix), base, framed, int(originalInfo[1]), len(entry)+prefix, true, savedRBX, restoreRDI, selected, restored)
 	if err != nil {
 		return FunctionPlan{}, err
 	}
+	if table != nil {
+		if err := table.relocate(code, body, rva, source, base, prefix, &flow); err != nil {
+			return FunctionPlan{}, err
+		}
+	}
+	flow.overwrite -= prefix
 	if len(metadata.chainBoundaries) != 0 && flow.overwrite > metadata.chainBoundaries[0] {
 		return fail("entry patch crosses an unwind chain boundary")
 	}
@@ -154,6 +198,11 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 		dataSize = scopeDescriptorSize + len(flow.pcMap)*4 + len(scopes) + 12 + len(originalInfo) + 4 + 16 + len(typeBlocks)
 	}
 	total := int(infoRVA) + len(originalInfo) + 4 + dataSize
+	var localInfoRVA uint32
+	if len(metadata.localSave) != 0 {
+		localInfoRVA = uint32(total)
+		total += len(metadata.localSave) + 12
+	}
 	if total > MaxFunctionImageBytes {
 		return fail("function image too large")
 	}
@@ -233,7 +282,90 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 	for _, target := range flow.tailTargets {
 		tails = append(tails, uint32(target-loadedBase))
 	}
-	return FunctionPlan{TailTargets: tails, Original: append([]byte(nil), code[:flow.overwrite]...), Source: append([]byte(nil), code...), Patch: patch, Image: data, BodyRVA: 512, ExitRVA: flow.exitRVA, OriginalHandlerRVA: metadata.handlerRVA, RelocatedHandler: len(scopes) != 0, HandlerScopeStyle: metadata.scopeStyle, Functions: [3]RuntimeFunction{{0, in.CodeSize, in.UnwindRVA}, {512, 512 + uint32(len(flow.code)), infoRVA}, {flow.exitRVA, flow.exitRVA + out.CodeSize, flow.exitRVA + out.UnwindRVA}}}, nil
+	functions := []RuntimeFunction{{0, in.CodeSize, in.UnwindRVA}, {512, 512 + uint32(len(flow.code)), infoRVA}}
+	if localInfoRVA != 0 {
+		translate, err := scopePCMap(code, flow, rva, 512)
+		if err != nil {
+			return FunctionPlan{}, err
+		}
+		localStart, ok := translate(rva + uint32(metadata.chainBoundaries[0]))
+		if !ok {
+			return fail("local unwind chain boundary is not an instruction start")
+		}
+		secondary := RuntimeFunction{localStart, functions[1].End, localInfoRVA}
+		functions[1].End = localStart
+		info := data[localInfoRVA:]
+		copy(info, metadata.localSave)
+		for i, word := range []uint32{functions[1].Begin, functions[1].End, functions[1].Unwind} {
+			binary.LittleEndian.PutUint32(info[len(metadata.localSave)+i*4:], word)
+		}
+		functions = append(functions, secondary)
+	}
+	functions = append(functions, RuntimeFunction{flow.exitRVA, flow.exitRVA + out.CodeSize, flow.exitRVA + out.UnwindRVA})
+	return FunctionPlan{TailTargets: tails, Original: append([]byte(nil), code[:flow.overwrite]...), Source: append([]byte(nil), code...), Patch: patch, Image: data, BodyRVA: 512, ExitRVA: flow.exitRVA, OriginalHandlerRVA: metadata.handlerRVA, RelocatedHandler: len(scopes) != 0, HandlerScopeStyle: metadata.scopeStyle, Functions: functions}, nil
+}
+
+// The pinned Delphi RTL copies four CPUID results into RCX and restores RBX
+// from R10. This byte pattern has no stack operands or position-dependent code.
+var delphiCPUIDLeaf = []byte{
+	0x49, 0x89, 0xda, 0x49, 0x89, 0xc9, 0x89, 0xd0, 0x44, 0x89, 0xc1, 0x0f, 0xa2,
+	0x41, 0x89, 0x01, 0x41, 0x89, 0x59, 0x04, 0x41, 0x89, 0x49, 0x08, 0x41, 0x89, 0x51, 0x0c,
+	0x4c, 0x89, 0xd3, 0xc3,
+}
+
+// Delphi RVA 0x60210 reads CPUID leaf 1 then maps seven ECX bits.
+// Each short JE skips one OR and must preserve the final POP RBX.
+var delphiCPUFeatureMask = []byte{
+	0x53, 0xb8, 1, 0, 0, 0, 0x0f, 0xa2, 0xb8, 3, 0, 0, 0,
+	0xf7, 0xc1, 1, 0, 0, 0, 0x74, 3, 0x83, 0xc8, 4,
+	0xf7, 0xc1, 0, 2, 0, 0, 0x74, 3, 0x83, 0xc8, 8,
+	0xf7, 0xc1, 0, 0, 8, 0, 0x74, 3, 0x83, 0xc8, 0x10,
+	0xf7, 0xc1, 0, 0, 0x10, 0, 0x74, 3, 0x83, 0xc8, 0x20,
+	0xf7, 0xc1, 0, 0, 0x80, 0, 0x74, 3, 0x83, 0xc8, 0x40,
+	0xf7, 0xc1, 0, 0, 0, 2, 0x74, 5, 0x0d, 0x80, 0, 0, 0,
+	0xf7, 0xc1, 2, 0, 0, 0, 0x74, 5, 0x0d, 0, 1, 0, 0,
+	0x5b, 0xc3,
+}
+
+var delphiX87ControlLeaf = []byte{0x6a, 0, 0xd9, 0x3c, 0x24, 0x58, 0xc3}
+var delphiMXCSRLeaf = []byte{0x6a, 0, 0x0f, 0xae, 0x1c, 0x24, 0x58, 0xc3}
+
+func validateChainCode(code []byte, boundaries []int, gaps []chainGap) error {
+	var padding, starts []bool
+	if len(gaps) != 0 {
+		padding, starts = make([]bool, len(code)), make([]bool, len(code))
+		for _, gap := range gaps {
+			starts[gap.begin] = true
+			for at := gap.begin; at < gap.end; at++ {
+				padding[at] = true
+			}
+		}
+		// Branches in the final fragment can also target the padding.
+		boundaries = append(boundaries, len(code))
+	}
+	start := 0
+	for _, end := range boundaries {
+		for start < end {
+			inst, err := x86asm.Decode(code[start:end], 64)
+			if err != nil || inst.Op == 0 || inst.Len == 0 || inst.Len > end-start {
+				return fmt.Errorf("%w: unwind chain boundary splits an instruction", ErrUnsupported)
+			}
+			next := start + inst.Len
+			if padding != nil {
+				if next < len(code) && starts[next] && inst.Op != x86asm.RET && inst.Op != x86asm.JMP {
+					return fmt.Errorf("%w: unwind chain falls through into padding", ErrUnsupported)
+				}
+				if rel, ok := inst.Args[0].(x86asm.Rel); ok {
+					target := int64(next) + int64(rel)
+					if target >= 0 && target < int64(len(code)) && padding[target] {
+						return fmt.Errorf("%w: unwind chain targets padding", ErrUnsupported)
+					}
+				}
+			}
+			start = next
+		}
+	}
+	return nil
 }
 
 func validateUnwindCodes(info []byte) error {

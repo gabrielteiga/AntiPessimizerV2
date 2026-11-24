@@ -30,8 +30,8 @@ já foram resolvidos. README/plano descrevem o estado atual.
 
 ## Estado confirmado no remoto
 
-A `main` integrou o PR #66 em `8ffa5a4cc09c8d2d1301d1435097a29f929d4a46`.
-[CI pós-merge](https://github.com/gabrielteiga/AntiPessimizerV2/actions/runs/45399724098).
+A `main` integrou o PR #83 em `dd25471fa1ad508dd42244ef8d47448b5f250998`.
+[CI pós-merge](https://github.com/gabrielteiga/AntiPessimizerV2/actions/runs/45481582417).
 
 Entregas integradas após a CI do commit exato.
 
@@ -56,6 +56,23 @@ Entregas integradas após a CI do commit exato.
 - #66 resolve o segmento TD32 1 em BaseOfCode quando outra seção executável
   está presente. A fixture Windows chama código das duas seções.
 
+- #68 preserva `CPUID` em frames com save de RBX no unwind. #69 amplia
+  os saltos via R11 para epílogos com restauração conferida.
+- #70 instrumenta folhas de até quatro bytes por breakpoint no alvo próprio.
+  #71 preserva a leitura do limite da pilha da thread. #72 cobre a sondagem
+  de páginas da pilha emitida pelo Delphi.
+- #73 mantém a identidade da entrada original em `LEA` relativo a RIP.
+  #74 acrescenta o filtro de RTL/JCL à seleção. #75 cobre lacunas de NOP
+  inalcançáveis entre fragmentos encadeados de unwind.
+- #76 preserva RBX no clone da consulta `CPUID` da DLL Delphi mesmo em
+  falha de escrita. #77 cobre capturas de contexto do chamador. #78
+  verifica a máscara de CPU e #79 verifica os controles x87/MXCSR.
+- #80 preserva saltos condicionais entre entradas exatas da seleção em folhas
+  sem frame. #81 adiciona o histórico de diagnóstico com cópia no viewer.
+
+- #82 cobre um `SAVE_NONVOL` local num fragmento final. #83 grava largura e
+  ordem das colunas nas quatro tabelas de resultados e comparações.
+
 Já existiam TD32/TDS, lançamento próprio sem SDK, coletor/viewer separados,
 ETW, métricas, Clear sincronizado, perdas explícitas, replay/comparação,
 preferências e empacotamento Windows. Não recomece essas partes.
@@ -69,7 +86,7 @@ preferências e empacotamento Windows. Não recomece essas partes.
 
 ## Lacunas materiais que continuam abertas
 
-- Unwind encadeado com ações locais, handlers ou fragmentos descontínuos.
+- Unwind encadeado com outras ações locais, handlers ou fragmentos descontínuos.
   Outros formatos, epílogos, instruções e alvos de tail calls além do
   subconjunto conferido.
 - Outras variantes de handlers Delphi e testes de exceções aninhadas/recursivas.
@@ -79,9 +96,9 @@ preferências e empacotamento Windows. Não recomece essas partes.
   continuam explícitos. Attach arbitrário e instrumentação de DLLs/BPLs não são
   funcionalidades do launcher atual.
 
-A verificação estática da DLL original fixada aceita 8.650 de 8.777 entradas
+A verificação estática da DLL original fixada aceita 8.656 de 8.777 entradas
 runtime sem seleção, incluindo 523 métodos com scopes Delphi. Os ensaios de
-execução verificam 15 rotinas e 1.500 comparações, além do construtor e da
+execução verificam 20 rotinas e 2.000 comparações, além do construtor e da
 worker com RTL real. A cobertura de execução depende dessas fixtures.
 
 ## Ambiente e comandos

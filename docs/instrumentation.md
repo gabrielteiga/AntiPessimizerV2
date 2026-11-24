@@ -543,14 +543,20 @@ A leitura estática do DLL distribuído pelo original identificou rotinas sem
 frame que usam multiplicação/divisão, shifts, condições e conversões SSE sem
 necessidade de unwind adicional. O planejador agora aceita esse subconjunto
 posicionalmente independente, mantendo validação dos operandos e rejeitando
-operações com estado implícito não suportado (CPUID/RBX, strings/RSI/RDI sem
-frame, x87 e AVX). Chamadas continuam exigindo metadados de frame.
+operações com estado implícito fora do subconjunto conferido. Há casos
+separados para CPUID e operações de strings. Chamadas continuam exigindo metadados de frame.
 
 No caminho BuildPEFunction, stores sem frame podem usar apenas os 32 bytes de
 home slots Win64, entre RSP+8 e RSP+39. A largura inteira precisa caber nesse
-intervalo; o slot de retorno, stores que cruzam o limite e índice de stack são
-rejeitados. CMP/TEST/BT reconhecem leitura de argumentos, sem confundi-la com
-escrita. BuildPELeaf legado mantém a política anterior de não escrever stack.
+intervalo. A validação rejeita escrita direta no slot de retorno, stores que
+cruzam o limite e endereçamento indexado nessa faixa. CMP/TEST/BT reconhecem
+leituras de argumentos. BuildPELeaf legado conserva sua política de stack.
+
+Uma função folha nativa pode ler o endereço de retorno com MOV de 64 bits e
+copiar GPRs não voláteis com MOV ou XMM6–15 com MOVAPD para memória. A sonda
+restaura a pilha original antes de executar o corpo. O teste Windows compara
+PC, RSP, RBX e XMM6 com o estado do chamador e força uma falha de gravação
+para verificar o unwind sem um frame próprio.
 
 O alvo C/assembly próprio confere seis argumentos, stores/loads de home slots,
 IMUL, rotações, shifts, SETG, conversão float→double→inteiro→double e retorno
@@ -686,8 +692,8 @@ de saturação exige contador positivo junto de ErrLoss e incomplete=true.
 
 ## Corpus de execução da DLL Delphi original
 
-O CI Windows inclui um ensaio separado de quinze rotinas com bytes conferidos na
-DLL v0.3 do Hoshoyo, comparando 1.500 pares original/corpo relocado com resultados
+O CI Windows inclui um ensaio separado de dezenove rotinas com bytes conferidos na
+DLL v0.3 do Hoshoyo, comparando 1.900 pares original/corpo relocado com resultados
 esperados e um helper nativo que altera GPR voláteis. Inclui push/pop com CMPXCHG16B
 sobre buffers privados e cem leituras RDTSC relocalizadas, cada uma entre leituras
 do corpo original na mesma CPU lógica. A leitura de StackBase via GS é comparada
@@ -700,8 +706,12 @@ Isso não certifica Delphi 10.4, handlers privados ou o fluxo completo num EXE D
 O planejador nativo aceita `CPUID` sem prefixo depois de um prólogo que começa
 com `PUSH RBX` e registra esse salvamento no unwind. O ensaio Windows confere
 os quatro resultados e a recuperação de RBX após uma falha de memória.
-A rotina CPUID da DLL original fica fora desse subconjunto porque seu unwind
-não descreve o salvamento de RBX.
+A forma exata do RTL no RVA 0xb5e0 guarda RBX em R10 e grava os resultados
+em memória antes de restaurá-lo. O clone usa PUSH/POP RBX e unwind v1.
+O ensaio força uma falha de gravação no clone e confere RBX no handler chamador.
+O RVA 0x60210 já tem PUSH/POP RBX. O planejador acrescenta a descrição de
+unwind para o padrão exato, que forma uma máscara de sete bits de CPUID. O
+ensaio compara as versões original e realocada com a folha 1 do mesmo CPU.
 
 ## Planejamento de várias funções na mesma imagem
 
@@ -824,9 +834,11 @@ memória, handles, QPC e bytes emitidos contra baseline do mesmo EXE.
 
 BuildSelectedFunction permite JMP direto, curto ou rel32, para o início exato
 de outro procedimento da seleção completa. O chamador pode ter unwind vazio
-ou restaurar o frame com um dos epílogos conferidos adiante. Transferências
-condicionais externas, com handler ou para destinos no interior de outro
-método ou fora da seleção continuam recusadas.
+ou restaurar o frame com um dos epílogos conferidos adiante. Com unwind vazio,
+um salto condicional também pode ir à entrada exata de outro método selecionado.
+O clone preserva a condição e exige que o caminho sem salto permaneça no corpo.
+Transferências com handler ou para destinos no interior de outro método ou
+fora da seleção continuam recusadas.
 BuildFunction sem seleção e o caminho legado conservam a rejeição anterior.
 A pré-validação usa somente os RVAs da seleção consultada; um método isolado
 pode aparecer recusado até que seu destino seja incluído na mesma seleção.
@@ -882,8 +894,38 @@ unwind com o cleanup do profiler. O teste Windows executa um alvo C/assembly
 com .pdata encadeada como baseline e depois instrumentado. Em três threads,
 o alvo confere o valor de retorno e captura uma falha real no secundário.
 A captura exige duas chamadas e um unwind por thread, zero perdas e zero
-frames abertos. Chains com ações locais, handlers, versões alternativas
-ou extensões descontínuas continuam fora do subconjunto conferido.
+frames abertos. Há também suporte a um fragmento final contíguo com um `SAVE_NONVOL` local.
+O primário aloca o frame inteiro com `SUB RSP`. O secundário salva e recupera
+um registrador num slot da alocação. A entrada no secundário sempre executa o
+save. O contrato privado `APHOOKC` mantém dois registros de unwind para o corpo
+instrumentado e confere o encadeamento com o primário relocado. O teste nativo
+confere o retorno e a recuperação do registrador após uma falha real.
+Outras ações locais, handlers, versões alternativas e lacunas com código
+continuam fora do subconjunto conferido.
+Lacunas entre fragmentos podem conter bytes NOP se o fluxo anterior termina
+antes delas e nenhum salto tem destino dentro da lacuna. O ensaio Windows
+confere retorno e uma falha no fragmento após oito bytes de padding.
+
+## Tabelas de salto internas verificadas
+
+Um método sem frame nem handler pode usar uma tabela de 2 a 32 endereços
+internos. O formato aceito compara todo `RCX` com o índice máximo, desvia com
+`JA` quando excede o limite e carrega a tabela em `R11`. Cada entrada precisa
+ter uma realocação `DIR64` e apontar para uma instrução após a tabela. Os casos
+não podem entrar no despacho nem usar o endereço temporário em `R11`.
+
+O clone mantém a condição, as flags e os destinos, com ponteiros para os
+casos relocados. A verificação do alvo confere todos os bytes originais e usa
+os endereços que o loader espera associar à base carregada para os slots
+`DIR64`. A fixture nativa confere os dois casos, o caminho padrão para índices
+de 64 bits acima do limite e uma exceção real num caso escolhido pela tabela.
+
+Também é aceita a rotina de preenchimento em `0xaf70` da DLL Delphi de
+referência. Ela usa nove ponteiros absolutos e um índice calculado em `RDX`.
+O planejador confere o corpo inteiro, as nove relocações e o endereço do
+limite de seleção entre SSE e `REP STOSB`. O clone registra `RDI` no unwind
+para restaurá-lo após uma falha durante a escrita. A execução compara o
+buffer preenchido e os bytes de guarda nos caminhos escalares, SSE e REP.
 
 ## Tail calls indiretas com destinos comprovados
 
@@ -916,3 +958,11 @@ página antes do SUB RSP registrado no unwind. Ele confere o passo de 4 KiB,
 o limite do loop e o valor da alocação. O prólogo e seus offsets permanecem
 idênticos. O ensaio Windows força o crescimento da pilha de três threads e
 confere o retorno normal e o unwind após uma falha de memória.
+
+## Consultas x87 e MXCSR com slot temporário
+
+As duas rotinas do RTL que usam PUSH 0, FNSTCW ou STMXCSR, POP RAX e RET
+recebem uma descrição unwind v1 para a alocação de oito bytes. O ensaio
+Windows compara os valores com leituras independentes dos registradores.
+Também verifica o PC e RSP do chamador com RtlVirtualUnwind antes do PUSH,
+dentro do corpo, no POP e na saída do clone.

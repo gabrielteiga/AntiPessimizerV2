@@ -25,8 +25,9 @@ type referenceCase struct {
 }
 
 // Only reviewed, exact bytes from the original v0.3 DLL are executable here.
-// These routines use caller-owned memory or the current Windows thread state.
-// They require no imports, globals, initialized RTL or private ABI.
+// These routines use controlled memory and thread state. The fill case reads
+// one verified DLL data slot. None requires imports, RTL initialization, or
+// a private calling convention.
 // There is no claim about names (the release has no TDS) or compiler version.
 var referenceCases = []referenceCase{
 	{0x19210, "488d042560020000c3", "constant"},
@@ -44,9 +45,14 @@ var referenceCases = []referenceCase{
 	{0x182090, "0f3148c1e2204809d0c3", "timestamp"},
 	{0x177c60, "6548a10800000000000000c3", "thread-stack-base"},
 	{0x1729b0, "488d0559ffffff488d15f2ffffff483bc27d18488d0546ffffff483bc17f0c488d05daffffff483bc17f0433c0eb02b001c3", "code-range"},
+	{0xb5e0, "4989da4989c989d04489c10fa241890141895904418949084189510c4c89d3c3", "cpu-identification"},
+	{0x60210, "53b8010000000fa2b803000000f7c101000000740383c804f7c100020000740383c808f7c100000800740383c810f7c100001000740383c820f7c100008000740383c840f7c10000000274050d80000000f7c10200000074050d000100005bc3", "cpu-feature-mask"},
+	{0x9cd0, "6a00d93c2458c3", "x87-control"},
+	{0x9d50, "6a000fae1c2458c3", "mxcsr-control"},
+	{0xaf70, "410fb6c0483b15cdd019000f8dea0000004885d20f8e8f00000049b80101010101010101490fafc04883fa200f8f8f0000004883ea080f8f540000004c8d150500000041ff64d24019b040000000000021b040000000000027b04000000000001db04000000000002eb04000000000002bb040000000000024b04000000000001ab040000000000016b040000000000080fa087e0d80fa107e04488941104889410848890411488901c3894103668941018801c3894102668901c38841048901c3660f6ec0660f70c0000f11010f114411f0488d5411ff4883e2f04883c1104883e1f04829d14890488d0405000000000f2904114883c1107cf6c3fc4989f84889cf4889d1f3aa4c89c7c3", "indexed-fill"},
 }
 
-func pinTimestampThread(t *testing.T) {
+func pinReferenceThread(t *testing.T) {
 	t.Helper()
 	runtime.LockOSThread()
 	t.Cleanup(runtime.UnlockOSThread)
@@ -54,13 +60,13 @@ func pinTimestampThread(t *testing.T) {
 	var processMask, systemMask uintptr
 	ok, _, err := kernel.NewProc("GetProcessAffinityMask").Call(uintptr(windows.CurrentProcess()), uintptr(unsafe.Pointer(&processMask)), uintptr(unsafe.Pointer(&systemMask)))
 	if ok == 0 || processMask == 0 {
-		t.Fatal("get process affinity for timestamp comparison", err)
+		t.Fatal("get process affinity for reference comparison", err)
 	}
 	setAffinity := kernel.NewProc("SetThreadAffinityMask")
 	thread := uintptr(windows.CurrentThread())
 	previous, _, err := setAffinity.Call(thread, processMask&-processMask)
 	if previous == 0 {
-		t.Fatal("pin timestamp comparison to one logical processor", err)
+		t.Fatal("pin reference comparison to one logical processor", err)
 	}
 	t.Cleanup(func() {
 		if ok, _, err := setAffinity.Call(thread, previous); ok == 0 {
@@ -147,8 +153,19 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 	for _, c := range referenceCases {
 		t.Run(fmt.Sprintf("RVA-%x-%s", c.RVA, c.Kind), func(t *testing.T) {
 			code, err := hex.DecodeString(c.Hex)
-			if err != nil || !bytes.Equal(read(uintptr(dll)+uintptr(c.RVA), len(code)), code) {
-				t.Fatal("loaded code differs from reviewed bytes", err)
+			if err != nil {
+				t.Fatal("invalid reviewed bytes", err)
+			}
+			expectedSource := code
+			if c.Kind == "indexed-fill" {
+				expectedSource = bytes.Clone(code)
+				for at := 72; at < 144; at += 8 {
+					pointer := binary.LittleEndian.Uint64(code[at:])
+					binary.LittleEndian.PutUint64(expectedSource[at:], uint64(dll)+(pointer-h.ImageBase))
+				}
+			}
+			if !bytes.Equal(read(uintptr(dll)+uintptr(c.RVA), len(code)), expectedSource) {
+				t.Fatal("loaded code differs from reviewed bytes or expected relocations")
 			}
 			memory := referenceAllocation(t, uint64(dll), h.SizeOfImage)
 			nt := windows.NewLazySystemDLL("ntdll.dll")
@@ -168,7 +185,7 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !bytes.Equal(plan.Source, code) || len(plan.Image) >= 8192 {
+			if !bytes.Equal(plan.Source, expectedSource) || len(plan.Image) >= 8192 {
 				t.Fatal("source extent or clone layout differs")
 			}
 			write(memory, plan.Image)
@@ -186,6 +203,15 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 			helper = append(helper, 0xb8, 1, 0, 0, 0, 0xc3)
 			write(memory+8192, helper)
 			write(memory+8300, []byte{1, 0, 0, 0})
+			var controlBytes int
+			switch c.Kind {
+			case "x87-control":
+				controlBytes = 2
+				write(memory+8320, []byte{0xd9, 0x39, 0xc3}) // FNSTCW [RCX]; RET
+			case "mxcsr-control":
+				controlBytes = 4
+				write(memory+8320, []byte{0x0f, 0xae, 0x19, 0xc3}) // STMXCSR [RCX]; RET
+			}
 			functions := append(plan.Functions[:], RuntimeFunction{8192, 8192 + uint32(len(helper)), 8300})
 			var table bytes.Buffer
 			for _, function := range functions {
@@ -205,9 +231,48 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 				t.Fatal("register original corpus table", err)
 			}
 			registered = true
+			if controlBytes != 0 {
+				runtime.LockOSThread()
+				defer runtime.UnlockOSThread()
+				// Check every stack phase without touching the test's own stack.
+				unwind := nt.NewProc("RtlVirtualUnwind")
+				const contextSize = 1232
+				entrySP, returnPC := rw+3584, memory+8192
+				var word [8]byte
+				binary.LittleEndian.PutUint64(word[:], uint64(returnPC))
+				write(entrySP, word[:])
+				for _, offset := range [...]int{0, 2, len(code) - 2, len(code) - 1} {
+					sp := entrySP
+					if offset > 0 && offset < len(code)-1 {
+						sp -= 8
+					}
+					pc := memory + uintptr(plan.BodyRVA) + uintptr(offset)
+					context := make([]byte, contextSize)
+					binary.LittleEndian.PutUint32(context[48:], 0x0010000b)
+					binary.LittleEndian.PutUint64(context[152:], uint64(sp))
+					binary.LittleEndian.PutUint64(context[248:], uint64(pc))
+					write(rw+1024, context)
+					unwind.Call(0, memory, pc, memory+12288+12, rw+1024, rw+2560, rw+2568, 0)
+					got := read(rw+1024, contextSize)
+					if binary.LittleEndian.Uint64(got[152:]) != uint64(entrySP+8) ||
+						binary.LittleEndian.Uint64(got[248:]) != uint64(returnPC) {
+						t.Fatalf("%s unwind at offset %d lost caller SP or PC", c.Kind, offset)
+					}
+				}
+			}
+			var threshold uintptr
+			if c.Kind == "indexed-fill" {
+				threshold = uintptr(dll) + 0x1a8048
+				originalThreshold := read(threshold, 8)
+				if binary.LittleEndian.Uint64(originalThreshold) != 1<<63-1 {
+					t.Fatal("uninitialized Delphi fill threshold differs")
+				}
+				defer write(threshold, originalThreshold)
+				verifyIndexedFillRDI(t, memory, rw, plan, write, read)
+			}
 			var stackBase uintptr
-			if c.Kind == "timestamp" {
-				pinTimestampThread(t)
+			if c.Kind == "timestamp" || c.Kind == "cpu-identification" || c.Kind == "cpu-feature-mask" {
+				pinReferenceThread(t)
 			} else if c.Kind == "thread-stack-base" {
 				runtime.LockOSThread()
 				defer runtime.UnlockOSThread()
@@ -219,6 +284,30 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 				}
 			}
 			for trial := uint64(0); trial < 100; trial++ {
+				if c.Kind == "indexed-fill" {
+					var limit [8]byte
+					maximum := uint64(1<<63 - 1)
+					if trial%2 != 0 {
+						maximum = 10 // Exercise the already reviewed REP STOSB path.
+					}
+					binary.LittleEndian.PutUint64(limit[:], maximum)
+					write(threshold, limit[:])
+					count, begin, fill := int(trial/2), 16+int(trial%16), byte(0x27+trial)
+					initial := bytes.Repeat([]byte{0x7d}, 96)
+					want := bytes.Clone(initial)
+					for i := begin; i < begin+count; i++ {
+						want[i] = fill
+					}
+					for _, target := range []uintptr{uintptr(dll) + uintptr(c.RVA), memory} {
+						write(rw+128, initial)
+						syscall.SyscallN(target, rw+128+uintptr(begin), uintptr(count), uintptr(fill))
+						if !bytes.Equal(read(rw+128, len(want)), want) {
+							t.Fatalf("fill result changed at target %#x, size=%d, align=%d, threshold=%d", target, count, begin, maximum)
+						}
+					}
+					calls++
+					continue
+				}
 				if c.Kind == "timestamp" {
 					source := uintptr(dll) + uintptr(c.RVA)
 					before, _, _ := syscall.SyscallN(source)
@@ -226,6 +315,48 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 					after, _, _ := syscall.SyscallN(source)
 					if before == 0 || after <= before || observed < before || observed > after {
 						t.Fatalf("relocated timestamp outside original interval: %#x <= %#x <= %#x", before, observed, after)
+					}
+					calls++
+					continue
+				}
+				if c.Kind == "cpu-identification" {
+					out := rw + 128
+					write(out, make([]byte, 16))
+					original, _, _ := syscall.SyscallN(uintptr(dll)+uintptr(c.RVA), out, 0, 0)
+					want := read(out, 16)
+					write(out, bytes.Repeat([]byte{0xff}, 16))
+					observed, _, _ := syscall.SyscallN(memory, out, 0, 0)
+					if original == 0 || observed != original || !bytes.Equal(read(out, 16), want) {
+						t.Fatalf("relocated CPUID results changed at call %d", trial)
+					}
+					calls++
+					continue
+				}
+				if c.Kind == "cpu-feature-mask" {
+					out := rw + 128
+					syscall.SyscallN(uintptr(dll)+0xb5e0, out, 1, 0)
+					ecx := binary.LittleEndian.Uint32(read(out+8, 4))
+					want := uintptr(3)
+					for i, bit := range [...]uint32{0, 9, 19, 20, 23, 25, 1} {
+						want |= uintptr((ecx>>bit)&1) << (i + 2)
+					}
+					original, _, _ := syscall.SyscallN(uintptr(dll) + uintptr(c.RVA))
+					observed, _, _ := syscall.SyscallN(memory)
+					if original != want || observed != want {
+						t.Fatalf("CPU feature mask: original=%#x clone=%#x want=%#x", original, observed, want)
+					}
+					calls++
+					continue
+				}
+				if controlBytes != 0 {
+					out := rw + 128
+					write(out, make([]byte, 8))
+					syscall.SyscallN(memory+8320, out)
+					want := uintptr(binary.LittleEndian.Uint64(read(out, 8)))
+					original, _, _ := syscall.SyscallN(uintptr(dll) + uintptr(c.RVA))
+					observed, _, _ := syscall.SyscallN(memory)
+					if original != want || observed != want {
+						t.Fatalf("control word: original=%#x clone=%#x want=%#x", original, observed, want)
 					}
 					calls++
 					continue
@@ -335,7 +466,7 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 				}
 				calls++
 			}
-			if !bytes.Equal(read(uintptr(dll)+uintptr(c.RVA), len(code)), code) {
+			if !bytes.Equal(read(uintptr(dll)+uintptr(c.RVA), len(code)), expectedSource) {
 				t.Fatal("test modified original Delphi code")
 			}
 		})
@@ -356,5 +487,32 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 		if err := os.WriteFile(path, append(data, '\n'), 0600); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func verifyIndexedFillRDI(t *testing.T, memory, rw uintptr, plan FunctionPlan, write func(uintptr, []byte), read func(uintptr, int) []byte) {
+	t.Helper()
+	body := plan.Image[plan.BodyRVA:plan.Functions[1].End]
+	at := bytes.Index(body, []byte{0xf3, 0xaa, 0x4c, 0x89, 0xc7, 0x5f}) // REP STOSB; MOV RDI,R8; POP RDI
+	if at < 0 {
+		t.Fatal("missing reviewed fill and restore sequence")
+	}
+	const expectedRDI, returnPC = 0x12cabc113314ef98, 0x12345678
+	stack := rw + 3584
+	stackBytes := binary.LittleEndian.AppendUint64(nil, expectedRDI)
+	stackBytes = binary.LittleEndian.AppendUint64(stackBytes, returnPC)
+	write(stack, stackBytes)
+	context := make([]byte, 1232)
+	pc := memory + uintptr(plan.BodyRVA) + uintptr(at)
+	binary.LittleEndian.PutUint32(context[48:], 0x0010000b)
+	binary.LittleEndian.PutUint64(context[152:], uint64(stack))
+	binary.LittleEndian.PutUint64(context[176:], 0xbadca11)
+	binary.LittleEndian.PutUint64(context[248:], uint64(pc))
+	write(rw+1024, context)
+	unwind := windows.NewLazySystemDLL("ntdll.dll").NewProc("RtlVirtualUnwind")
+	unwind.Call(0, memory, pc, memory+12288+12, rw+1024, rw+2560, rw+2568, 0)
+	got := read(rw+1024, len(context))
+	if binary.LittleEndian.Uint64(got[152:]) != uint64(stack+16) || binary.LittleEndian.Uint64(got[176:]) != expectedRDI || binary.LittleEndian.Uint64(got[248:]) != returnPC {
+		t.Fatal("Windows unwind lost the caller's RDI, stack or return PC at REP STOSB")
 	}
 }

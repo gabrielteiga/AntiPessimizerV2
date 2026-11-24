@@ -13,6 +13,7 @@
 
 enum { AP_FRAME_EXCEPTION=0xe0424242u };
 static BOOL check_chain;
+static BOOL check_indexed_table;
 static BOOL check_cpuid;
 extern void APFrameCPUID(uint32_t,uint32_t,uint32_t *);
 extern uint64_t APFrameCPUIDCatch(void);
@@ -31,6 +32,54 @@ __asm__(
  "addq $32,%rsp\n popq %rbx\n ret\n"
  ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
  ".rva .Lcpuid_try,.Lcpuid_end,APFrameMemoryFilter,.Lcpuid_catch\n .text\n .seh_endproc\n"
+);
+
+static DWORD check_delphi_cpuid;
+extern void APFrameDelphiCPUID(uint32_t *,uint32_t,uint32_t);
+extern uint64_t APFrameDelphiCPUIDCatch(void);
+__asm__(
+ ".text\n .globl APFrameDelphiCPUID\n .def APFrameDelphiCPUID; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameDelphiCPUID\n APFrameDelphiCPUID:\n .seh_endprologue\n"
+ "movq %rbx,%r10\n movq %rcx,%r9\n movl %edx,%eax\n movl %r8d,%ecx\n cpuid\n"
+ "movl %eax,(%r9)\n movl %ebx,4(%r9)\n movl %ecx,8(%r9)\n movl %edx,12(%r9)\n"
+ "movq %r10,%rbx\n ret\n .seh_endproc\n"
+ ".globl APFrameDelphiCPUIDCatch\n .def APFrameDelphiCPUIDCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameDelphiCPUIDCatch\n APFrameDelphiCPUIDCatch:\n"
+ "pushq %rbx\n .seh_pushreg %rbx\n subq $32,%rsp\n .seh_stackalloc 32\n .seh_endprologue\n"
+ "movabsq $0x1122334455667788,%rbx\n"
+ ".Ldelphi_cpuid_try:\n xorl %ecx,%ecx\n xorl %edx,%edx\n xorq %r8,%r8\n call APFrameDelphiCPUID\n nop\n"
+ ".Ldelphi_cpuid_end:\n xorl %eax,%eax\n addq $32,%rsp\n popq %rbx\n ret\n"
+ ".Ldelphi_cpuid_catch:\n movabsq $0x1122334455667788,%rax\n cmpq %rax,%rbx\n sete %al\n movzbl %al,%eax\n"
+ "addq $32,%rsp\n popq %rbx\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Ldelphi_cpuid_try,.Ldelphi_cpuid_end,APFrameMemoryFilter,.Ldelphi_cpuid_catch\n .text\n .seh_endproc\n"
+);
+
+static BOOL check_caller_context;
+extern uint64_t APCheckCallerContext(void *), APCatchCallerContext(void);
+__asm__(
+ ".text\n .globl APLeafCallerContext\n .def APLeafCallerContext; .scl 2; .type 32; .endef\n"
+ ".seh_proc APLeafCallerContext\n APLeafCallerContext:\n .seh_endprologue\n"
+ "movq (%rsp),%rax\n leaq 8(%rsp),%rdx\n movq %rax,(%rcx)\n movq %rdx,8(%rcx)\n"
+ "movq %rbx,16(%rcx)\n movapd %xmm6,32(%rcx)\n xorl %eax,%eax\n ret\n .seh_endproc\n"
+ ".globl APCheckCallerContext\n .def APCheckCallerContext; .scl 2; .type 32; .endef\n"
+ ".seh_proc APCheckCallerContext\n APCheckCallerContext:\n pushq %rbx\n .seh_pushreg %rbx\n"
+ "subq $64,%rsp\n .seh_stackalloc 64\n movaps %xmm6,48(%rsp)\n .seh_savexmm %xmm6,48\n .seh_endprologue\n"
+ "movq %rcx,32(%rsp)\n movabsq $0x1234567890abcdef,%rbx\n movq %rbx,%xmm6\n"
+ "call APLeafCallerContext\n .Lcontext_return:\n"
+ "testl %eax,%eax\n jne .Lcontext_failed\n"
+ "movq 32(%rsp),%rdx\n leaq .Lcontext_return(%rip),%rcx\n cmpq %rcx,(%rdx)\n jne .Lcontext_failed\n"
+ "cmpq %rsp,8(%rdx)\n jne .Lcontext_failed\n cmpq %rbx,16(%rdx)\n jne .Lcontext_failed\n"
+ "cmpq %rbx,32(%rdx)\n jne .Lcontext_failed\n cmpq $0,40(%rdx)\n jne .Lcontext_failed\n"
+ "movl $1,%eax\n jmp .Lcontext_done\n .Lcontext_failed:\n xorl %eax,%eax\n"
+ ".Lcontext_done:\n movaps 48(%rsp),%xmm6\n addq $64,%rsp\n popq %rbx\n ret\n .seh_endproc\n"
+ ".globl APCatchCallerContext\n .def APCatchCallerContext; .scl 2; .type 32; .endef\n"
+ ".seh_proc APCatchCallerContext\n APCatchCallerContext:\n subq $40,%rsp\n .seh_stackalloc 40\n .seh_endprologue\n"
+ ".Lcontext_try:\n xorq %rcx,%rcx\n call APLeafCallerContext\n nop\n"
+ ".Lcontext_end:\n xorl %eax,%eax\n addq $40,%rsp\n ret\n"
+ ".Lcontext_catch:\n movl $1,%eax\n addq $40,%rsp\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Lcontext_try,.Lcontext_end,APFrameMemoryFilter,.Lcontext_catch\n .text\n .seh_endproc\n"
 );
 
 static BOOL check_stack_probe;
@@ -74,6 +123,67 @@ __asm__(
  ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
  ".rva .Lchain_try,.Lchain_try_end,APFrameMemoryFilter,.Lchain_catch\n .text\n .seh_endproc\n"
 );
+
+extern uint64_t APFramePaddedChain(const uint64_t *),APFramePaddedChainCatch(void);
+__asm__(
+ ".text\n .globl APFramePaddedChain\n .def APFramePaddedChain; .scl 2; .type 32; .endef\n"
+ "APFramePaddedChain:\n pushq %rbx\n subq $32,%rsp\n movq %rcx,%rbx\n .fill 8,1,0x90\n jmp APFramePaddedChainCold\n"
+ ".Lpadded_chain_primary_end:\n .fill 8,1,0x90\n"
+ ".globl APFramePaddedChainCold\n .def APFramePaddedChainCold; .scl 2; .type 32; .endef\n"
+ "APFramePaddedChainCold:\n movq (%rbx),%rax\n addq $32,%rsp\n popq %rbx\n ret\n"
+ ".Lpadded_chain_end:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n"
+ ".Lpadded_chain_primary:\n .byte 1,5,2,0,5,0x32,1,0x30\n"
+ ".Lpadded_chain_secondary:\n .byte 33,0,0,0\n .rva APFramePaddedChain,.Lpadded_chain_primary_end,.Lpadded_chain_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n"
+ ".rva APFramePaddedChain,.Lpadded_chain_primary_end,.Lpadded_chain_primary\n"
+ ".rva APFramePaddedChainCold,.Lpadded_chain_end,.Lpadded_chain_secondary\n"
+ ".text\n .globl APFramePaddedChainCatch\n .def APFramePaddedChainCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFramePaddedChainCatch\n APFramePaddedChainCatch:\n subq $40,%rsp\n .seh_stackalloc 40\n .seh_endprologue\n"
+ ".Lpadded_chain_try:\n xorq %rcx,%rcx\n call APFramePaddedChain\n nop\n"
+ ".Lpadded_chain_try_end:\n xorl %eax,%eax\n addq $40,%rsp\n ret\n"
+ ".Lpadded_chain_catch:\n movl $903,%eax\n addq $40,%rsp\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Lpadded_chain_try,.Lpadded_chain_try_end,APFrameMemoryFilter,.Lpadded_chain_catch\n .text\n .seh_endproc\n"
+);
+extern uint64_t APFrameIndexedTable(uint64_t, const uint64_t *),APFrameIndexedTableCatch(void);
+__asm__(
+ ".text\n .globl APFrameIndexedTable\n .def APFrameIndexedTable; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameIndexedTable\n APFrameIndexedTable:\n .seh_endprologue\n"
+ "cmpq $1,%rcx\n ja .Lindexed_other\n leaq .Lindexed_table(%rip),%r11\n jmp *(%r11,%rcx,8)\n"
+ ".Lindexed_table:\n .quad .Lindexed_zero,.Lindexed_one\n"
+ ".Lindexed_zero:\n movl $0,%eax\n setb %al\n ret\n"
+ ".Lindexed_one:\n movq (%rdx),%rax\n ret\n"
+ ".Lindexed_other:\n movl $17,%eax\n ret\n .seh_endproc\n"
+ ".globl APFrameIndexedTableCatch\n .def APFrameIndexedTableCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameIndexedTableCatch\n APFrameIndexedTableCatch:\n subq $40,%rsp\n .seh_stackalloc 40\n .seh_endprologue\n"
+ ".Lindexed_try:\n movl $1,%ecx\n xorq %rdx,%rdx\n call APFrameIndexedTable\n nop\n"
+ ".Lindexed_try_end:\n xorl %eax,%eax\n addq $40,%rsp\n ret\n"
+ ".Lindexed_catch:\n movl $906,%eax\n addq $40,%rsp\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Lindexed_try,.Lindexed_try_end,APFrameMemoryFilter,.Lindexed_catch\n .text\n .seh_endproc\n"
+);
+extern uint64_t APFrameLocalSave(const uint64_t *),APFrameLocalSaveCatch(void);
+__asm__(
+ ".text\n .globl APFrameLocalSave\n .def APFrameLocalSave; .scl 2; .type 32; .endef\n"
+ "APFrameLocalSave:\n subq $40,%rsp\n .fill 8,1,0x90\n"
+ ".globl APFrameLocalSaveCold\n .def APFrameLocalSaveCold; .scl 2; .type 32; .endef\n"
+ "APFrameLocalSaveCold:\n movq %rbx,24(%rsp)\n movq %rcx,%rbx\n movq (%rbx),%rax\n"
+ "movq 24(%rsp),%rbx\n addq $40,%rsp\n ret\n .Llocal_save_end:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n .Llocal_save_primary:\n .byte 1,4,1,0,4,0x42,0,0\n"
+ ".Llocal_save_secondary:\n .byte 33,5,2,0,5,0x34,3,0\n .rva APFrameLocalSave,APFrameLocalSaveCold,.Llocal_save_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n .rva APFrameLocalSave,APFrameLocalSaveCold,.Llocal_save_primary\n"
+ ".rva APFrameLocalSaveCold,.Llocal_save_end,.Llocal_save_secondary\n"
+ ".text\n .globl APFrameLocalSaveCatch\n .def APFrameLocalSaveCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameLocalSaveCatch\n APFrameLocalSaveCatch:\n pushq %rbx\n .seh_pushreg %rbx\n subq $32,%rsp\n .seh_stackalloc 32\n .seh_endprologue\n"
+ "movl $0x42012345,%ebx\n .Llocal_save_try:\n xorq %rcx,%rcx\n call APFrameLocalSave\n nop\n"
+ ".Llocal_save_try_end:\n xorl %eax,%eax\n jmp .Llocal_save_return\n"
+ ".Llocal_save_catch:\n xorl %eax,%eax\n cmpl $0x42012345,%ebx\n sete %al\n"
+ ".Llocal_save_return:\n addq $32,%rsp\n popq %rbx\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Llocal_save_try,.Llocal_save_try_end,APFrameMemoryFilter,.Llocal_save_catch\n .text\n .seh_endproc\n"
+);
+
 
 extern uint64_t APFrameLarge(uint64_t),APFrameLargeCatch(void);
 __attribute__((noinline)) uint64_t APFrameLargeWork(uint64_t n){
@@ -330,13 +440,34 @@ static DWORD WINAPI worker(void *unused){
   for(unsigned i=0;i<4;i++)if(actual[i]!=expected[i])return 13;
   if(APFrameCPUIDCatch()!=1)return 13;
  }
+ if(check_caller_context){
+  _Alignas(16) uint64_t caller_context[6]={0};
+  if(APCheckCallerContext(caller_context)!=1 || APCatchCallerContext()!=1)return 16;
+ }
+ if(check_delphi_cpuid){
+  uint32_t expected[4],actual[4];
+  __cpuid_count(0,0,expected[0],expected[1],expected[2],expected[3]);
+  APFrameDelphiCPUID(actual,0,0);
+  for(unsigned i=0;i<4;i++)if(actual[i]!=expected[i])return 15;
+  if(check_delphi_cpuid==2 && APFrameDelphiCPUIDCatch()!=1)return 15;
+ }
  if(check_stack_probe){
   const uint64_t value=UINT64_C(0xabc123def4569870);
   if(APFrameStackProbe(&value)!=value || APFrameStackProbeCatch()!=904)return 14;
  }
+ if(check_indexed_table){
+  const uint64_t data=UINT64_C(0x1122334455667788);
+  if(APFrameIndexedTable(0,&data)!=1 || APFrameIndexedTable(1,&data)!=data || APFrameIndexedTable(2,&data)!=17 ||
+     APFrameIndexedTable(UINT64_C(0x100000000),&data)!=17 || APFrameIndexedTable(UINT64_MAX,&data)!=17 ||
+     APFrameIndexedTableCatch()!=906)return 16;
+ }
  if(check_chain){
   const uint64_t value=UINT64_C(0x1122334455667788);
-  if(APFrameChain(&value)!=value || APFrameChainCatch()!=903)return 12;
+  if(check_chain==3){
+   if(APFrameLocalSave(&value)!=value || APFrameLocalSaveCatch()!=1)return 12;
+  }else if(check_chain==2){
+   if(APFramePaddedChain(&value)!=value || APFramePaddedChainCatch()!=903)return 12;
+  }else if(APFrameChain(&value)!=value || APFrameChainCatch()!=903)return 12;
  }
  if(normal_cleanup_throws){if(APUnwindCatch(7)!=779)return 6;}
  else if(APUnwindOuter(7)!=11)return 6;
@@ -358,11 +489,14 @@ int wmain(int argc,wchar_t **argv){
   else if(!wcscmp(argv[i],L"--normal-cleanup-throws"))normal_cleanup_throws=(BOOL)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--unselected-id"))unselected_id=(uint32_t)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--check-cpuid"))check_cpuid=(BOOL)wcstoul(argv[i+1],NULL,10);
+  else if(!wcscmp(argv[i],L"--check-caller-context"))check_caller_context=(BOOL)wcstoul(argv[i+1],NULL,10);
+  else if(!wcscmp(argv[i],L"--check-delphi-cpuid"))check_delphi_cpuid=(DWORD)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--check-stack-probe"))check_stack_probe=(BOOL)wcstoul(argv[i+1],NULL,10);
+  else if(!wcscmp(argv[i],L"--check-indexed-table"))check_indexed_table=(BOOL)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--check-chain"))check_chain=(BOOL)wcstoul(argv[i+1],NULL,10);
   else return 2;
  }
- if(!batch_limit||batch_limit>256||!threads||threads>16||!rounds||rounds>1000||!iterations||iterations>1000||child_delay_ms>5000)return 2;
+ if(check_delphi_cpuid>2||!batch_limit||batch_limit>256||!threads||threads>16||!rounds||rounds>1000||!iterations||iterations>1000||child_delay_ms>5000)return 2;
  LARGE_INTEGER start,finish,frequency;
  if(!QueryPerformanceCounter(&start)||!QueryPerformanceFrequency(&frequency))return 10;
  barrier=CreateEventW(NULL,TRUE,FALSE,NULL);if(!barrier)return 3;
