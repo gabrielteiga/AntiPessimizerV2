@@ -5,6 +5,27 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <wchar.h>
+#define TINY_LEAF(name, body) __asm__( \
+ ".text\n .globl " #name "\n .def " #name "; .scl 2; .type 32; .endef\n" \
+ ".seh_proc " #name "\n " #name ":\n .seh_endprologue\n" body "\n ret\n .seh_endproc\n");
+TINY_LEAF(APTinyRet,"")
+TINY_LEAF(APTinyNop,"nop")
+TINY_LEAF(APTinyZero,"xorl %eax,%eax")
+TINY_LEAF(APTinyAdd,"leal 1(%rcx),%eax")
+TINY_LEAF(APTinyNeighbor,"movl $123,%eax")
+TINY_LEAF(APTinyApplicationBreak,"int3")
+extern void APTinyRet(void),APTinyNop(void),APTinyApplicationBreak(void);
+extern uint32_t APTinyZero(void),APTinyAdd(uint32_t),APTinyNeighbor(void);
+static BOOL check_tiny;
+static volatile LONG app_break_count;
+static LONG CALLBACK application_break(EXCEPTION_POINTERS *exception){
+ uintptr_t address=(uintptr_t)APTinyApplicationBreak;
+ if(exception->ExceptionRecord->ExceptionCode!=EXCEPTION_BREAKPOINT ||
+    (uintptr_t)exception->ExceptionRecord->ExceptionAddress!=address)return EXCEPTION_CONTINUE_SEARCH;
+ exception->ContextRecord->Rip=address+1;
+ InterlockedIncrement(&app_break_count);
+ return EXCEPTION_CONTINUE_EXECUTION;
+}
 enum { AP_TAIL_EXCEPTION=0xe0424243u };
 static DWORD tail_delay_ms;
 static DWORD tail_indirect_mode;
@@ -70,6 +91,11 @@ static uint32_t iterations=10;
 static DWORD WINAPI worker(void *unused){
  (void)unused;if(WaitForSingleObject(barrier,5000)!=WAIT_OBJECT_0)return 1;
  for(uint32_t i=0;i<iterations;i++){
+  if(check_tiny){
+   APTinyRet();APTinyNop();
+   if(APTinyZero()!=0 || APTinyAdd(i)!=i+1 || APTinyNeighbor()!=123)return 6;
+   APTinyApplicationBreak();
+  }
   uint64_t result;
   if(tail_indirect_mode==2)result=APTailConditionalStart(i+10,2,3,5,7,11);
   else if(tail_indirect_mode==1)result=APTailIndirectStart(i+10,2,3,5,7,11);
@@ -88,10 +114,13 @@ int wmain(int argc,wchar_t **argv){
   if(!wcscmp(argv[i],L"--threads"))threads=(uint32_t)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--delay-ms"))tail_delay_ms=(DWORD)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--iterations"))iterations=(uint32_t)wcstoul(argv[i+1],NULL,10);
+  else if(!wcscmp(argv[i],L"--check-tiny"))check_tiny=(BOOL)wcstoul(argv[i+1],NULL,10);
   else if(!wcscmp(argv[i],L"--indirect"))tail_indirect_mode=(DWORD)wcstoul(argv[i+1],NULL,10);
   else return 2;
  }
  if(tail_delay_ms>5000||tail_indirect_mode>3||!threads||threads>16||!iterations||iterations>100)return 2;
+ void *application_handler=check_tiny?AddVectoredExceptionHandler(0,application_break):NULL;
+ if(check_tiny && !application_handler)return 7;
  barrier=CreateEventW(NULL,TRUE,FALSE,NULL);if(!barrier)return 3;
  HANDLE handles[16];DWORD result=0;
  for(uint32_t i=0;i<threads;i++){handles[i]=CreateThread(NULL,0,worker,NULL,0,NULL);if(!handles[i])return 3;}
@@ -100,5 +129,7 @@ int wmain(int argc,wchar_t **argv){
   DWORD code=1;if(WaitForSingleObject(handles[i],10000)!=WAIT_OBJECT_0)return 4;
   GetExitCodeThread(handles[i],&code);CloseHandle(handles[i]);result|=code;
  }
- CloseHandle(barrier);return result?5:0;
+ CloseHandle(barrier);
+ if(check_tiny && (!RemoveVectoredExceptionHandler(application_handler) || (uint32_t)app_break_count!=threads*iterations))return 7;
+ return result?5:0;
 }

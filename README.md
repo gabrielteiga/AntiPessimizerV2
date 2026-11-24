@@ -139,7 +139,7 @@ verificar apenas os procedimentos desejados.
 
 O subconjunto aceita unwind v1 sem handler ou com cleanup UHANDLER-only original, prólogos verificados,
 chamadas/recursão, branches internos e múltiplos retornos, de 5 a 8192 bytes por procedimento quando a alocação
-permite salto próximo. Métodos menores que 5 bytes continuam rejeitados. Procedimentos não suportados são rejeitados. Um cleanup nativo
+permite salto próximo. Funções folha de 1 a 4 bytes usam um breakpoint de entrada somente no processo lançado. Esse caminho inclui o custo de entrega de uma exceção ao depurador por chamada. Um cleanup nativo
 registra saídas durante o unwind real do Windows e encaminha a limpeza original
 com seus metadados e endereços de origem. Handlers que capturam/retomam a exceção
 (EHANDLER, inclusive combinado com UHANDLER) são aceitos somente para o formato CRT reconhecido; o handler Delphi conferido da revisão v0.3 aceita scopes de catch-all/finally e tabelas tipadas com resolvedor conferido; outras variantes continuam fora da seleção. A captura inclui finalizadores anteriores

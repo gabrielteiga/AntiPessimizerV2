@@ -9,8 +9,10 @@ static struct {
     APHookProcedure selected[AP_HOOK_LIMIT];
     uint32_t count, patched, bytes, stride;
     unsigned char *memory;
+    unsigned char *image;
     RUNTIME_FUNCTION *table;
     BOOL registered;
+    void *breakpoint_handler;
     unsigned char originals[AP_HOOK_LIMIT][AP_HOOK_PREFIX];
     uint32_t lengths[AP_HOOK_LIMIT];
     DWORD protections[AP_HOOK_LIMIT];
@@ -37,6 +39,24 @@ static BOOL hook_patch(unsigned char *source,const unsigned char *bytes,uint32_t
     BOOL protected=VirtualProtect(source,size,protection,&ignored);
     return flushed && protected;
 }
+/* Only the owned startup protocol installs breakpoint entries. Leave all
+ * other first-chance exceptions for the application's own handlers. */
+static LONG CALLBACK hook_breakpoint(EXCEPTION_POINTERS *exception) {
+    const EXCEPTION_RECORD *record=exception->ExceptionRecord;
+    if(record->ExceptionCode!=EXCEPTION_BREAKPOINT || (record->ExceptionFlags&EXCEPTION_NONCONTINUABLE))
+        return EXCEPTION_CONTINUE_SEARCH;
+    uintptr_t address=(uintptr_t)record->ExceptionAddress;
+    uintptr_t rip=(uintptr_t)exception->ContextRecord->Rip;
+    if(rip!=address && rip!=address+1) return EXCEPTION_CONTINUE_SEARCH;
+    uintptr_t image=(uintptr_t)hooks.image;
+    for(uint32_t i=0;i<hooks.count;i++) {
+        if(hooks.lengths[i]==1 && address==image+hooks.selected[i].rva) {
+            exception->ContextRecord->Rip=(uintptr_t)hooks.memory+hooks.table[i*3].BeginAddress;
+            return EXCEPTION_CONTINUE_EXECUTION;
+        }
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
 static BOOL hook_retire(void) {
     unsigned char *image=(unsigned char *)GetModuleHandleW(NULL);
     while(hooks.patched) {
@@ -44,19 +64,21 @@ static BOOL hook_retire(void) {
         if(!hook_patch(image+hooks.selected[i].rva,hooks.originals[i],hooks.lengths[i],hooks.protections[i])) return FALSE;
         hooks.patched--;
     }
+    if(hooks.breakpoint_handler && !RemoveVectoredExceptionHandler(hooks.breakpoint_handler)) return FALSE;
+    hooks.breakpoint_handler=NULL;
     if(hooks.registered && !RtlDeleteFunctionTable(hooks.table)) return FALSE;
     hooks.registered=FALSE;
     if(hooks.memory && !VirtualFree(hooks.memory,0,MEM_RELEASE)) return FALSE;
     ZeroMemory(&hooks,sizeof(hooks));
     return TRUE;
 }
-static BOOL hook_select(const APHookProcedure *procedures,uint32_t count) {
+static BOOL hook_select(const APHookProcedure *procedures,uint32_t count,BOOL allow_tiny) {
     if(hooks.memory || !procedures || !count || count>AP_HOOK_LIMIT) return FALSE;
     unsigned char *image=(unsigned char *)GetModuleHandleW(NULL);
     IMAGE_NT_HEADERS64 *nt=(IMAGE_NT_HEADERS64 *)(image+((IMAGE_DOS_HEADER *)image)->e_lfanew);
     for(uint32_t i=0;i<count;i++) {
         APHookProcedure p=procedures[i];
-        if(!p.id || !p.rva || p.size<5 || p.size>AP_HOOK_SOURCE_LIMIT || (uint64_t)p.rva+p.size>nt->OptionalHeader.SizeOfImage) return FALSE;
+        if(!p.id || !p.rva || p.size<(allow_tiny?1u:5u) || p.size>AP_HOOK_SOURCE_LIMIT || (uint64_t)p.rva+p.size>nt->OptionalHeader.SizeOfImage) return FALSE;
         MEMORY_BASIC_INFORMATION m;
         if(!VirtualQuery(image+p.rva,&m,sizeof(m)) || m.AllocationBase!=image || m.State!=MEM_COMMIT || (m.Protect&0xff)!=PAGE_EXECUTE_READ || (m.Protect&PAGE_GUARD) || (uintptr_t)(image+p.rva)+p.size>(uintptr_t)m.BaseAddress+m.RegionSize) return FALSE;
         hooks.protections[i]=m.Protect;
@@ -67,6 +89,7 @@ static BOOL hook_select(const APHookProcedure *procedures,uint32_t count) {
     }
     memcpy(hooks.selected,procedures,count*sizeof(APHookProcedure));
     hooks.count=count;
+    hooks.image=image;
     return TRUE;
 }
 static BOOL hook_allocate(BOOL general) {
@@ -205,6 +228,12 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
     hook_put32(offer+24,hooks.bytes); hook_put32(offer+28,hooks.count);
     hook_put64(offer+32,(uintptr_t)APNativeEnter); hook_put64(offer+40,(uintptr_t)APNativeExit);
     if(general){offer[6]='A';hook_put64(offer+32,(uintptr_t)function_enter);hook_put64(offer+40,(uintptr_t)function_exit);hook_put64(offer+48,(uintptr_t)function_unwind);}
+    BOOL tiny=FALSE;
+    for(uint32_t i=0;i<hooks.count;i++)if(hooks.selected[i].size<5)tiny=TRUE;
+    if(tiny){
+        if(!general)return FALSE;
+        offer[6]='B';
+    }
     if(!hook_io(pipe,offer,general?56:48,TRUE)) return FALSE;
     for(uint32_t i=0;i<hooks.count;i++) {
         unsigned char extent[4]; hook_put32(extent,hooks.selected[i].size);
@@ -238,12 +267,17 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
         unsigned char item[8],expected[AP_HOOK_SOURCE_LIMIT];
         if(!hook_io(pipe,item,8,FALSE)) return FALSE;
         uint32_t length=hook_u32(item),prefix=hook_u32(item+4);
-        if(length!=hooks.selected[i].size || prefix<5 || prefix>AP_HOOK_PREFIX || prefix>length) return FALSE;
+        if(length!=hooks.selected[i].size || prefix==0 || prefix>AP_HOOK_PREFIX || prefix>length) return FALSE;
         if(!hook_io(pipe,expected,length,FALSE) || !hook_io(pipe,patches[i],prefix,FALSE)) return FALSE;
         if(memcmp(expected,image+hooks.selected[i].rva,length)) return FALSE;
         uintptr_t target=(uintptr_t)hooks.memory+hooks.table[i*per].BeginAddress;
         uint32_t jump_size=14;
-        if(patches[i][0]==0xe9){
+        if(length<5){
+            if(prefix!=1 || patches[i][0]!=0xcc || expected[0]==0xcc)return FALSE;
+            const unsigned char *info=hooks.memory+hooks.table[i*per+1].UnwindData;
+            if(info[0]!=17 || info[1]!=0 || info[2]!=0 || info[3]!=0 || hook_u32(info+12)!=0)return FALSE;
+            jump_size=1;
+        }else if(patches[i][0]==0xe9 && prefix>=5){
             jump_size=5;
             uintptr_t destination=(uintptr_t)(image+hooks.selected[i].rva+5)+(intptr_t)(int32_t)hook_u32(patches[i]+1);
             if(destination!=target)return FALSE;
@@ -256,6 +290,10 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
     if(!VirtualProtect(hooks.memory,hooks.bytes,PAGE_EXECUTE_READ,&old) || !FlushInstructionCache(GetCurrentProcess(),hooks.memory,size)) return FALSE;
     if(!RtlAddFunctionTable(hooks.table,entries,(DWORD64)(uintptr_t)hooks.memory)) return FALSE;
     hooks.registered=TRUE;
+    if(tiny){
+        hooks.breakpoint_handler=AddVectoredExceptionHandler(1,hook_breakpoint);
+        if(!hooks.breakpoint_handler)return FALSE;
+    }
     for(uint32_t i=0;i<count;i++) {
         /* Count the attempted patch too: even a protection/flush error after
            memcpy requires restoring its bytes before retiring the allocation. */

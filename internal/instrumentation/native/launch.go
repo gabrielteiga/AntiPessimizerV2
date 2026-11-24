@@ -37,7 +37,7 @@ func (o LaunchOptions) validate() error {
 	}
 	ids := map[uint32]bool{}
 	for i, p := range o.Procedures {
-		if p.ID == 0 || ids[p.ID] || p.RVA == 0 || p.Size < 5 || p.Size > MaxProcedureBytes || uint64(p.RVA)+uint64(p.Size) > 1<<32 {
+		if p.ID == 0 || ids[p.ID] || p.RVA == 0 || p.Size == 0 || p.Size > MaxProcedureBytes || uint64(p.RVA)+uint64(p.Size) > 1<<32 {
 			return errors.New("invalid instrumented procedure selection")
 		}
 		for _, previous := range o.Procedures[:i] {

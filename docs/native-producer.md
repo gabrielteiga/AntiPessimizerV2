@@ -573,3 +573,17 @@ e handles do alvo. O teste exige todas as chamadas, incluindo o finalizador,
 publicação durante a captura e recursos limitados após aquecimento. A taxa
 usa as chamadas dos workers e o intervalo QPC que cobre as rodadas, antes do
 finalizador. As medidas descrevem o alvo C e a máquina daquela execução.
+
+## Entradas de 1 a 4 bytes no lançamento próprio
+
+APHOOKB é anunciado apenas quando o bootstrap próprio seleciona funções folha
+de 1 a 4 bytes. O instalador confere toda a sequência original e grava um
+`INT3` no primeiro byte. O handler redireciona os breakpoints dos endereços
+selecionados para as sondas nativas. Outros endereços seguem para o processo.
+O modo cooperativo conserva o tamanho mínimo de cinco bytes. O código e o
+registro do handler são retirados na ordem inversa sob a barreira existente.
+
+Cada chamada passa pelo depurador antes de iniciar sua sonda. Os tempos da
+função começam na sonda, mas um chamador medido pode incluir a espera pelo
+depurador. O ensaio Windows verifica as contagens, os retornos da função
+vizinha e a entrega de um breakpoint da própria aplicação.
