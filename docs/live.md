@@ -70,6 +70,12 @@ omitidas. Ela não mostra overhead estimado sem uma medição específica.
 A caixa de caminho serve para salvar um arquivo novo, reproduzir NDJSON ou
 comparar um arquivo com a série atualmente retida. A comparação completa também
 está disponível pelo CLI em JSON. Abrir replay não encerra uma coleta existente.
+**Diagnóstico** alterna a tabela para o histórico de estados da captura,
+falhas de conexão e mensagens de operações do viewer. **Copiar diagnóstico**
+copia as últimas 32 mensagens para a área de transferência. Mensagens
+consecutivas iguais ocupam uma única linha, e o histórico fica na memória da
+janela. **Resultados** volta à tabela.
+
 O polling e operações de arquivo executam fora da thread da janela; somente a
 thread Win32 altera controles. Fechar a janela cancela e aguarda os workers,
 sem encerrar implicitamente o collector. O teste `AP_GUI_SMOKE=1` cria e fecha
