@@ -32,6 +32,7 @@ static DWORD tail_indirect_mode;
 extern uint64_t APTailStart(uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
 extern uint64_t APTailIndirectStart(uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
 extern uint64_t APTailConditionalStart(uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
+extern uint64_t APTailConditionalDirect(uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
 extern uint64_t APTailFramedIndirect(uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
 extern uint64_t APTailFramedStack(uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
 extern uint64_t APTailRecursive(uint64_t,uint64_t),APTailRecursiveStep(uint64_t,uint64_t),APTailCatch(void);
@@ -63,6 +64,9 @@ __asm__(
  ".seh_proc APTailConditionalStart\n APTailConditionalStart:\n .seh_endprologue\n"
  "addq $1,%rcx\n testb $1,%cl\n leaq APTailMiddle(%rip),%r11\n leaq APTailAlternative(%rip),%r10\n"
  "cmovne %r10,%r11\n jmp *%r11\n .seh_endproc\n"
+ ".globl APTailConditionalDirect\n .def APTailConditionalDirect; .scl 2; .type 32; .endef\n"
+ ".seh_proc APTailConditionalDirect\n APTailConditionalDirect:\n .seh_endprologue\n"
+ "addq $1,%rcx\n testb $1,%cl\n jne APTailAlternative\n jmp APTailMiddle\n .seh_endproc\n"
  ".globl APTailMiddle\n .def APTailMiddle; .scl 2; .type 32; .endef\n"
  ".seh_proc APTailMiddle\n APTailMiddle:\n .seh_endprologue\n addq $2,%rcx\n jmp APTailWork\n .seh_endproc\n"
  ".globl APTailAlternative\n .def APTailAlternative; .scl 2; .type 32; .endef\n"
@@ -75,9 +79,11 @@ __asm__(
  ".globl APTailCatch\n .def APTailCatch; .scl 2; .type 32; .endef\n"
  ".seh_proc APTailCatch\n APTailCatch:\n subq $56,%rsp\n .seh_stackalloc 56\n .seh_endprologue\n"
  ".Ltail_try:\n movl $999,%ecx\n movl $2,%edx\n movl $3,%r8d\n movl $5,%r9d\n movq $7,32(%rsp)\n movq $11,40(%rsp)\n"
+ "cmpl $4,tail_indirect_mode(%rip)\n je .Ltail_conditional_direct_call\n"
  "cmpl $3,tail_indirect_mode(%rip)\n je .Ltail_framed_indirect_call\n"
  "cmpl $2,tail_indirect_mode(%rip)\n je .Ltail_conditional_call\n"
  "cmpl $0,tail_indirect_mode(%rip)\n je .Ltail_direct_call\n call APTailIndirectStart\n jmp .Ltail_after_call\n"
+ ".Ltail_conditional_direct_call:\n call APTailConditionalDirect\n jmp .Ltail_after_call\n"
  ".Ltail_conditional_call:\n call APTailConditionalStart\n jmp .Ltail_after_call\n"
  ".Ltail_framed_indirect_call:\n call APTailFramedIndirect\n jmp .Ltail_after_call\n"
  ".Ltail_direct_call:\n call APTailFramedStack\n .Ltail_after_call:\n nop\n"
@@ -98,6 +104,7 @@ static DWORD WINAPI worker(void *unused){
   }
   uint64_t result;
   if(tail_indirect_mode==2)result=APTailConditionalStart(i+10,2,3,5,7,11);
+  else if(tail_indirect_mode==4)result=APTailConditionalDirect(i+10,2,3,5,7,11);
   else if(tail_indirect_mode==1)result=APTailIndirectStart(i+10,2,3,5,7,11);
   else if(tail_indirect_mode==3)result=APTailFramedIndirect(i+10,2,3,5,7,11);
   else result=APTailFramedStack(i+10,2,3,5,7,11);
@@ -118,7 +125,7 @@ int wmain(int argc,wchar_t **argv){
   else if(!wcscmp(argv[i],L"--indirect"))tail_indirect_mode=(DWORD)wcstoul(argv[i+1],NULL,10);
   else return 2;
  }
- if(tail_delay_ms>5000||tail_indirect_mode>3||!threads||threads>16||!iterations||iterations>100)return 2;
+ if(tail_delay_ms>5000||tail_indirect_mode>4||!threads||threads>16||!iterations||iterations>100)return 2;
  void *application_handler=check_tiny?AddVectoredExceptionHandler(0,application_break):NULL;
  if(check_tiny && !application_handler)return 7;
  barrier=CreateEventW(NULL,TRUE,FALSE,NULL);if(!barrier)return 3;

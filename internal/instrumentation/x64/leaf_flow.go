@@ -13,7 +13,7 @@ type leafInstruction struct {
 
 	offset, relocated, length int
 	inst                      x86asm.Inst
-	kind                      byte // 0=ordinary, 1=return, 2=jump, 3=conditional, 4=call, 5=direct tail, 6=indirect tail
+	kind                      byte // 0=ordinary, 1=return, 2=jump, 3=conditional, 4=call, 5=direct tail, 6=indirect tail, 7=conditional tail
 	condition                 byte
 	target                    int
 	requiresPrevious          bool
@@ -166,10 +166,19 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 			}
 			target, ok := address(source+uint64(offset+inst.Len), int64(rel))
 			if !ok || target < source || target >= source+uint64(len(code)) {
-				if !ok || d.kind != 2 || !nativeFunction || (framed || prologue != 0) && restored[offset] == 0 || !selected[target] {
+				if !ok || !nativeFunction || !selected[target] {
 					return fail("branch leaves the procedure; direct tail calls require selecting their exact target and verified stack restoration")
 				}
-				d.kind = 5
+				if framed || prologue != 0 {
+					if d.kind != 2 || restored[offset] == 0 {
+						return fail("external branch requires verified stack restoration")
+					}
+				}
+				if d.kind == 3 {
+					d.kind = 7
+				} else {
+					d.kind = 5
+				}
 				d.absolute = target
 				tailTargets = append(tailTargets, target)
 			} else {
@@ -243,16 +252,20 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 			binary.LittleEndian.PutUint32(dst[at:], uint32(delta))
 			continue
 		}
-		if d.kind == 4 || d.kind == 5 {
-			delta := int64(d.absolute) - int64(base+512+uint64(d.relocated+5))
+		if d.kind == 4 || d.kind == 5 || d.kind == 7 {
+			delta := int64(d.absolute) - int64(base+512+uint64(d.relocated+d.length))
 			if delta < -1<<31 || delta > 1<<31-1 {
 				return fail("call target too far from clone")
 			}
-			dst[0] = 0xe8
-			if d.kind == 5 {
+			switch d.kind {
+			case 4:
+				dst[0] = 0xe8
+			case 5:
 				dst[0] = 0xe9
+			case 7:
+				dst[0], dst[1] = 0x0f, 0x80|d.condition
 			}
-			binary.LittleEndian.PutUint32(dst[1:], uint32(int32(delta)))
+			binary.LittleEndian.PutUint32(dst[d.length-4:], uint32(int32(delta)))
 			continue
 		}
 		copy(dst, code[d.offset:d.offset+d.inst.Len])

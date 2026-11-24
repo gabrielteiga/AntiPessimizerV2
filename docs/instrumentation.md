@@ -834,9 +834,11 @@ memória, handles, QPC e bytes emitidos contra baseline do mesmo EXE.
 
 BuildSelectedFunction permite JMP direto, curto ou rel32, para o início exato
 de outro procedimento da seleção completa. O chamador pode ter unwind vazio
-ou restaurar o frame com um dos epílogos conferidos adiante. Transferências
-condicionais externas, com handler ou para destinos no interior de outro
-método ou fora da seleção continuam recusadas.
+ou restaurar o frame com um dos epílogos conferidos adiante. Com unwind vazio,
+um salto condicional também pode ir à entrada exata de outro método selecionado.
+O clone preserva a condição e exige que o caminho sem salto permaneça no corpo.
+Transferências com handler ou para destinos no interior de outro método ou
+fora da seleção continuam recusadas.
 BuildFunction sem seleção e o caminho legado conservam a rejeição anterior.
 A pré-validação usa somente os RVAs da seleção consultada; um método isolado
 pode aparecer recusado até que seu destino seja incluído na mesma seleção.

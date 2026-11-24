@@ -37,6 +37,43 @@ func TestSelectedTailJumpKeepsOriginalStackAndExactEntry(t *testing.T) {
 		}
 	}
 }
+func TestSelectedConditionalTailKeepsConditionAndFallthrough(t *testing.T) {
+	const loaded, clone = uint64(0x100000), uint64(0x180000)
+	for _, tc := range []struct {
+		name string
+		code []byte
+	}{
+		{"short", []byte{0x85, 0xc9, 0x75, 0x5c, 0x89, 0xc8, 0xc3}},
+		{"near", []byte{0x85, 0xc9, 0x0f, 0x85, 0x58, 0, 0, 0, 0x89, 0xc8, 0xc3}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := NewPEImage(scalarImage(tc.code))
+			if err != nil {
+				t.Fatal(err)
+			}
+			build := func(base uint64, selected []uint32) (FunctionPlan, error) {
+				return p.BuildSelectedFunction(peLeafRVA, uint32(len(tc.code)), loaded, base, 0x300000, 0x400000, 0x500000, 1, selected)
+			}
+			plan, err := build(clone, []uint32{0x1080})
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := plan.Image[plan.BodyRVA:plan.Functions[1].End]
+			destination := int64(clone+uint64(plan.BodyRVA)+8) + int64(int32(binary.LittleEndian.Uint32(body[4:8])))
+			if destination != 0x101080 || !bytes.Equal(body[:4], []byte{0x85, 0xc9, 0x0f, 0x85}) ||
+				!bytes.Equal(body[8:10], []byte{0x89, 0xc8}) || !bytes.Equal(body[10:], jump(clone+uint64(plan.ExitRVA))) ||
+				len(plan.TailTargets) != 1 || plan.TailTargets[0] != 0x1080 {
+				t.Fatal("conditional transfer changed flags, selected target, or local return", body, plan.TailTargets)
+			}
+			for _, selected := range [][]uint32{nil, {0x1081}} {
+				if _, err := build(clone, selected); !errors.Is(err, ErrUnsupported) {
+					t.Fatal("conditional transfer accepted without the exact target", selected, err)
+				}
+			}
+		})
+	}
+}
+
 func TestSelectedTailJumpRejectsUnrestoredFramedIndirectOrConditionalTransfers(t *testing.T) {
 	for _, code := range [][]byte{
 		{0x48, 0x83, 0xec, 0x28, 0xe9, 0x57, 0, 0, 0}, // stack modification with empty metadata
