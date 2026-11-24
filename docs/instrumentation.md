@@ -543,14 +543,20 @@ A leitura estática do DLL distribuído pelo original identificou rotinas sem
 frame que usam multiplicação/divisão, shifts, condições e conversões SSE sem
 necessidade de unwind adicional. O planejador agora aceita esse subconjunto
 posicionalmente independente, mantendo validação dos operandos e rejeitando
-operações com estado implícito não suportado (CPUID/RBX, strings/RSI/RDI sem
-frame, x87 e AVX). Chamadas continuam exigindo metadados de frame.
+operações com estado implícito fora do subconjunto conferido. Há casos
+separados para CPUID e operações de strings. Chamadas continuam exigindo metadados de frame.
 
 No caminho BuildPEFunction, stores sem frame podem usar apenas os 32 bytes de
 home slots Win64, entre RSP+8 e RSP+39. A largura inteira precisa caber nesse
-intervalo; o slot de retorno, stores que cruzam o limite e índice de stack são
-rejeitados. CMP/TEST/BT reconhecem leitura de argumentos, sem confundi-la com
-escrita. BuildPELeaf legado mantém a política anterior de não escrever stack.
+intervalo. A validação rejeita escrita direta no slot de retorno, stores que
+cruzam o limite e endereçamento indexado nessa faixa. CMP/TEST/BT reconhecem
+leituras de argumentos. BuildPELeaf legado conserva sua política de stack.
+
+Uma função folha nativa pode ler o endereço de retorno com MOV de 64 bits e
+copiar GPRs não voláteis com MOV ou XMM6–15 com MOVAPD para memória. A sonda
+restaura a pilha original antes de executar o corpo. O teste Windows compara
+PC, RSP, RBX e XMM6 com o estado do chamador e força uma falha de gravação
+para verificar o unwind sem um frame próprio.
 
 O alvo C/assembly próprio confere seis argumentos, stores/loads de home slots,
 IMUL, rotações, shifts, SETG, conversão float→double→inteiro→double e retorno

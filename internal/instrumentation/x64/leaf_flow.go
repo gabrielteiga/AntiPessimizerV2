@@ -258,7 +258,8 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 			case x86asm.Rel:
 				return fail("unsupported relative control flow")
 			case x86asm.Reg:
-				if !volatileLeafRegister(arg) && !(framed && nativeFrameRegister(arg)) {
+				if !volatileLeafRegister(arg) && !(framed && nativeFrameRegister(arg)) &&
+					!(nativeFunction && operand == 1 && nonvolatileSnapshotStore(d.inst, arg)) {
 					return fail("stack, nonvolatile or unsupported register")
 				}
 			case x86asm.Mem:
@@ -275,7 +276,11 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 					return fail("stack index")
 				}
 				if !framed && arg.Base == x86asm.RSP {
-					if arg.Index != 0 || arg.Disp < 8 {
+					// The entry probe restores the original stack before the
+					// clone runs. A qword MOV can read the caller's return PC.
+					readReturnPC := nativeFunction && operand == 1 && d.inst.Op == x86asm.MOV &&
+						d.inst.MemBytes == 8 && arg.Disp == 0
+					if arg.Index != 0 || arg.Disp < 8 && !readReturnPC {
 						return fail("return slot or indexed stack memory")
 					}
 					readOnly := d.inst.Op == x86asm.CMP || d.inst.Op == x86asm.TEST || d.inst.Op == x86asm.BT || d.inst.Op == x86asm.MUL || d.inst.Op == x86asm.IMUL || d.inst.Op == x86asm.DIV || d.inst.Op == x86asm.IDIV || d.inst.Op == x86asm.LDMXCSR
@@ -397,4 +402,19 @@ var frameOperations = map[string]bool{"PUSH": true, "POP": true, "LEAVE": true, 
 
 func nativeFrameRegister(r x86asm.Reg) bool {
 	return r >= x86asm.AL && r <= x86asm.R15B || r >= x86asm.AX && r <= x86asm.R15W || r >= x86asm.EAX && r <= x86asm.R15L || r >= x86asm.RAX && r <= x86asm.R15 || r >= x86asm.X0 && r <= x86asm.X15
+}
+
+func nonvolatileSnapshotStore(inst x86asm.Inst, source x86asm.Reg) bool {
+	if _, ok := inst.Args[0].(x86asm.Mem); !ok {
+		return false
+	}
+	switch inst.Op {
+	case x86asm.MOV:
+		return source == x86asm.RBX || source == x86asm.RBP || source == x86asm.RSI ||
+			source == x86asm.RDI || source >= x86asm.R12 && source <= x86asm.R15
+	case x86asm.MOVAPD:
+		return source >= x86asm.X6 && source <= x86asm.X15
+	default:
+		return false
+	}
 }
