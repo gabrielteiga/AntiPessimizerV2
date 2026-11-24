@@ -247,7 +247,12 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 				}
 			case x86asm.Mem:
 				flatString := stringOperations[d.inst.Op.String()] && (arg.Segment == x86asm.ES || arg.Segment == x86asm.DS)
-				if arg.Segment != 0 && !flatString && !(framed && (arg.Segment == x86asm.GS || arg.Segment == x86asm.FS)) || arg.Base == x86asm.EIP {
+				// The original Delphi leaf reads NT_TIB.StackBase with a single
+				// MOV RAX, GS:[8]. This absolute offset is thread-relative.
+				threadStackBase := nativeFunction && d.inst.Op == x86asm.MOV && d.inst.Args[0] == x86asm.RAX &&
+					arg.Segment == x86asm.GS && arg.Base == 0 && arg.Index == 0 && arg.Disp == 8 &&
+					d.inst.Len == 11 && code[d.offset] == 0x65 && code[d.offset+1] == 0x48 && code[d.offset+2] == 0xa1
+				if arg.Segment != 0 && !flatString && !threadStackBase && !(framed && (arg.Segment == x86asm.GS || arg.Segment == x86asm.FS)) || arg.Base == x86asm.EIP {
 					return fail("segmented/address-size memory")
 				}
 				if !framed && (arg.Index == x86asm.RSP || arg.Index == x86asm.ESP) {

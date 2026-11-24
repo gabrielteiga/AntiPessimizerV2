@@ -92,3 +92,24 @@ func TestStackBitWritesCannotIndexIntoReturnOrCallerSlots(t *testing.T) {
 		t.Fatal("dynamic stack bit offset accepted", err)
 	}
 }
+
+func TestNativeThreadStackBaseReadKeepsExactEncoding(t *testing.T) {
+	source := []byte{0x65, 0x48, 0xa1, 8, 0, 0, 0, 0, 0, 0, 0, 0xc3}
+	plan := func(code []byte) (FunctionPlan, error) {
+		return BuildPEFunction(scalarImage(code), peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 1)
+	}
+	p, err := plan(source)
+	if err != nil || !bytes.Equal(p.Image[p.BodyRVA:p.BodyRVA+11], source[:11]) {
+		t.Fatal("StackBase operand changed", err)
+	}
+	for _, change := range []struct {
+		i int
+		b byte
+	}{{0, 0x64}, {2, 0xa3}, {3, 0x10}} {
+		code := bytes.Clone(source)
+		code[change.i] = change.b
+		if _, err := plan(code); err == nil {
+			t.Fatal("other TEB access accepted", code)
+		}
+	}
+}

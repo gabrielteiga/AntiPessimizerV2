@@ -79,9 +79,9 @@ preferências e empacotamento Windows. Não recomece essas partes.
   continuam explícitos. Attach arbitrário e instrumentação de DLLs/BPLs não são
   funcionalidades do launcher atual.
 
-A verificação estática da DLL original fixada aceita 8.646 de 8.777 entradas
+A verificação estática da DLL original fixada aceita 8.647 de 8.777 entradas
 runtime sem seleção, incluindo 523 métodos com scopes Delphi. Os ensaios de
-execução verificam 13 rotinas e 1.300 comparações, além do construtor e da
+execução verificam 14 rotinas e 1.400 comparações, além do construtor e da
 worker com RTL real. A cobertura de execução depende dessas fixtures.
 
 ## Ambiente e comandos
