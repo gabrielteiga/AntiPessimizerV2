@@ -245,3 +245,25 @@ func TestExactDelphiCPUFeatureMaskAddsOnlyUnwind(t *testing.T) {
 		t.Fatal("CPU query with a different epilogue accepted", err)
 	}
 }
+
+func TestDelphiControlWordLeavesDescribeEightByteStack(t *testing.T) {
+	for _, code := range [][]byte{delphiX87ControlLeaf, delphiMXCSRLeaf} {
+		build := func(code []byte) (FunctionPlan, error) {
+			return BuildPEFunction(scalarImage(code), peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 1)
+		}
+		p, err := build(code)
+		if err != nil {
+			t.Fatal(err)
+		}
+		info := p.Functions[1].Unwind
+		if !bytes.Equal(p.Image[info:info+8], []byte{17, 2, 1, 0, 2, 2, 0, 0}) ||
+			!bytes.Equal(p.Image[p.BodyRVA:p.BodyRVA+uint32(len(code))-1], code[:len(code)-1]) {
+			t.Fatal("control-word allocation or bytes changed")
+		}
+		changed := bytes.Clone(code)
+		changed[1] = 1
+		if _, err := build(changed); !errors.Is(err, ErrUnsupported) {
+			t.Fatal("unreviewed temporary initialization accepted", err)
+		}
+	}
+}

@@ -397,3 +397,8 @@ O RVA 0x60210 consulta a folha 1 de CPUID e forma uma máscara de recursos.
 O planejador mantém o PUSH/POP RBX original e acrescenta o unwind v1 no
 clone. O ensaio confere a máscara pelos bits de ECX da mesma CPU lógica.
 São 17 rotinas executadas, 1.700 pares e 8.653 planos estáticos aceitos.
+
+Os RVAs 0x9cd0 e 0x9d50 leem o controle x87 e MXCSR, respectivamente.
+O clone descreve o slot temporário de oito bytes no unwind. A suíte verifica
+os valores e cada fase da pilha. São 19 rotinas executadas, 1.900 pares
+e 8.655 planos estáticos aceitos.
