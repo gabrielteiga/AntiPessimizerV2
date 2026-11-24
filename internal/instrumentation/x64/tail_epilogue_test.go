@@ -22,7 +22,7 @@ func TestTailEpilogueMatchesAllocationPopOrderAndFrameBias(t *testing.T) {
 			if err := validatePrologueActions(c.code, c.info); err != nil {
 				t.Fatal(err)
 			}
-			if !verifiedTailEpilogues(c.code, c.info)[c.tail] {
+			if verifiedTailEpilogues(c.code, c.info)[c.tail] == 0 {
 				t.Fatal("verified epilogue rejected")
 			}
 			image := scalarImage(c.code)
@@ -40,7 +40,7 @@ func TestTailEpilogueMatchesAllocationPopOrderAndFrameBias(t *testing.T) {
 			}
 			broken := append([]byte(nil), c.code...)
 			broken[c.tail-1] = 0x90
-			if verifiedTailEpilogues(broken, c.info)[c.tail] {
+			if verifiedTailEpilogues(broken, c.info)[c.tail] != 0 {
 				t.Fatal("missing register restoration accepted")
 			}
 		})
@@ -54,7 +54,7 @@ func TestTailEpilogueRejectsWrongAllocationPopOrderAndBypassedRestoration(t *tes
 		{0x74, 5, 0x48, 0x83, 0xc4, 0x20, 0x5b, 0xe9, 0, 0, 0, 0}, // branch directly to transfer
 	} {
 		code := append([]byte{0x53, 0x48, 0x83, 0xec, 0x20}, suffix...)
-		if verifiedTailEpilogues(code, info)[len(code)-5] {
+		if verifiedTailEpilogues(code, info)[len(code)-5] != 0 {
 			t.Fatal("unverified restoration accepted", suffix)
 		}
 	}
