@@ -392,3 +392,8 @@ O RVA 0xea80 salva o endereço de retorno, a pilha do chamador, GPRs não
 voláteis e XMM6–15. Esse caso amplia o corpus estático para 8.652 entradas.
 O teste Windows usa uma fixture de captura de contexto para conferir PC,
 RSP, RBX, XMM6 e o unwind quando a gravação falha.
+
+O RVA 0x60210 consulta a folha 1 de CPUID e forma uma máscara de recursos.
+O planejador mantém o PUSH/POP RBX original e acrescenta o unwind v1 no
+clone. O ensaio confere a máscara pelos bits de ECX da mesma CPU lógica.
+São 17 rotinas executadas, 1.700 pares e 8.653 planos estáticos aceitos.

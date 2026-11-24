@@ -224,3 +224,24 @@ func TestDelphiCPUIDLeafSynthesizesRBXUnwindWithoutChangingSourceExtent(t *testi
 		t.Fatal("unreviewed CPUID leaf shape accepted", err)
 	}
 }
+
+func TestExactDelphiCPUFeatureMaskAddsOnlyUnwind(t *testing.T) {
+	code := bytes.Clone(delphiCPUFeatureMask)
+	build := func(code []byte) (FunctionPlan, error) {
+		return BuildPEFunction(scalarImage(code), peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 1)
+	}
+	p, err := build(code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := p.Functions[1].Unwind
+	body := p.Image[p.BodyRVA:p.Functions[1].End]
+	if !bytes.Equal(p.Source, code) || !bytes.Equal(p.Original, code[:6]) ||
+		!bytes.Equal(p.Image[info:info+8], []byte{17, 1, 1, 0, 1, 0x30, 0, 0}) || !bytes.Equal(body[:13], code[:13]) || body[len(body)-JumpSize-1] != 0x5b {
+		t.Fatal("incorrect original extent, RBX unwind or CPU query")
+	}
+	code[len(code)-2] = 0x5d
+	if _, err := build(code); !errors.Is(err, ErrUnsupported) {
+		t.Fatal("CPU query with a different epilogue accepted", err)
+	}
+}
