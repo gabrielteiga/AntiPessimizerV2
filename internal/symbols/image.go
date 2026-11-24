@@ -26,9 +26,9 @@ type Image struct {
 }
 
 // LoadImage supports the single-code-segment convention used by AntiPessimizer:
-// TD32 segment 1 is relative to PE BaseOfCode. Other layouts are rejected rather
-// than guessing a segment-to-section correspondence. A symbol-free image yields
-// a usable empty index; malformed symbols or unsupported mappings return errors.
+// TD32 segment 1 is relative to the code section at PE BaseOfCode. Additional
+// sections do not imply additional TD32 mappings. A symbol-free image yields a
+// usable empty index; malformed symbols or unsupported mappings return errors.
 func LoadImage(path string) (*Image, error) {
 	return loadImageFile(path, false)
 }
@@ -103,20 +103,37 @@ func loadImage(data []byte, path string, includeSource bool) (*Image, error) {
 		result.SymbolSource = source
 		return result, nil
 	}
-	var segment Segment
-	executable := 0
+	var primary *pe.Section
 	for _, s := range f.Sections {
-		if s.Characteristics&pe.IMAGE_SCN_MEM_EXECUTE == 0 {
+		if s.VirtualAddress != code {
 			continue
 		}
-		executable++
-		if s.VirtualAddress != code || s.VirtualSize == 0 || s.Characteristics&pe.IMAGE_SCN_CNT_CODE == 0 {
-			return nil, fmt.Errorf("unsupported TD32 layout: code section must start at BaseOfCode")
+		const codeFlags = pe.IMAGE_SCN_CNT_CODE | pe.IMAGE_SCN_MEM_EXECUTE
+		if primary != nil || s.VirtualSize == 0 || s.Characteristics&codeFlags != codeFlags {
+			return nil, fmt.Errorf("unsupported TD32 layout: BaseOfCode must start one executable code section")
 		}
-		segment = Segment{uint64(s.VirtualAddress), uint64(s.VirtualSize)}
+		primary = s
 	}
-	if executable != 1 || code == 0 {
-		return nil, fmt.Errorf("unsupported TD32 layout: expected one executable code section")
+	if primary == nil || code == 0 {
+		return nil, fmt.Errorf("unsupported TD32 layout: no executable section starts at BaseOfCode")
+	}
+	segment := Segment{uint64(code), uint64(primary.VirtualSize)}
+	virtualEnd := segment.RVA + uint64(max(primary.VirtualSize, primary.Size))
+	rawBegin, rawEnd := uint64(primary.Offset), uint64(primary.Offset)+uint64(primary.Size)
+	if virtualEnd > result.Size {
+		return nil, fmt.Errorf("unsupported TD32 layout: code section exceeds SizeOfImage")
+	}
+	for _, s := range f.Sections {
+		if s == primary {
+			continue
+		}
+		virtualSize := uint64(max(s.VirtualSize, s.Size))
+		if virtualSize != 0 && uint64(s.VirtualAddress) < virtualEnd && segment.RVA < uint64(s.VirtualAddress)+virtualSize {
+			return nil, fmt.Errorf("unsupported TD32 layout: virtual section overlaps BaseOfCode section")
+		}
+		if primary.Size != 0 && s.Size != 0 && uint64(s.Offset) < rawEnd && rawBegin < uint64(s.Offset)+uint64(s.Size) {
+			return nil, fmt.Errorf("unsupported TD32 layout: raw section overlaps BaseOfCode section")
+		}
 	}
 	result.code = segment
 	result.Index, err = fromProcedures(result.ID, result.Name, result.Size, ps, map[uint16]Segment{1: segment})
