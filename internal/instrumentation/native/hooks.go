@@ -26,7 +26,8 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 	if _, err := io.ReadFull(conn, offer[:]); err != nil {
 		return fmt.Errorf("hook allocation offer: %w", err)
 	}
-	xmmSavePlans := string(offer[:8]) == "APHOOKE\x00"
+	inheritedHandlers := string(offer[:8]) == "APHOOKF\x00"
+	xmmSavePlans := inheritedHandlers || string(offer[:8]) == "APHOOKE\x00"
 	multipleSavePlans := xmmSavePlans || string(offer[:8]) == "APHOOKD\x00"
 	chainPlans := multipleSavePlans || string(offer[:8]) == "APHOOKC\x00"
 	tinyPlans := chainPlans || string(offer[:8]) == "APHOOKB\x00"
@@ -110,6 +111,9 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 			plan, err := prepared.BuildSelectedFunction(proc.RVA, size, loaded, allocation+uint64(offset), enter, exit, cleanup, proc.ID, targets)
 			if err != nil {
 				return fmt.Errorf("procedure %d frame plan: %w", proc.ID, err)
+			}
+			if plan.InheritedHandler && !inheritedHandlers {
+				return errors.New("update the native adapter DLL: inherited chained handlers require APHOOKF")
 			}
 			if len(plan.Functions) == 4 && !chainPlans {
 				return errors.New("update the native adapter DLL: chained nonvolatile saves require APHOOKC")
