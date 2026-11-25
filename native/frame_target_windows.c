@@ -203,6 +203,26 @@ __asm__(
  ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
  ".rva .Lmultiple_saves_try,.Lmultiple_saves_try_end,APFrameMemoryFilter,.Lmultiple_saves_catch\n .text\n .seh_endproc\n"
 );
+extern uint64_t APFrameMixedSaves(const uint64_t *),APFrameMixedSavesCatch(void);
+__asm__(
+ ".text\n .globl APFrameMixedSaves\n .def APFrameMixedSaves; .scl 2; .type 32; .endef\n"
+ "APFrameMixedSaves:\n subq $56,%rsp\n .fill 8,1,0x90\n"
+ ".globl APFrameMixedSavesCold\n .def APFrameMixedSavesCold; .scl 2; .type 32; .endef\n"
+ "APFrameMixedSavesCold:\n movq %rbx,32(%rsp)\n movaps %xmm6,16(%rsp)\n movq %rcx,%rbx\n pxor %xmm6,%xmm6\n movq (%rbx),%rax\n"
+ "movaps 16(%rsp),%xmm6\n movq 32(%rsp),%rbx\n addq $56,%rsp\n ret\n .Lmixed_saves_end:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n .Lmixed_saves_primary:\n .byte 1,4,1,0,4,0x62,0,0\n"
+ ".Lmixed_saves_secondary:\n .byte 33,10,4,0,10,0x68,1,0,5,0x34,4,0\n .rva APFrameMixedSaves,APFrameMixedSavesCold,.Lmixed_saves_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n .rva APFrameMixedSaves,APFrameMixedSavesCold,.Lmixed_saves_primary\n"
+ ".rva APFrameMixedSavesCold,.Lmixed_saves_end,.Lmixed_saves_secondary\n"
+ ".text\n .globl APFrameMixedSavesCatch\n .def APFrameMixedSavesCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameMixedSavesCatch\n APFrameMixedSavesCatch:\n pushq %rbx\n .seh_pushreg %rbx\n subq $48,%rsp\n .seh_stackalloc 48\n movaps %xmm6,32(%rsp)\n .seh_savexmm %xmm6,32\n .seh_endprologue\n"
+ "movl $0x42012345,%ebx\n movl $0x44113322,%edx\n movq %rdx,%xmm6\n movl $0x55667788,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm6\n .Lmixed_saves_try:\n xorq %rcx,%rcx\n call APFrameMixedSaves\n nop\n"
+ ".Lmixed_saves_try_end:\n xorl %eax,%eax\n jmp .Lmixed_saves_return\n"
+ ".Lmixed_saves_catch:\n xorl %eax,%eax\n cmpl $0x42012345,%ebx\n sete %al\n movq %xmm6,%rdx\n cmpl $0x44113322,%edx\n sete %cl\n andb %cl,%al\n movhlps %xmm6,%xmm0\n movq %xmm0,%rdx\n cmpl $0x55667788,%edx\n sete %cl\n andb %cl,%al\n"
+ ".Lmixed_saves_return:\n movaps 32(%rsp),%xmm6\n addq $48,%rsp\n popq %rbx\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Lmixed_saves_try,.Lmixed_saves_try_end,APFrameMemoryFilter,.Lmixed_saves_catch\n .text\n .seh_endproc\n"
+);
 
 
 extern uint64_t APFrameLarge(uint64_t),APFrameLargeCatch(void);
@@ -485,6 +505,8 @@ static DWORD WINAPI worker(void *unused){
   const uint64_t value=UINT64_C(0x1122334455667788);
   if(check_chain==3){
    if(APFrameLocalSave(&value)!=value || APFrameLocalSaveCatch()!=1)return 12;
+  }else if(check_chain==5){
+   if(APFrameMixedSaves(&value)!=value || APFrameMixedSavesCatch()!=1)return 12;
   }else if(check_chain==4){
    if(APFrameMultipleSaves(&value)!=value || APFrameMultipleSavesCatch()!=1)return 12;
   }else if(check_chain==2){

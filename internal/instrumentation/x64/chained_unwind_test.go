@@ -217,3 +217,34 @@ func TestChainedLocalSavesRejectConflictingMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestChainedXMMAndGeneralSavesValidateDistinctSlots(t *testing.T) {
+	primary := []byte{1, 4, 1, 0, 4, 0x62, 0, 0}
+	code := []byte{
+		0x48, 0x83, 0xec, 0x38, 0x90, 0x90, 0xeb, 0,
+		0x48, 0x89, 0x5c, 0x24, 32,
+		0x0f, 0x29, 0x74, 0x24, 16,
+		0x48, 0x8b, 0x01,
+		0x0f, 0x28, 0x74, 0x24, 16,
+		0x48, 0x8b, 0x5c, 0x24, 32,
+		0x48, 0x83, 0xc4, 0x38, 0xc3,
+	}
+	valid := []byte{33, 10, 4, 0, 10, 0x68, 1, 0, 5, 0x34, 4, 0}
+	if err := validateLocalSave(code, primary, 8, valid); err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []struct {
+		at int
+		b  byte
+	}{
+		{5, 0x58}, // XMM5 is volatile
+		{6, 3},    // extends beyond allocation
+		{10, 3},   // RBX overlaps high half of XMM6
+	} {
+		local := bytes.Clone(valid)
+		local[change.at] = change.b
+		if err := validateLocalSave(code, primary, 8, local); !errors.Is(err, ErrUnsupported) {
+			t.Fatal("invalid mixed save accepted", change, err)
+		}
+	}
+}
