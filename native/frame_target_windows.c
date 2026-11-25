@@ -324,11 +324,11 @@ __asm__(
 extern uint64_t APFrameBiasedLocalSaves(const uint64_t *),APFrameBiasedLocalSavesCatch(void);
 __asm__(
  ".text\n .globl APFrameBiasedLocalSaves\n .def APFrameBiasedLocalSaves; .scl 2; .type 32; .endef\n"
- "APFrameBiasedLocalSaves:\n pushq %rbp\n subq $56,%rsp\n leaq 32(%rsp),%rbp\n .fill 8,1,0x90\n"
+ "APFrameBiasedLocalSaves:\n pushq %rbp\n subq $48,%rsp\n leaq 32(%rsp),%rbp\n .fill 8,1,0x90\n"
  ".globl APFrameBiasedLocalSavesCold\n .def APFrameBiasedLocalSavesCold; .scl 2; .type 32; .endef\n"
  "APFrameBiasedLocalSavesCold:\n movq %rbx,40(%rsp)\n movaps %xmm6,16(%rsp)\n movq %rcx,%rbx\n pxor %xmm6,%xmm6\n movq (%rbx),%rax\n"
- "movaps 16(%rsp),%xmm6\n movq 40(%rsp),%rbx\n leaq 24(%rbp),%rsp\n popq %rbp\n ret\n .Lbiased_local_saves_end:\n"
- ".section .xdata,\"dr\"\n .p2align 2\n .Lbiased_local_saves_primary:\n .byte 1,10,3,0x25,10,3,5,0x62,1,0x50,0,0\n"
+ "movaps 16(%rsp),%xmm6\n movq 40(%rsp),%rbx\n leaq 16(%rbp),%rsp\n popq %rbp\n ret\n .Lbiased_local_saves_end:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n .Lbiased_local_saves_primary:\n .byte 1,10,3,0x25,10,3,5,0x52,1,0x50,0,0\n"
  ".Lbiased_local_saves_secondary:\n .byte 33,10,4,0x25,10,0x68,1,0,5,0x34,5,0\n .rva APFrameBiasedLocalSaves,APFrameBiasedLocalSavesCold,.Lbiased_local_saves_primary\n"
  ".section .pdata,\"dr\"\n .p2align 2\n .rva APFrameBiasedLocalSaves,APFrameBiasedLocalSavesCold,.Lbiased_local_saves_primary\n"
  ".rva APFrameBiasedLocalSavesCold,.Lbiased_local_saves_end,.Lbiased_local_saves_secondary\n"

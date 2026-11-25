@@ -429,7 +429,7 @@ func TestChainedFullWidthXMMMoveVariants(t *testing.T) {
 }
 
 func frameLocalSavePE(release []byte) ([]byte, []byte) {
-	code := []byte{0x55, 0x48, 0x83, 0xec, 0x38, 0x48, 0x8d, 0x6c, 0x24, 32}
+	code := []byte{0x55, 0x48, 0x83, 0xec, 0x30, 0x48, 0x8d, 0x6c, 0x24, 32}
 	code = append(code, bytes.Repeat([]byte{0x90}, 8)...)
 	code = append(code, 0x48, 0x89, 0x5c, 0x24, 40, 0x0f, 0x29, 0x74, 0x24, 16, 0x48, 0x8b, 0x01,
 		0x0f, 0x28, 0x74, 0x24, 16, 0x48, 0x8b, 0x5c, 0x24, 40)
@@ -441,14 +441,14 @@ func frameLocalSavePE(release []byte) ([]byte, []byte) {
 	put(image[0x40c:], peLeafRVA+18)
 	put(image[0x410:], peLeafRVA+uint32(len(code)))
 	put(image[0x414:], 0x20a0)
-	copy(image[0x480:], []byte{1, 10, 3, 0x25, 10, 3, 5, 0x62, 1, 0x50, 0, 0})
+	copy(image[0x480:], []byte{1, 10, 3, 0x25, 10, 3, 5, 0x52, 1, 0x50, 0, 0})
 	copy(image[0x4a0:], []byte{33, 10, 4, 0x25, 10, 0x68, 1, 0, 5, 0x34, 5, 0})
 	copy(image[0x4ac:], image[0x400:0x40c])
 	return image, code
 }
 
 func TestChainedLocalSavesInheritBiasedFrameRegister(t *testing.T) {
-	for _, release := range [][]byte{{0x48, 0x83, 0xc4, 56}, {0x48, 0x8d, 0x65, 24}} {
+	for _, release := range [][]byte{{0x48, 0x83, 0xc4, 48}, {0x48, 0x8d, 0x65, 16}} {
 		image, code := frameLocalSavePE(release)
 		plan, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
 		if err != nil || len(plan.Functions) != 4 {
@@ -468,5 +468,16 @@ func TestChainedLocalSavesInheritBiasedFrameRegister(t *testing.T) {
 				t.Fatal("mismatched inherited frame accepted", change, err)
 			}
 		}
+	}
+}
+
+func TestChainedLocalSavesRejectMisalignedAlignedXMMMove(t *testing.T) {
+	image, code := frameLocalSavePE([]byte{0x48, 0x83, 0xc4, 48})
+	primary := bytes.Clone(image[0x480:0x48c])
+	primary[7] = 0x62
+	code[4] = 56
+	code[len(code)-3] = 56
+	if err := validateLocalSave(code, primary, 18, image[0x4a0:0x4ac]); !errors.Is(err, ErrUnsupported) {
+		t.Fatal("unaligned MOVAPS save accepted", err)
 	}
 }

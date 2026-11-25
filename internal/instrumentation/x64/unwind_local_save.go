@@ -106,6 +106,12 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 			default:
 				return fail()
 			}
+			// Win64 entry RSP includes an eight-byte return slot. The
+			// primary's allocation and pushes determine each save's alignment.
+			aligned := op == x86asm.MOVAPS || op == x86asm.MOVAPD || op == x86asm.MOVDQA
+			if aligned && (uint64(metadata.disp)+8)%16 != (allocation+uint64(len(pops))*8)%16 {
+				return fail()
+			}
 		}
 		matchesSlot := func(arg x86asm.Arg) bool {
 			mem, ok := arg.(x86asm.Mem)
