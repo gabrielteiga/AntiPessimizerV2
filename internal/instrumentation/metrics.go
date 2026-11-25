@@ -90,7 +90,7 @@ func (r Record) Validate() error {
 			{row.InclusiveTicks, row.InclusiveNS, row.AverageInclusiveNS},
 			{row.ExclusiveTicks, row.ExclusiveNS, row.AverageExclusiveNS},
 		} {
-			ns, err := nanoseconds(duration.ticks, s.Frequency)
+			ns, err := NanosecondsFromTicks(duration.ticks, s.Frequency)
 			want := float64(duration.ticks) * 1e9 / float64(s.Frequency) / float64(row.Calls)
 			if err != nil || ns != duration.ns || duration.average < 0 || math.IsNaN(duration.average) || math.IsInf(duration.average, 0) || math.Abs(duration.average-want) > math.Max(1e-9, math.Abs(want)*1e-12) {
 				return errors.New("inconsistent instrumentation time/average")

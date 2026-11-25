@@ -105,6 +105,14 @@ Ao fechar, a janela salva caminho do EXE, filtros, unidade de tempo e layout das
 colunas em `%AppData%\AntiPessimizerV2\viewer.json`. **Diagnóstico** abre o
 histórico recente de estados e falhas da janela, com opção de copiar.
 
+O campo **Desconto/chamada (ticks QPC)** aplica um desconto configurado a cada
+chamada concluída, com saturação em zero, nos tempos apresentados e nas médias.
+O padrão é zero. Valores positivos identificam as colunas como ajustadas. A
+comparação aplica o desconto a cada captura com sua frequência e recalcula os
+deltas após a saturação. A ordenação usa as medições originais, seguindo o
+viewer de referência. A preferência persiste ao reabrir. Os snapshots e o
+histórico gravado conservam as medições coletadas.
+
 O seletor de tempo oferece ns, us, ms, s e ticks do relógio. Ticks QPC não são
 ciclos de CPU. A troca de unidade preserva contagens, ordenação e arquivo.
 Sinais periódicos atualizam a janela durante chamadas longas, sem inventar

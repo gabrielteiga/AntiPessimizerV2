@@ -13,7 +13,7 @@ import (
 )
 
 func (m *Model) metricComparisonHeaders() []string {
-	unit := m.MetricUnit.label()
+	unit := m.metricTimeLabel()
 	return []string{"Chamadas antes", "Chamadas depois", "Δ chamadas", "Exclusivo antes (" + unit + ")", "Exclusivo depois (" + unit + ")", "Δ média exclusiva (" + unit + ")", "Inclusivo antes (" + unit + ")", "Inclusivo depois (" + unit + ")", "Δ média inclusiva (" + unit + ")", "Média exclusiva antes (" + unit + ")", "Média exclusiva depois (" + unit + ")", "Média inclusiva antes (" + unit + ")", "Média inclusiva depois (" + unit + ")", "Procedimento", "Unidade Pascal", "Módulo", "RVA"}
 }
 func (m *Model) rebuildMetricComparison(f report.Filter) error {
@@ -116,7 +116,19 @@ func (m *Model) rebuildMetricComparison(f report.Filter) error {
 	}
 	m.Rows = nil
 	for _, c := range changes {
-		a, b := c.Before, c.After
+		a, err := discountedMetricTotals(c.Before, comparison.Before.Frequency, m.CallDiscountTicks)
+		if err != nil {
+			return err
+		}
+		b, err := discountedMetricTotals(c.After, comparison.After.Frequency, m.CallDiscountTicks)
+		if err != nil {
+			return err
+		}
+		if m.CallDiscountTicks != 0 && a.Calls > 0 && b.Calls > 0 {
+			exclusive := *b.AverageExclusiveNS - *a.AverageExclusiveNS
+			inclusive := *b.AverageInclusiveNS - *a.AverageInclusiveNS
+			c.AverageExclusiveDeltaNS, c.AverageInclusiveDeltaNS = &exclusive, &inclusive
+		}
 		m.Rows = append(m.Rows, []string{strconv.FormatUint(a.Calls, 10), strconv.FormatUint(b.Calls, 10), c.CallDelta, unit.total(a.ExclusiveNS, a.ExclusiveTicks), unit.total(b.ExclusiveNS, b.ExclusiveTicks), delta(c.AverageExclusiveDeltaNS), unit.total(a.InclusiveNS, a.InclusiveTicks), unit.total(b.InclusiveNS, b.InclusiveTicks), delta(c.AverageInclusiveDeltaNS), average(a.AverageExclusiveNS, a.ExclusiveTicks, a.Calls), average(b.AverageExclusiveNS, b.ExclusiveTicks, b.Calls), average(a.AverageInclusiveNS, a.InclusiveTicks, a.Calls), average(b.AverageInclusiveNS, b.InclusiveTicks, b.Calls), c.Procedure, c.Unit, c.Module, c.RVA})
 	}
 	return nil

@@ -155,11 +155,11 @@ func aggregateComparison(r Record) (map[string]ProcedureTotals, error) {
 	}
 	for key, t := range result {
 		var err error
-		t.InclusiveNS, err = nanoseconds(t.InclusiveTicks, r.Metrics.Frequency)
+		t.InclusiveNS, err = NanosecondsFromTicks(t.InclusiveTicks, r.Metrics.Frequency)
 		if err != nil {
 			return nil, err
 		}
-		t.ExclusiveNS, err = nanoseconds(t.ExclusiveTicks, r.Metrics.Frequency)
+		t.ExclusiveNS, err = NanosecondsFromTicks(t.ExclusiveTicks, r.Metrics.Frequency)
 		if err != nil {
 			return nil, err
 		}
