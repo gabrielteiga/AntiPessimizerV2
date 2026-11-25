@@ -138,14 +138,24 @@ de atribuição de ontem continuará, nem pedir teste manual ao usuário.
   secundária e usa os dados do handler primário. O adaptador mantém essa identidade,
   confere a cadeia original e negocia APHOOKF. Windows exige cleanup, captura e
   captura/finally combinados, com métricas e finalizadores exatos.
-- O PR #96 usa `feat/chained-far-saves`, worktree
-  `/workspace/work/AntiPessimizerV2-far-saves`. Acrescenta SAVE_NONVOL_FAR e
-  SAVE_XMM128_FAR com offsets sem escala, alinhamento dos códigos ímpares antes
-  do vínculo runtime, slots não sobrepostos e negociação APHOOKG. A fixture ímpar
-  encontrou e corrigiu a realocação do vínculo quando o método ocupa um stride
-  posterior. O teste Go usa dois procedimentos e confere os três campos do
-  runtime embutido após o padding. Conferir o estado do #96 e seu último head
-  antes de considerar esse bloco integrado. O MinGW local está em
+- O #96 foi integrado em `798e49429af76f2a540caeaaf9a4a30c50d8377a` após
+  todos os checks do head `e686d9b92bd98f656e285697990cfcfc337d5c0f` aprovados.
+  A árvore é idêntica ao head. CI pós-merge 45689513139 em acompanhamento.
+  Acrescenta SAVE_NONVOL_FAR/SAVE_XMM128_FAR com offsets sem escala, alinhamento
+  dos códigos ímpares e negociação APHOOKG. A fixture ímpar encontrou e corrigiu
+  a realocação do vínculo para métodos num stride posterior. O teste Go confere
+  os três campos runtime após o padding com dois procedimentos na seleção.
+- Próximo incremento em `feat/chained-xmm-moves`, worktree
+  `/workspace/work/AntiPessimizerV2-xmm-moves`. Acrescenta MOVAPD, MOVUPD, MOVDQA
+  e MOVDQU aos saves locais XMM de 128 bits. As quatro fixtures são produzidas
+  pelo mesmo template e conferem RBX/XMM6 após access violation real. O teste
+  Go também exige rejeição de saves parciais MOVSD. Conferir o PR e o último SHA.
+- A leitura de `src/gui.cpp` da revisão fixada confirmou uma preferência ainda
+  aberta do bloco 5: `Cycle discount`/`FixedCycleDiscount`. Ela desconta por
+  chamada os tempos apresentados, satura em zero e persiste no arquivo de
+  configuração. Planejar o equivalente para QPC e cobrir arquivo, navegação,
+  médias e comparação antes de marcar essa preferência concluída.
+- O MinGW local está em
   `/workspace/work/toolchains/mingw/root/usr/bin/x86_64-w64-mingw32-gcc-posix`.
 - O #61 incorporou a main após #93 em `95592017084f136cae8386e82631a4272e2b711a`.
   Testes locais passaram. A execução licenciada 45631995894/job 139267375260

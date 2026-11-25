@@ -137,10 +137,16 @@ func TestNativeProducerUnwindsChainedOddSlotFarSave(t *testing.T) {
 	testNativeInheritedChainedFrame(t, "APFrameFarGPRSave", 0, "12")
 }
 
+func TestNativeProducerUnwindsFullWidthXMMMoveVariants(t *testing.T) {
+	for _, tc := range []struct{ symbol, mode string }{{"APFrameMOVAPD", "13"}, {"APFrameMOVUPD", "14"}, {"APFrameMOVDQA", "15"}, {"APFrameMOVDQU", "16"}} {
+		t.Run(tc.symbol, func(t *testing.T) { testNativeInheritedChainedFrame(t, tc.symbol, 0, tc.mode) })
+	}
+}
+
 func testNativeInheritedChainedFrame(t *testing.T, symbol string, gap uint32, mode string) {
 	t.Helper()
 	names := map[string]uint32{symbol: 1, symbol + "Cold": 2}
-	withStackProbe := mode == "3" || mode == "4" || mode == "5" || mode == "6" || mode == "7" || mode == "11" || mode == "12"
+	withStackProbe := mode == "3" || mode == "4" || mode == "5" || mode == "6" || mode == "7" || mode == "11" || mode == "12" || mode == "13" || mode == "14" || mode == "15" || mode == "16"
 	if withStackProbe {
 		names["APFrameStackProbe"] = 3
 	}

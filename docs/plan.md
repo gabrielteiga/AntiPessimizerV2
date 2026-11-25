@@ -50,7 +50,7 @@ sem converter esse valor em chamadas ou duração por chamada.
    preservar a busca do handler, seu cleanup e a retomada de execução, incluindo
    exceções aninhadas/recursivas, sem falsificar métricas nem quebrar o programa.
 2. **Cobertura de código e metadados.** Ampliar somente com casos conferidos:
-   unwind encadeado com ações além de saves locais `SAVE_NONVOL`, `SAVE_NONVOL_FAR`, `SAVE_XMM128` e `SAVE_XMM128_FAR` (MOVAPS/MOVUPS, com alocação primária SUB/ALLOC_SMALL ou ALLOC_LARGE conferida), handlers além do cleanup UHANDLER-only e dos scopes CRT conferidos em fragmentos que herdam o frame, ou lacunas além de padding inalcançável,
+   unwind encadeado com ações além de saves locais `SAVE_NONVOL`, `SAVE_NONVOL_FAR`, `SAVE_XMM128` e `SAVE_XMM128_FAR` (MOVAPS/MOVUPS/MOVAPD/MOVUPD/MOVDQA/MOVDQU, com alocação primária SUB/ALLOC_SMALL ou ALLOC_LARGE conferida), handlers além do cleanup UHANDLER-only e dos scopes CRT conferidos em fragmentos que herdam o frame, ou lacunas além de padding inalcançável,
    outras versões de unwind, epílogos e instruções ainda recusados. Saltos diretos
    e saltos por R11 para destinos estáticos já aceitam epílogos ADD/LEA e POPs
    conferidos. Sem frame, dois LEAs e CMOV permitem escolher entre entradas
@@ -83,7 +83,10 @@ sem converter esse valor em chamadas ou duração por chamada.
    buffer só aumentam junto dessas medições.
    [PR #61](https://github.com/gabrielteiga/AntiPessimizerV2/pull/61).
 5. **Complementos do fluxo principal.** Demais preferências/diagnósticos do
-   original, conforme a auditoria de fidelidade. Attach a processo arbitrário e
+   original, conforme a auditoria de fidelidade. A preferência de desconto de tempo
+   por chamada na apresentação (`Cycle discount`/`FixedCycleDiscount` da revisão
+   fixada) ainda precisa de equivalente para o relógio QPC, com saturação em zero
+   e persistência. Attach a processo arbitrário e
    DLLs/BPLs não são apresentados como implementados pelo lançamento do EXE.
 
 Não há paridade completa enquanto esses gates materiais estiverem abertos.
