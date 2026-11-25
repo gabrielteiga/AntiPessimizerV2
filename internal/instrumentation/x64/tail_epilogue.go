@@ -5,12 +5,11 @@ import (
 	"golang.org/x/arch/x86/x86asm"
 )
 
-// Verify a deliberately small tail epilogue against the original unwind
-// actions. Saved-register MOVs/SSE, interleaved push/allocation and LEAVE need
-// independent evidence. The caller separately excludes all language handlers.
-func verifiedTailEpilogues(code, info []byte) map[int]int {
+// stackFrameLayout describes pushes followed by fixed allocation and optional
+// frame-pointer setup. Memory saves and interleaved pushes need another layout.
+func stackFrameLayout(info []byte) (uint64, []x86asm.Reg, bool) {
 	if validateUnwindCodes(info) != nil {
-		return nil
+		return 0, nil, false
 	}
 	var allocation uint64
 	var pops []x86asm.Reg
@@ -41,14 +40,22 @@ func verifiedTailEpilogues(code, info []byte) map[int]int {
 			}
 		case 3:
 		default:
-			return nil
+			return 0, nil, false
 		}
 		at += 1 + extra
 	}
 	for _, offset := range pushed {
 		if offset > firstAllocation {
-			return nil
+			return 0, nil, false
 		}
+	}
+	return allocation, pops, true
+}
+
+func verifiedTailEpilogues(code, info []byte) map[int]int {
+	allocation, pops, ok := stackFrameLayout(info)
+	if !ok {
+		return nil
 	}
 	type instruction struct {
 		at   int
@@ -92,15 +99,7 @@ func verifiedTailEpilogues(code, info []byte) map[int]int {
 				continue
 			}
 			inst := decoded[begin].inst
-			restored := false
-			if inst.Op == x86asm.ADD && inst.Args[0] == x86asm.RSP {
-				imm, ok := inst.Args[1].(x86asm.Imm)
-				restored = ok && imm > 0 && uint64(imm) == allocation
-			}
-			if inst.Op == x86asm.LEA && inst.Args[0] == x86asm.RSP && info[3]&15 != 0 {
-				mem, ok := inst.Args[1].(x86asm.Mem)
-				restored = ok && mem.Base == x86asm.RAX+x86asm.Reg(info[3]&15) && mem.Index == 0 && mem.Segment == 0 && mem.Disp == int64(allocation)-int64(info[3]>>4)*16
-			}
+			restored := verifiedStackRelease(inst, info, allocation)
 			if !restored {
 				continue
 			}
@@ -126,4 +125,17 @@ func verifiedTailEpilogues(code, info []byte) map[int]int {
 		}
 	}
 	return result
+}
+
+func verifiedStackRelease(inst x86asm.Inst, info []byte, allocation uint64) bool {
+	restored := false
+	if inst.Op == x86asm.ADD && inst.Args[0] == x86asm.RSP {
+		imm, ok := inst.Args[1].(x86asm.Imm)
+		restored = ok && imm > 0 && uint64(imm) == allocation
+	}
+	if inst.Op == x86asm.LEA && inst.Args[0] == x86asm.RSP && info[3]&15 != 0 {
+		mem, ok := inst.Args[1].(x86asm.Mem)
+		restored = ok && mem.Base == x86asm.RAX+x86asm.Reg(info[3]&15) && mem.Index == 0 && mem.Segment == 0 && mem.Disp == int64(allocation)-int64(info[3]>>4)*16
+	}
+	return restored
 }
