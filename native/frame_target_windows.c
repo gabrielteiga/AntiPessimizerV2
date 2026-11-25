@@ -342,6 +342,27 @@ __asm__(
  ".rva .Lbiased_local_saves_try,.Lbiased_local_saves_try_end,APFrameMemoryFilter,.Lbiased_local_saves_catch\n .text\n .seh_endproc\n"
 );
 
+extern uint64_t APFrameR12LocalSaves(const uint64_t *),APFrameR12LocalSavesCatch(void);
+__asm__(
+ ".text\n .globl APFrameR12LocalSaves\n .def APFrameR12LocalSaves; .scl 2; .type 32; .endef\n"
+ "APFrameR12LocalSaves:\n pushq %r12\n subq $48,%rsp\n leaq 32(%rsp),%r12\n .fill 8,1,0x90\n"
+ ".globl APFrameR12LocalSavesCold\n .def APFrameR12LocalSavesCold; .scl 2; .type 32; .endef\n"
+ "APFrameR12LocalSavesCold:\n movq %rbx,40(%rsp)\n movaps %xmm6,16(%rsp)\n movq %rcx,%rbx\n pxor %xmm6,%xmm6\n movq (%rbx),%rax\n"
+ "movaps 16(%rsp),%xmm6\n movq 40(%rsp),%rbx\n leaq 16(%r12),%rsp\n popq %r12\n ret\n .Lr12_local_saves_end:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n .Lr12_local_saves_primary:\n .byte 1,11,3,0x2c,11,3,6,0x52,2,0xc0,0,0\n"
+ ".Lr12_local_saves_secondary:\n .byte 33,10,4,0x2c,10,0x68,1,0,5,0x34,5,0\n .rva APFrameR12LocalSaves,APFrameR12LocalSavesCold,.Lr12_local_saves_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n .rva APFrameR12LocalSaves,APFrameR12LocalSavesCold,.Lr12_local_saves_primary\n"
+ ".rva APFrameR12LocalSavesCold,.Lr12_local_saves_end,.Lr12_local_saves_secondary\n"
+ ".text\n .globl APFrameR12LocalSavesCatch\n .def APFrameR12LocalSavesCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameR12LocalSavesCatch\n APFrameR12LocalSavesCatch:\n pushq %rbx\n .seh_pushreg %rbx\n pushq %r12\n .seh_pushreg %r12\n subq $56,%rsp\n .seh_stackalloc 56\n movaps %xmm6,32(%rsp)\n .seh_savexmm %xmm6,32\n .seh_endprologue\n"
+ "movl $0x42012345,%ebx\n movl $0x12345678,%r12d\n movl $0x44113322,%edx\n movq %rdx,%xmm6\n movl $0x55667788,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm6\n .Lr12_local_saves_try:\n xorq %rcx,%rcx\n call APFrameR12LocalSaves\n nop\n"
+ ".Lr12_local_saves_try_end:\n xorl %eax,%eax\n jmp .Lr12_local_saves_return\n"
+ ".Lr12_local_saves_catch:\n xorl %eax,%eax\n cmpl $0x42012345,%ebx\n sete %al\n movq %xmm6,%rdx\n cmpl $0x44113322,%edx\n sete %cl\n andb %cl,%al\n movhlps %xmm6,%xmm0\n movq %xmm0,%rdx\n cmpl $0x55667788,%edx\n sete %cl\n andb %cl,%al\n"
+ "cmpl $0x12345678,%r12d\n sete %cl\n andb %cl,%al\n .Lr12_local_saves_return:\n movaps 32(%rsp),%xmm6\n addq $56,%rsp\n popq %r12\n popq %rbx\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Lr12_local_saves_try,.Lr12_local_saves_try_end,APFrameMemoryFilter,.Lr12_local_saves_catch\n .text\n .seh_endproc\n"
+);
+
 extern uint64_t APFrameLargeSaveFrame(const uint64_t *),APFrameLargeSaveFrameCatch(void);
 __asm__(
  ".text\n .globl APFrameLargeSaveFrame\n .def APFrameLargeSaveFrame; .scl 2; .type 32; .endef\n"
@@ -714,6 +735,8 @@ static DWORD WINAPI worker(void *unused){
   const uint64_t value=UINT64_C(0x1122334455667788);
   if(check_chain==3){
    if(APFrameLocalSave(&value)!=value || APFrameLocalSaveCatch()!=1)return 12;
+  }else if(check_chain==18){
+   if(APFrameR12LocalSaves(&value)!=value || APFrameR12LocalSavesCatch()!=1)return 12;
   }else if(check_chain==17){
    if(APFrameBiasedLocalSaves(&value)!=value || APFrameBiasedLocalSavesCatch()!=1)return 12;
   }else if(check_chain==13){

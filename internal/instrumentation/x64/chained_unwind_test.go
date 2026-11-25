@@ -481,3 +481,25 @@ func TestChainedLocalSavesRejectMisalignedAlignedXMMMove(t *testing.T) {
 		t.Fatal("unaligned MOVAPS save accepted", err)
 	}
 }
+
+func TestChainedLocalSavesUseHighFrameRegister(t *testing.T) {
+	image, original := frameLocalSavePE([]byte{0x48, 0x8d, 0x65, 16})
+	code := []byte{0x41, 0x54, 0x48, 0x83, 0xec, 48, 0x4c, 0x8d, 0x64, 0x24, 32}
+	code = append(code, original[10:len(original)-6]...)
+	code = append(code, 0x49, 0x8d, 0x64, 0x24, 16, 0x41, 0x5c, 0xc3)
+	copy(image[0x220:], code)
+	put := binary.LittleEndian.PutUint32
+	put(image[0x404:], peLeafRVA+19)
+	put(image[0x40c:], peLeafRVA+19)
+	put(image[0x410:], peLeafRVA+uint32(len(code)))
+	copy(image[0x480:], []byte{1, 11, 3, 0x2c, 11, 3, 6, 0x52, 2, 0xc0, 0, 0})
+	image[0x4a3] = 0x2c
+	copy(image[0x4ac:], image[0x400:0x40c])
+	plan, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+	if err != nil || len(plan.Functions) != 4 {
+		t.Fatal("R12 inherited frame rejected", err)
+	}
+	if plan.Image[plan.Functions[1].Unwind+3] != 0x2c || plan.Image[plan.Functions[2].Unwind+3] != 0x2c {
+		t.Fatal("high frame-register identity changed")
+	}
+}
