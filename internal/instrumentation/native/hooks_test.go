@@ -368,3 +368,37 @@ func TestTinyBreakpointRequiresOwnedAdapterBeforePayload(t *testing.T) {
 		}
 	}
 }
+
+func TestInheritedCleanupRequiresFragmentAwareAdapter(t *testing.T) {
+	image := hookImage()
+	put := binary.LittleEndian.PutUint32
+	put(image[128+24+112+3*8:], 0x5100)
+	put(image[128+24+116+3*8:], 24)
+	for i, entry := range [][3]uint32{{0x5020, 0x502a, 0x5140}, {0x502a, 0x5034, 0x5160}} {
+		for j, value := range entry {
+			put(image[0x300+i*12+j*4:], value)
+		}
+	}
+	copy(image[0x340:], []byte{17, 0, 0, 0})
+	put(image[0x344:], 0x5180)
+	copy(image[0x360:], []byte{33, 0, 0, 0})
+	copy(image[0x364:], image[0x300:0x30c])
+	for _, version := range []string{"APHOOKE\x00", "APHOOKF\x00"} {
+		offer := make([]byte, 61)
+		copy(offer, hookOffer()[:48])
+		copy(offer, version)
+		put(offer[24:], largeHookStride+48)
+		binary.LittleEndian.PutUint64(offer[48:], 0x200200)
+		put(offer[56:], 20)
+		offer[60] = 1
+		stream := &hookStream{in: bytes.NewReader(offer)}
+		err := installHooks(stream, image, []Procedure{{1, 0x5020}})
+		if version[6] == 'E' {
+			if err == nil || !strings.Contains(err.Error(), "require APHOOKF") || stream.out.Len() != 1 {
+				t.Fatal("older DLL accepted inherited cleanup", err)
+			}
+		} else if err != nil {
+			t.Fatal("fragment-aware adapter rejected inherited cleanup", err)
+		}
+	}
+}
