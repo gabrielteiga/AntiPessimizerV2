@@ -113,6 +113,10 @@ func TestNativeProducerUnwindsChainedUnalignedXMMSaves(t *testing.T) {
 	testNativeInheritedChainedFrame(t, "APFrameUnalignedSaves", 0, "6")
 }
 
+func TestNativeProducerForwardsCleanupAcrossInheritedChain(t *testing.T) {
+	testNativeInheritedChainedFrame(t, "APFrameCleanupChain", 0, "8")
+}
+
 func testNativeInheritedChainedFrame(t *testing.T, symbol string, gap uint32, mode string) {
 	t.Helper()
 	names := map[string]uint32{symbol: 1, symbol + "Cold": 2}
