@@ -111,7 +111,8 @@ func (a *window) resultColumnMenu(header uintptr, x, y int32) {
 			return
 		}
 	}
-	command, _, _ := user.NewProc("TrackPopupMenu").Call(menu, 0x0102, uintptr(x), uintptr(y), 0, a.hwnd, 0)
+	// TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON
+	command, _, _ := user.NewProc("TrackPopupMenu").Call(menu, 0x0182, uintptr(x), uintptr(y), 0, a.hwnd, 0)
 	if command != 0 && a.tableView == view {
 		a.toggleResultColumn(int(command) - 1)
 	}
