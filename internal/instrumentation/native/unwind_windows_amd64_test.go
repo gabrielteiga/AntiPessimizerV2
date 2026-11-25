@@ -125,6 +125,10 @@ func TestNativeProducerUnwindsChainedLargeAllocation(t *testing.T) {
 	testNativeInheritedChainedFrame(t, "APFrameLargeSaveFrame", 0, "7")
 }
 
+func TestNativeProducerCatchesAndCleansWithinInheritedChain(t *testing.T) {
+	testNativeInheritedChainedFrame(t, "APFrameFinallyChain", 0, "10")
+}
+
 func testNativeInheritedChainedFrame(t *testing.T, symbol string, gap uint32, mode string) {
 	t.Helper()
 	names := map[string]uint32{symbol: 1, symbol + "Cold": 2}
@@ -170,7 +174,7 @@ func testNativeInheritedChainedFrame(t *testing.T, symbol string, gap uint32, mo
 		t.Fatal("chained unwind left incomplete or missing frames", s)
 	}
 	wantUnwound := uint64(1)
-	if mode == "9" {
+	if mode == "9" || mode == "10" {
 		wantUnwound = 0
 	}
 	for _, row := range s.Rows {
