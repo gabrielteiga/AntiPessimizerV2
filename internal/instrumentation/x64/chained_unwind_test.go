@@ -399,3 +399,31 @@ func TestChainedFarSaveAlignsEmbeddedRuntimeRecord(t *testing.T) {
 		}
 	}
 }
+
+func TestChainedFullWidthXMMMoveVariants(t *testing.T) {
+	primary := []byte{1, 7, 2, 0, 7, 1, 69, 0}
+	local := []byte{33, 17, 6, 0, 17, 0x69, 0x10, 2, 0, 0, 8, 0x35, 0x20, 2, 0, 0}
+	for _, tc := range []struct {
+		name                string
+		prefix, store, load byte
+	}{
+		{"MOVAPD", 0x66, 0x29, 0x28}, {"MOVUPD", 0x66, 0x11, 0x10}, {"MOVDQA", 0x66, 0x7f, 0x6f}, {"MOVDQU", 0xf3, 0x7f, 0x6f},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code := []byte{0x48, 0x81, 0xec, 0x28, 2, 0, 0, 0x90, 0xeb, 0, 0x48, 0x89, 0x9c, 0x24, 0x20, 2, 0, 0}
+			code = append(code, tc.prefix, 0x0f, tc.store, 0xb4, 0x24, 0x10, 2, 0, 0)
+			code = append(code, 0x48, 0x8b, 0x01)
+			code = append(code, tc.prefix, 0x0f, tc.load, 0xb4, 0x24, 0x10, 2, 0, 0)
+			code = append(code, 0x48, 0x8b, 0x9c, 0x24, 0x20, 2, 0, 0, 0x48, 0x81, 0xc4, 0x28, 2, 0, 0, 0xc3)
+			if err := validateLocalSave(code, primary, 10, local); err != nil {
+				t.Fatal(err)
+			}
+			partial := bytes.Clone(code)
+			copy(partial[18:21], []byte{0xf2, 0x0f, 0x11})
+			copy(partial[30:33], []byte{0xf2, 0x0f, 0x10})
+			if err := validateLocalSave(partial, primary, 10, local); !errors.Is(err, ErrUnsupported) {
+				t.Fatal("partial-width XMM save accepted", err)
+			}
+		})
+	}
+}

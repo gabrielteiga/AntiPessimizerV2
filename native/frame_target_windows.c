@@ -363,6 +363,34 @@ __asm__(
  ".rva .Lfar_saves_try,.Lfar_saves_try_end,APFrameMemoryFilter,.Lfar_saves_catch\n .text\n .seh_endproc\n"
 );
 
+#define DEFINE_CHAINED_XMM_MOVE(NAME,OP) \
+extern uint64_t NAME(const uint64_t *),NAME##Catch(void); \
+__asm__( \
+ ".text\n .globl " #NAME "\n .def " #NAME "; .scl 2; .type 32; .endef\n" \
+ #NAME ":\n subq $552,%rsp\n .fill 8,1,0x90\n" \
+ ".globl " #NAME "Cold\n .def " #NAME "Cold; .scl 2; .type 32; .endef\n" \
+ #NAME "Cold:\n movq %rbx,544(%rsp)\n " #OP " %xmm6,528(%rsp)\n movq %rcx,%rbx\n pxor %xmm6,%xmm6\n movq (%rbx),%rax\n" \
+ #OP " 528(%rsp),%xmm6\n movq 544(%rsp),%rbx\n addq $552,%rsp\n ret\n .L" #NAME "_end:\n" \
+ ".section .xdata,\"dr\"\n .p2align 2\n .L" #NAME "_primary:\n .byte 1,7,2,0,7,1,69,0\n" \
+ ".L" #NAME "_secondary:\n .byte 33,17,6,0,17,0x69,0x10,2,0,0,8,0x35,0x20,2,0,0\n .rva " #NAME "," #NAME "Cold,.L" #NAME "_primary\n" \
+ ".section .pdata,\"dr\"\n .p2align 2\n .rva " #NAME "," #NAME "Cold,.L" #NAME "_primary\n" \
+ ".rva " #NAME "Cold,.L" #NAME "_end,.L" #NAME "_secondary\n" \
+ ".text\n .globl " #NAME "Catch\n .def " #NAME "Catch; .scl 2; .type 32; .endef\n" \
+ ".seh_proc " #NAME "Catch\n " #NAME "Catch:\n pushq %rbx\n .seh_pushreg %rbx\n subq $48,%rsp\n .seh_stackalloc 48\n movaps %xmm6,32(%rsp)\n .seh_savexmm %xmm6,32\n .seh_endprologue\n" \
+ "movl $0x42012345,%ebx\n movl $0x44113322,%edx\n movq %rdx,%xmm6\n movl $0x55667788,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm6\n .L" #NAME "_try:\n xorq %rcx,%rcx\n call " #NAME "\n nop\n" \
+ ".L" #NAME "_try_end:\n xorl %eax,%eax\n jmp .L" #NAME "_return\n" \
+ ".L" #NAME "_catch:\n xorl %eax,%eax\n cmpl $0x42012345,%ebx\n sete %al\n movq %xmm6,%rdx\n cmpl $0x44113322,%edx\n sete %cl\n andb %cl,%al\n movhlps %xmm6,%xmm0\n movq %xmm0,%rdx\n cmpl $0x55667788,%edx\n sete %cl\n andb %cl,%al\n" \
+ ".L" #NAME "_return:\n movaps 32(%rsp),%xmm6\n addq $48,%rsp\n popq %rbx\n ret\n" \
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n" \
+ ".rva .L" #NAME "_try,.L" #NAME "_try_end,APFrameMemoryFilter,.L" #NAME "_catch\n .text\n .seh_endproc\n" \
+);
+
+DEFINE_CHAINED_XMM_MOVE(APFrameMOVAPD,movapd)
+DEFINE_CHAINED_XMM_MOVE(APFrameMOVUPD,movupd)
+DEFINE_CHAINED_XMM_MOVE(APFrameMOVDQA,movdqa)
+DEFINE_CHAINED_XMM_MOVE(APFrameMOVDQU,movdqu)
+#undef DEFINE_CHAINED_XMM_MOVE
+
 extern uint64_t APFrameUnalignedSaves(const uint64_t *),APFrameUnalignedSavesCatch(void);
 __asm__(
  ".text\n .globl APFrameUnalignedSaves\n .def APFrameUnalignedSaves; .scl 2; .type 32; .endef\n"
@@ -665,6 +693,14 @@ static DWORD WINAPI worker(void *unused){
   const uint64_t value=UINT64_C(0x1122334455667788);
   if(check_chain==3){
    if(APFrameLocalSave(&value)!=value || APFrameLocalSaveCatch()!=1)return 12;
+  }else if(check_chain==13){
+   if(APFrameMOVAPD(&value)!=value || APFrameMOVAPDCatch()!=1)return 12;
+  }else if(check_chain==14){
+   if(APFrameMOVUPD(&value)!=value || APFrameMOVUPDCatch()!=1)return 12;
+  }else if(check_chain==15){
+   if(APFrameMOVDQA(&value)!=value || APFrameMOVDQACatch()!=1)return 12;
+  }else if(check_chain==16){
+   if(APFrameMOVDQU(&value)!=value || APFrameMOVDQUCatch()!=1)return 12;
   }else if(check_chain==11){
    if(APFrameFarSaves(&value)!=value || APFrameFarSavesCatch()!=1)return 12;
   }else if(check_chain==12){

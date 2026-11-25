@@ -105,7 +105,9 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 		op := x86asm.MOV
 		if metadata.xmm {
 			op = fragment[i].Op
-			if op != x86asm.MOVAPS && op != x86asm.MOVUPS {
+			switch op {
+			case x86asm.MOVAPS, x86asm.MOVUPS, x86asm.MOVAPD, x86asm.MOVUPD, x86asm.MOVDQA, x86asm.MOVDQU:
+			default:
 				return fail()
 			}
 		}
