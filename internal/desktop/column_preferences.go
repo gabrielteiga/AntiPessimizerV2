@@ -20,6 +20,7 @@ var defaultColumnWidths = [columnViewCount][]int32{
 type columnLayout struct {
 	Widths [maxResultColumns]int32 `json:"widths"`
 	Order  [maxResultColumns]int32 `json:"order"`
+	Hidden uint32                  `json:"hidden,omitempty"`
 }
 
 type columnPreferences [columnViewCount]columnLayout
@@ -27,6 +28,9 @@ type columnPreferences [columnViewCount]columnLayout
 func (l columnLayout) valid(columns int) bool {
 	if l == (columnLayout{}) {
 		return true
+	}
+	if l.Hidden >= columnMask(columns) {
+		return false
 	}
 	var seen [maxResultColumns]bool
 	for i := 0; i < columns; i++ {
@@ -42,6 +46,10 @@ func (l columnLayout) valid(columns int) bool {
 		}
 	}
 	return true
+}
+
+func columnMask(columns int) uint32 {
+	return (1 << columns) - 1
 }
 
 func (m *Model) columnView() int {

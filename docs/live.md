@@ -73,6 +73,8 @@ está disponível pelo CLI em JSON. Abrir replay não encerra uma coleta existen
 O viewer salva a largura e a ordem das colunas por tipo de resultado. Arraste
 os cabeçalhos para reordenar as colunas. Amostragem, chamadas e suas comparações
 restauram a configuração de cada tabela ao alternar ou reabrir a janela.
+Clique com o botão direito no cabeçalho ou na tabela para mostrar ou ocultar
+colunas. A janela preserva pelo menos uma coluna visível.
 
 **Diagnóstico** alterna a tabela para o histórico de estados da captura,
 falhas de conexão e mensagens de operações do viewer. **Copiar diagnóstico**
