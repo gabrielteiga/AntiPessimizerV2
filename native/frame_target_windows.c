@@ -130,11 +130,14 @@ extern unsigned char APFrameCleanupChainCold[];
 EXCEPTION_DISPOSITION APFrameChainCleanupHandler(PEXCEPTION_RECORD record,PVOID frame,PCONTEXT context,PDISPATCHER_CONTEXT dispatcher){
  (void)frame;(void)context;
  DWORD64 image=(DWORD64)(uintptr_t)GetModuleHandleW(NULL);
- if(!(record->ExceptionFlags&EXCEPTION_UNWINDING) || dispatcher->ImageBase!=image ||
-    image+dispatcher->FunctionEntry->BeginAddress!=(DWORD64)(uintptr_t)APFrameCleanupChain ||
-    image+dispatcher->FunctionEntry->EndAddress!=(DWORD64)(uintptr_t)APFrameCleanupChainCold ||
-    dispatcher->ControlPc!=(DWORD64)(uintptr_t)APFrameCleanupChainCold ||
-    *(uint32_t *)dispatcher->HandlerData!=0x31415926)InterlockedExchange(&chain_cleanup_bad,1);
+ LONG mismatch=0;
+ if(!(record->ExceptionFlags&EXCEPTION_UNWINDING))mismatch|=1;
+ if(dispatcher->ImageBase!=image)mismatch|=2;
+ if(image+dispatcher->FunctionEntry->BeginAddress!=(DWORD64)(uintptr_t)APFrameCleanupChain)mismatch|=4;
+ if(image+dispatcher->FunctionEntry->EndAddress!=(DWORD64)(uintptr_t)APFrameCleanupChainCold)mismatch|=8;
+ if(dispatcher->ControlPc!=(DWORD64)(uintptr_t)APFrameCleanupChainCold)mismatch|=16;
+ if(*(uint32_t *)dispatcher->HandlerData!=0x31415926)mismatch|=32;
+ InterlockedOr(&chain_cleanup_bad,mismatch);
  InterlockedIncrement(&chain_cleanup_count);
  return ExceptionContinueSearch;
 }
@@ -657,6 +660,7 @@ int wmain(int argc,wchar_t **argv){
  }
  }
  CloseHandle(barrier);
+ if(check_chain==8 && (chain_cleanup_bad || chain_cleanup_count!=(LONG)(threads*rounds)))fprintf(stderr,"chain cleanup mismatch=%ld count=%ld expected=%lu\n",chain_cleanup_bad,chain_cleanup_count,(unsigned long)(threads*rounds));
  if(unselected_id){
   HMODULE adapter=GetModuleHandleW(L"AntiPessimizerNative.dll");
   if(!adapter)return 11;
