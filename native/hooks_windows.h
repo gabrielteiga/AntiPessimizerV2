@@ -351,11 +351,11 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
                    hook_u32(info+length+8)!=primary->UnwindData)return FALSE;
                 for(uint32_t at=4;at<4u+info[2]*2u;){
                     uint32_t op=info[at+1]&15;
-                    BOOL far=op==5 || op==9;
+                    BOOL far_offset=op==5 || op==9;
                     if(op!=4 && op!=5 && op!=8 && op!=9)return FALSE;
-                    if(far && chain_version!='G')return FALSE;
+                    if(far_offset && chain_version!='G')return FALSE;
                     if((op==8 || op==9) && chain_version!='E' && chain_version!='F' && chain_version!='G')return FALSE;
-                    uint32_t step=far?6:4;
+                    uint32_t step=far_offset?6:4;
                     if(at+step>4u+info[2]*2u)return FALSE;
                     at+=step;
                 }
