@@ -129,10 +129,18 @@ func TestNativeProducerCatchesAndCleansWithinInheritedChain(t *testing.T) {
 	testNativeInheritedChainedFrame(t, "APFrameFinallyChain", 0, "10")
 }
 
+func TestNativeProducerUnwindsChainedFarRegisterSaves(t *testing.T) {
+	testNativeInheritedChainedFrame(t, "APFrameFarSaves", 0, "11")
+}
+
+func TestNativeProducerUnwindsChainedOddSlotFarSave(t *testing.T) {
+	testNativeInheritedChainedFrame(t, "APFrameFarGPRSave", 0, "12")
+}
+
 func testNativeInheritedChainedFrame(t *testing.T, symbol string, gap uint32, mode string) {
 	t.Helper()
 	names := map[string]uint32{symbol: 1, symbol + "Cold": 2}
-	withStackProbe := mode == "3" || mode == "4" || mode == "5" || mode == "6" || mode == "7"
+	withStackProbe := mode == "3" || mode == "4" || mode == "5" || mode == "6" || mode == "7" || mode == "11" || mode == "12"
 	if withStackProbe {
 		names["APFrameStackProbe"] = 3
 	}

@@ -385,7 +385,7 @@ static void function_exit(uint32_t procedure,uintptr_t entry_sp){record_frame(AP
 static const unsigned char *function_unwind_info(PDISPATCHER_CONTEXT dispatcher){
     const unsigned char *base=(const unsigned char *)(uintptr_t)dispatcher->ImageBase;
     const unsigned char *info=base+dispatcher->FunctionEntry->UnwindData;
-    if(info[0]==33)return base+hook_u32(info+12+info[2]*2); // verified local saves link to the primary
+    if(info[0]==33)return base+hook_u32(info+12+((info[2]+1)&~1)*2); // verified local saves link to the primary
     return info;
 }
 static uintptr_t unwind_entry_sp(PVOID frame,PDISPATCHER_CONTEXT dispatcher){

@@ -366,10 +366,10 @@ func (p *PEImage) chainedUnwind(primaryAt int, procedureEnd uint32, frame byte) 
 		}
 		if info[2] != 0 {
 			// One contiguous final fragment can add local nonvolatile saves.
-			if frame != 0 || len(boundaries) != 0 || nextBegin != end || nextEnd != procedureEnd || info[2]%2 != 0 || info[2] > 16 {
+			if frame != 0 || len(boundaries) != 0 || nextBegin != end || nextEnd != procedureEnd || info[2] > 24 {
 				return nil, nil, nil
 			}
-			length := 4 + uint32(info[2])*2
+			length := 4 + ((uint32(info[2])+1)&^1)*2
 			info, ok = p.mapped(u32(entry[8:]), length+12, false)
 			if !ok || !bytes.Equal(info[length:], primary) {
 				return nil, nil, nil
