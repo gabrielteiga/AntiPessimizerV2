@@ -116,7 +116,8 @@ func TestNativeProducerUnwindsChainedUnalignedXMMSaves(t *testing.T) {
 func testNativeInheritedChainedFrame(t *testing.T, symbol string, gap uint32, mode string) {
 	t.Helper()
 	names := map[string]uint32{symbol: 1, symbol + "Cold": 2}
-	if mode == "3" || mode == "4" || mode == "5" || mode == "6" {
+	withStackProbe := mode == "3" || mode == "4" || mode == "5" || mode == "6"
+	if withStackProbe {
 		names["APFrameStackProbe"] = 3
 	}
 	o := frameSelectionFixture(t, names)
@@ -138,7 +139,7 @@ func testNativeInheritedChainedFrame(t *testing.T, symbol string, gap uint32, mo
 	primary.Size += secondary.Size + gap
 	o.Procedures = append(keep, primary)
 	o.Args = []string{"--threads", "3", "--iterations", "1", "--delay-ms", "0", "--check-chain", mode}
-	if mode == "3" || mode == "4" || mode == "5" || mode == "6" {
+	if withStackProbe {
 		o.Args = append(o.Args, "--check-stack-probe", "1")
 	}
 
@@ -157,7 +158,7 @@ func testNativeInheritedChainedFrame(t *testing.T, symbol string, gap uint32, mo
 		t.Fatal("chained unwind left incomplete or missing frames", s)
 	}
 	for _, row := range s.Rows {
-		if row.ProcedureID != primary.ID && ((mode != "3" && mode != "4" && mode != "5") || row.ProcedureID != 3) || row.Calls != 2 || row.UnwoundCalls != 1 || row.InclusiveTicks == 0 || row.InclusiveTicks != row.ExclusiveTicks {
+		if row.ProcedureID != primary.ID && (!withStackProbe || row.ProcedureID != 3) || row.Calls != 2 || row.UnwoundCalls != 1 || row.InclusiveTicks == 0 || row.InclusiveTicks != row.ExclusiveTicks {
 			t.Fatal("chained procedure did not record one return and one unwind per thread", row)
 		}
 	}
