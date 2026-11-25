@@ -459,6 +459,12 @@ static EXCEPTION_DISPOSITION WINAPI function_unwind(PEXCEPTION_RECORD exception,
     dispatcher->TargetIp=forward_pc(saved.TargetIp,clone,source,source_size,clone_size,data,FALSE);
     dispatcher->ImageBase=image;
     dispatcher->FunctionEntry=(RUNTIME_FUNCTION *)(uintptr_t)(image+hook_u32(data+16));
+    if(dispatcher->FunctionEntry->EndAddress<(uint64_t)hook_u32(data+8)+source_size){
+        DWORD64 original_base=0;
+        RUNTIME_FUNCTION *fragment=RtlLookupFunctionEntry(dispatcher->ControlPc,&original_base,NULL);
+        if(fragment && original_base==image && fragment->BeginAddress>=hook_u32(data+8) &&
+           fragment->EndAddress<=(uint64_t)hook_u32(data+8)+source_size)dispatcher->FunctionEntry=fragment;
+    }
     dispatcher->LanguageHandler=handler.routine;
     dispatcher->HandlerData=(void *)(uintptr_t)(image+hook_u32(data+28));
     if(context)context->Rip=forward_pc(context->Rip,clone,source,source_size,clone_size,data,FALSE);

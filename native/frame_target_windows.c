@@ -126,15 +126,15 @@ __asm__(
 
 static volatile LONG chain_cleanup_count,chain_cleanup_bad;
 extern uint64_t APFrameCleanupChain(const uint64_t *);
-extern unsigned char APFrameCleanupChainCold[];
+extern unsigned char APFrameCleanupChainCold[],APFrameCleanupChainEnd[];
 EXCEPTION_DISPOSITION APFrameChainCleanupHandler(PEXCEPTION_RECORD record,PVOID frame,PCONTEXT context,PDISPATCHER_CONTEXT dispatcher){
  (void)frame;(void)context;
  DWORD64 image=(DWORD64)(uintptr_t)GetModuleHandleW(NULL);
  LONG mismatch=0;
  if(!(record->ExceptionFlags&EXCEPTION_UNWINDING))mismatch|=1;
  if(dispatcher->ImageBase!=image)mismatch|=2;
- if(image+dispatcher->FunctionEntry->BeginAddress!=(DWORD64)(uintptr_t)APFrameCleanupChain)mismatch|=4;
- if(image+dispatcher->FunctionEntry->EndAddress!=(DWORD64)(uintptr_t)APFrameCleanupChainCold)mismatch|=8;
+ if(image+dispatcher->FunctionEntry->BeginAddress!=(DWORD64)(uintptr_t)APFrameCleanupChainCold)mismatch|=4;
+ if(image+dispatcher->FunctionEntry->EndAddress!=(DWORD64)(uintptr_t)APFrameCleanupChainEnd)mismatch|=8;
  if(dispatcher->ControlPc!=(DWORD64)(uintptr_t)APFrameCleanupChainCold)mismatch|=16;
  if(*(uint32_t *)dispatcher->HandlerData!=0x31415926)mismatch|=32;
  InterlockedOr(&chain_cleanup_bad,mismatch);
@@ -150,7 +150,7 @@ __asm__(
  "APFrameCleanupChain:\n pushq %rbx\n subq $32,%rsp\n movq %rcx,%rbx\n .fill 8,1,0x90\n"
  ".globl APFrameCleanupChainCold\n .def APFrameCleanupChainCold; .scl 2; .type 32; .endef\n"
  "APFrameCleanupChainCold:\n movq (%rbx),%rax\n addq $32,%rsp\n popq %rbx\n ret\n"
- ".Lcleanup_chain_end:\n"
+ ".Lcleanup_chain_end:\n .globl APFrameCleanupChainEnd\n APFrameCleanupChainEnd:\n"
  ".section .xdata,\"dr\"\n .p2align 2\n"
  ".Lcleanup_chain_primary:\n .byte 17,5,2,0,5,0x32,1,0x30\n .rva APFrameChainCleanupHandler\n .long 0x31415926\n"
  ".Lcleanup_chain_secondary:\n .byte 33,0,0,0\n .rva APFrameCleanupChain,APFrameCleanupChainCold,.Lcleanup_chain_primary\n"

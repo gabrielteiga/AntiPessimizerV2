@@ -130,7 +130,7 @@ static uint32_t hook_clone_pc(const unsigned char *data,uint32_t map_at,uint32_t
     }
     return clone_rva+offset+shift;
 }
-static BOOL hook_inherited_extent(unsigned char *image,RUNTIME_FUNCTION *primary,uint32_t end) {
+static BOOL hook_inherited_extent(unsigned char *image,RUNTIME_FUNCTION *primary,uint64_t end) {
     if(primary->EndAddress<=primary->BeginAddress || primary->EndAddress>end)return FALSE;
     if(primary->EndAddress==end)return TRUE;
     IMAGE_NT_HEADERS64 *nt=(IMAGE_NT_HEADERS64 *)(image+((IMAGE_DOS_HEADER *)image)->e_lfanew);
@@ -169,7 +169,7 @@ static BOOL hook_forward_info_at(unsigned char *image,const unsigned char *data,
     if(rva!=hooks.selected[index].rva || size!=hooks.selected[index].size || (uint64_t)entry_rva+12>image_size || (uint64_t)info_rva+info_bytes+4>image_size || info_rva%4 || !handler_rva || handler_rva>=image_size || handler_data!=(uint64_t)info_rva+info_bytes+4 || !count || count>8193 || (uint64_t)map_at+count*4>available)return FALSE;
     RUNTIME_FUNCTION *original=(RUNTIME_FUNCTION *)(image+entry_rva);
     const unsigned char *info=image+info_rva;
-    if(original->BeginAddress!=rva || !hook_inherited_extent(image,original,rva+size) || original->UnwindData!=info_rva || (kind==1?info[0]!=17:(info[0]!=9 && info[0]!=25)) || memcmp(info+1,copied_info+1,info_bytes-1) || hook_u32(info+info_bytes)!=handler_rva)return FALSE;
+    if(original->BeginAddress!=rva || !hook_inherited_extent(image,original,(uint64_t)rva+size) || original->UnwindData!=info_rva || (kind==1?info[0]!=17:(info[0]!=9 && info[0]!=25)) || memcmp(info+1,copied_info+1,info_bytes-1) || hook_u32(info+info_bytes)!=handler_rva)return FALSE;
     MEMORY_BASIC_INFORMATION memory;
     if(!VirtualQuery(image+handler_rva,&memory,sizeof(memory)) || memory.AllocationBase!=image || memory.State!=MEM_COMMIT || (memory.Protect&0xff)!=PAGE_EXECUTE_READ || (memory.Protect&PAGE_GUARD))return FALSE;
     uint32_t previous_source=0,previous_clone=0,delta=0,body_size=body->EndAddress-body->BeginAddress;

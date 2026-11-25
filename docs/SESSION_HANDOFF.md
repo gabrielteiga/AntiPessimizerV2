@@ -121,20 +121,25 @@ A API de inventário de self-hosted runners retornou HTTP 403 pela integração.
 Reavaliar a disponibilidade real na retomada. Não presumir que a ausência
 de atribuição de ontem continuará, nem pedir teste manual ao usuário.
 
-## Retomada após o PR #93
+## Retomada após os PRs #93 e #94
 
-- A main integrou #92 e #93. O commit `229a22dc4256827ef0bdaedaf807577d5d7259d5`
-  tem árvore idêntica ao head aprovado do #93, `ca59c8d5880dd8be87d7e3ff1b047f8253d86036`.
-  A CI pós-merge 45630205132 passou, inclusive pacote.
-- O #93 acrescentou MOVUPS aos saves XMM do fragmento final encadeado.
-  A fixture exige retorno e unwind Windows com RBX e XMM6 preservados.
-- O próximo incremento está em `feat/chained-large-allocation`. Reutiliza a
-  validação de prólogo para aceitar ALLOC_LARGE com SUB único no primário,
-  e verifica slots altos de saves GPR/XMM sem truncar o mapa de ocupação.
-  A fixture usa frame de 552 bytes, com slots em 528 e 544 bytes.
-  Conferir o PR e os checks do head antes do merge.
-- O job Delphi `138768575160` do #61 continua queued na conferência desta
-  retomada, sem execução licenciada. Há pendências independentes desse runner.
+- O #93 integrou MOVUPS nos saves XMM encadeados. A main `229a22d` passou
+  a CI pós-merge 45630205132, inclusive pacote.
+- O #94 foi integrado em `4b6c5c7960ad096abc4432a52a8fdee9271b4a06` após
+  todos os checks do head `96584d49197cefde288a4129f17c0063437951e5` aprovados.
+  Aceita ALLOC_LARGE no primário com SUB único conferido e verifica slots altos
+  GPR/XMM sem truncar ocupação. Fixture Windows usa frame de 552 bytes.
+  CI pós-merge 45632877136 em acompanhamento.
+- O #95 está em `feat/chained-original-cleanup`, worktree
+  `/workspace/work/AntiPessimizerV2-chain-cleanup`. Acrescenta cleanup original
+  UHANDLER-only e scopes CRT em fragmentos contíguos que herdam o frame.
+  Há fixtures de baseline/instrumentação, identidade do dispatcher e captura
+  dentro do próprio frame. Conferir o último head e resolver falhas antes do merge.
+- O #61 incorporou a main após #93 em `95592017084f136cae8386e82631a4272e2b711a`.
+  Testes locais passaram. A execução licenciada 45631995894/job 139267375260
+  está queued, sem runner atribuído. A worktree é
+  `/workspace/work/AntiPessimizerV2-delphi104`. Conferir a CI do head e atualizar
+  novamente com a main quando necessário antes do merge.
 - Ambiente em `/workspace/work/AntiPessimizerV2`, Go em
   `/workspace/work/toolchains/go/bin`, cache em `/workspace/work/cache`
   e GOPATH em `/workspace/work/gopath`. Preservar alterações antes de trocar branch.
