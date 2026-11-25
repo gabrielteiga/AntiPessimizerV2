@@ -12,7 +12,7 @@ este documento organiza as entregas e os critérios que ainda faltam.
 | Símbolos | TD32/TDS FB09/FB0A, procedimentos, unidades Pascal por contribuição de código/diretórios globais, diretórios encadeados, nomes Delphi suportados e conversão por BaseOfCode | Casos derivados da JCL da revisão fixada, testes de corrupção/fuzz e TDS sintético ligado ao EXE de laboratório com duas seções de código |
 | Aliases de símbolos | Intervalos exatamente iguais compartilham nome primário/ID; nomes e unidades alternativos preservados na busca | Ordem de FindProc da JCL, testes de TD32/ASLR/catálogo/CLI, limites de metadados e janela Windows |
 | Arquivo e linha TD32 | `symresolve --source` resolve o endereço observado via `sstSrcModule` em símbolos embutidos ou sidecar | Layout da JCL fixada; fixtures verificam limites, conflitos, ASLR e duas linhas no mesmo procedimento |
-| Preferências do viewer | Caminho do EXE, filtros de resultados/símbolos, nomes das unidades inteiras, unidade de tempo, visibilidade, largura e ordem das colunas persistidos por usuário | Roundtrip/limites/corrupção e janela Windows reaberta; arquivo desconhecido preservado ao usar padrões |
+| Preferências do viewer | Caminho do EXE, filtros de resultados/símbolos, nomes das unidades inteiras, unidade de tempo, visibilidade, largura e ordem das colunas e desconto QPC por chamada na apresentação persistidos por usuário | Roundtrip/limites/corrupção e janela Windows reaberta; arquivo desconhecido preservado ao usar padrões |
 | Diagnóstico do viewer | Histórico limitado de estados, erros de conexão e operações da janela, com cópia para a área de transferência | Teste portável de retenção e smoke do painel Win32 |
 | Coletor/viewer | Processos independentes, Named Pipe local, seleção/start/stop, filtros, tabela virtual, histórico, salvar/replay e comparação de sampling | Executáveis Windows, integração ETW e smoke da janela |
 | Contabilidade de chamadas | Calls, tempos inclusivos/exclusivos, médias, recursão, instâncias de thread, unwind, Clear e perdas | Semântica conferida em CoreProfiler; testes determinísticos e callbacks C/QPC |
@@ -83,10 +83,9 @@ sem converter esse valor em chamadas ou duração por chamada.
    buffer só aumentam junto dessas medições.
    [PR #61](https://github.com/gabrielteiga/AntiPessimizerV2/pull/61).
 5. **Complementos do fluxo principal.** Demais preferências/diagnósticos do
-   original, conforme a auditoria de fidelidade. A preferência de desconto de tempo
-   por chamada na apresentação (`Cycle discount`/`FixedCycleDiscount` da revisão
-   fixada) ainda precisa de equivalente para o relógio QPC, com saturação em zero
-   e persistência. Attach a processo arbitrário e
+   original, conforme a auditoria de fidelidade. O desconto por chamada na apresentação usa ticks QPC,
+   saturação em zero, médias e comparação recalculadas e preferência persistida,
+   conforme `Cycle discount`/`FixedCycleDiscount` da revisão fixada. Attach a processo arbitrário e
    DLLs/BPLs não são apresentados como implementados pelo lançamento do EXE.
 
 Não há paridade completa enquanto esses gates materiais estiverem abertos.

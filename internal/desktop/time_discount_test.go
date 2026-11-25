@@ -73,6 +73,17 @@ func TestCallDiscountPreservesArchiveAndCumulativeHistory(t *testing.T) {
 	if err := live.AppendMetrics(records[0]); err != nil || live.CallDiscountTicks != 5 {
 		t.Fatal("follow lost discount", err)
 	}
+	cleared := raw.Clone()
+	cleared.Sequence++
+	cleared.At++
+	cleared.Metrics.Epoch++
+	cleared.Metrics.Rows = nil
+	if err := live.AppendMetrics(cleared); err != nil {
+		t.Fatal(err)
+	}
+	if err := live.Rebuild(0, report.Filter{}); err != nil || len(live.Rows) != 0 || live.CallDiscountTicks != 5 {
+		t.Fatal("Clear lost presentation preference or mixed epochs", live.Rows, err)
+	}
 }
 
 func TestCallDiscountRecomputesComparisonAfterSaturation(t *testing.T) {
