@@ -26,7 +26,9 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 	if _, err := io.ReadFull(conn, offer[:]); err != nil {
 		return fmt.Errorf("hook allocation offer: %w", err)
 	}
-	xmmSavePlans := string(offer[:8]) == "APHOOKE\x00"
+	farSavePlans := string(offer[:8]) == "APHOOKG\x00"
+	inheritedHandlers := farSavePlans || string(offer[:8]) == "APHOOKF\x00"
+	xmmSavePlans := inheritedHandlers || string(offer[:8]) == "APHOOKE\x00"
 	multipleSavePlans := xmmSavePlans || string(offer[:8]) == "APHOOKD\x00"
 	chainPlans := multipleSavePlans || string(offer[:8]) == "APHOOKC\x00"
 	tinyPlans := chainPlans || string(offer[:8]) == "APHOOKB\x00"
@@ -111,11 +113,22 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 			if err != nil {
 				return fmt.Errorf("procedure %d frame plan: %w", proc.ID, err)
 			}
+			if plan.InheritedHandler && !inheritedHandlers {
+				return errors.New("update the native adapter DLL: inherited chained handlers require APHOOKF")
+			}
 			if len(plan.Functions) == 4 && !chainPlans {
 				return errors.New("update the native adapter DLL: chained nonvolatile saves require APHOOKC")
 			}
 			if len(plan.Functions) == 4 && plan.Image[plan.Functions[2].Unwind+2] > 2 && !multipleSavePlans {
 				return errors.New("update the native adapter DLL: multiple chained saves require APHOOKD")
+			}
+			if len(plan.Functions) == 4 && !farSavePlans {
+				info := plan.Image[plan.Functions[2].Unwind:]
+				for at := 5; at < 4+int(info[2])*2; at += 4 {
+					if info[at]&15 == 5 || info[at]&15 == 9 {
+						return errors.New("update the native adapter DLL: far chained saves require APHOOKG")
+					}
+				}
 			}
 			if len(plan.Functions) == 4 && !xmmSavePlans {
 				info := plan.Image[plan.Functions[2].Unwind:]
@@ -164,7 +177,7 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 			binary.LittleEndian.PutUint32(payload[handler:], u32(payload[handler:])+offset)
 			if len(functions) == 4 {
 				local := int(offset + functions[2].Unwind)
-				local += 4 + int(payload[local+2])*2
+				local += 4 + ((int(payload[local+2])+1)&^1)*2
 				for field := 0; field < 3; field++ {
 					word := payload[local+field*4:]
 					binary.LittleEndian.PutUint32(word, u32(word)+offset)

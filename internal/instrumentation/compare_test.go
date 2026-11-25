@@ -11,8 +11,8 @@ func comparisonRow(row Row, calls, inclusive, exclusive, frequency uint64) Row {
 	row.Calls = calls
 	row.InclusiveTicks = inclusive
 	row.ExclusiveTicks = exclusive
-	row.InclusiveNS, _ = nanoseconds(inclusive, frequency)
-	row.ExclusiveNS, _ = nanoseconds(exclusive, frequency)
+	row.InclusiveNS, _ = NanosecondsFromTicks(inclusive, frequency)
+	row.ExclusiveNS, _ = NanosecondsFromTicks(exclusive, frequency)
 	row.AverageInclusiveNS = float64(inclusive) * 1e9 / float64(frequency) / float64(calls)
 	row.AverageExclusiveNS = float64(exclusive) * 1e9 / float64(frequency) / float64(calls)
 	return row

@@ -385,7 +385,7 @@ static void function_exit(uint32_t procedure,uintptr_t entry_sp){record_frame(AP
 static const unsigned char *function_unwind_info(PDISPATCHER_CONTEXT dispatcher){
     const unsigned char *base=(const unsigned char *)(uintptr_t)dispatcher->ImageBase;
     const unsigned char *info=base+dispatcher->FunctionEntry->UnwindData;
-    if(info[0]==33)return base+hook_u32(info+12+info[2]*2); // verified local saves link to the primary
+    if(info[0]==33)return base+hook_u32(info+12+((info[2]+1)&~1)*2); // verified local saves link to the primary
     return info;
 }
 static uintptr_t unwind_entry_sp(PVOID frame,PDISPATCHER_CONTEXT dispatcher){
@@ -459,6 +459,12 @@ static EXCEPTION_DISPOSITION WINAPI function_unwind(PEXCEPTION_RECORD exception,
     dispatcher->TargetIp=forward_pc(saved.TargetIp,clone,source,source_size,clone_size,data,FALSE);
     dispatcher->ImageBase=image;
     dispatcher->FunctionEntry=(RUNTIME_FUNCTION *)(uintptr_t)(image+hook_u32(data+16));
+    if(dispatcher->FunctionEntry->EndAddress<(uint64_t)hook_u32(data+8)+source_size){
+        DWORD64 original_base=0;
+        RUNTIME_FUNCTION *fragment=RtlLookupFunctionEntry(dispatcher->ControlPc,&original_base,NULL);
+        if(fragment && original_base==image && fragment->BeginAddress>=hook_u32(data+8) &&
+           fragment->EndAddress<=(uint64_t)hook_u32(data+8)+source_size)dispatcher->FunctionEntry=fragment;
+    }
     dispatcher->LanguageHandler=handler.routine;
     dispatcher->HandlerData=(void *)(uintptr_t)(image+hook_u32(data+28));
     if(context)context->Rip=forward_pc(context->Rip,clone,source,source_size,clone_size,data,FALSE);

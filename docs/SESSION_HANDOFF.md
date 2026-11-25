@@ -121,18 +121,56 @@ A API de inventário de self-hosted runners retornou HTTP 403 pela integração.
 Reavaliar a disponibilidade real na retomada. Não presumir que a ausência
 de atribuição de ontem continuará, nem pedir teste manual ao usuário.
 
-## Incremento em acompanhamento após a retomada
+## Retomada após os PRs #93, #94 e #95
 
-- O #92 foi integrado em `2fae317dfc0f772573884e6c3560514387bdce89` após
-  todos os checks do head `f56fedb03c52e69640456d32b6f315dea096ef33` aprovados.
-- O #93 acrescenta MOVUPS aos saves XMM do fragmento final encadeado.
-  A fixture exige retorno e unwind Windows com RBX e XMM6 preservados.
-  Conferir o novo head e a CI antes do merge.
-- O job Delphi `138768575160` do #61 continua queued na conferência desta
-  retomada, sem execução licenciada.
-- Ambiente novo em `/workspace/work/AntiPessimizerV2`, sem alterações locais
-  anteriores. Go em `/workspace/work/toolchains/go/bin`, cache em
-  `/workspace/work/cache` e GOPATH em `/workspace/work/gopath`.
+- O #93 integrou MOVUPS nos saves XMM encadeados. A main `229a22d` passou
+  a CI pós-merge 45630205132, inclusive pacote.
+- O #94 foi integrado em `4b6c5c7960ad096abc4432a52a8fdee9271b4a06` após
+  todos os checks do head `96584d49197cefde288a4129f17c0063437951e5` aprovados.
+  Aceita ALLOC_LARGE no primário com SUB único conferido e verifica slots altos
+  GPR/XMM sem truncar ocupação. Fixture Windows usa frame de 552 bytes.
+  CI pós-merge 45632877136 concluída com sucesso, inclusive pacote.
+- O #95 foi integrado em `d69638de1115411c95476d24f0ff248daf0d390d`, após
+  todos os checks do head `9250a94f61e17c6efa58e651c5badfeed7cd3f7f` aprovados.
+  A árvore é idêntica ao head. A CI pós-merge 45635165860 passou, inclusive pacote.
+  Preserva cleanup UHANDLER-only e scopes CRT em fragmentos contíguos que herdam
+  o frame. O baseline mostrou que o dispatcher aponta para a entrada runtime
+  secundária e usa os dados do handler primário. O adaptador mantém essa identidade,
+  confere a cadeia original e negocia APHOOKF. Windows exige cleanup, captura e
+  captura/finally combinados, com métricas e finalizadores exatos.
+- O #96 foi integrado em `798e49429af76f2a540caeaaf9a4a30c50d8377a` após
+  todos os checks do head `e686d9b92bd98f656e285697990cfcfc337d5c0f` aprovados.
+  A árvore é idêntica ao head. CI pós-merge 45689513139 concluída com sucesso, inclusive pacote.
+  Acrescenta SAVE_NONVOL_FAR/SAVE_XMM128_FAR com offsets sem escala, alinhamento
+  dos códigos ímpares e negociação APHOOKG. A fixture ímpar encontrou e corrigiu
+  a realocação do vínculo para métodos num stride posterior. O teste Go confere
+  os três campos runtime após o padding com dois procedimentos na seleção.
+- O #97 foi integrado em `4733dcc8eebcdf148a0d11fae52536e2765936ef`, após
+  todos os checks do head `68c12d4de1f50333ebf2f8d775f0b6f388c3420d` aprovados.
+  Acrescenta MOVAPD/MOVUPD/MOVDQA/MOVDQU aos saves XMM de 128 bits, com quatro
+  fixtures Windows de baseline/unwind/registradores. CI pós-merge 45691071003
+  em acompanhamento.
+- Próximo incremento em `feat/viewer-time-discount`, worktree
+  `/workspace/work/AntiPessimizerV2-time-discount`. Implementa a preferência
+  `Cycle discount`/`FixedCycleDiscount` de `src/gui.cpp` da revisão fixada.
+  Usa desconto por chamada em ticks QPC, padrão zero e saturação em zero.
+  A apresentação recalcula médias e deltas de comparação com a frequência de
+  cada captura. A ordenação e os dados gravados preservam as medições originais.
+  Há teste portável de precisão u64, overflow, histórico/Clear, imutabilidade e
+  comparação, e smoke Win32 de edição, entrada inválida e reabertura. Conferir
+  o PR e seu último head antes do merge.
+- O MinGW local está em
+  `/workspace/work/toolchains/mingw/root/usr/bin/x86_64-w64-mingw32-gcc-posix`.
+- O #61 incorporou a main após #93 em `95592017084f136cae8386e82631a4272e2b711a`.
+  Testes locais passaram. A execução licenciada 45631995894/job 139267375260
+  está queued, sem runner atribuído. A worktree é
+  `/workspace/work/AntiPessimizerV2-delphi104`. Conferir a CI do head e atualizar
+  novamente com a main quando necessário antes do merge.
+- Ambiente em `/workspace/work/AntiPessimizerV2`, Go em
+  `/workspace/work/toolchains/go/bin`, cache em `/workspace/work/cache`
+  e GOPATH em `/workspace/work/gopath`. Preservar alterações antes de trocar branch.
+- O usuário reforçou que a sessão deve continuar até concluir o projeto ou
+  esgotar o contexto disponível. Não encerrar após um único bloco integrado.
 
 ## Próxima ação na nova sessão
 

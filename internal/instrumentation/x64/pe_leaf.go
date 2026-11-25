@@ -243,11 +243,11 @@ func (p *PEImage) readCode(rva, size uint32, collectedUnwind *functionUnwind) ([
 			var chainGaps []chainGap
 			var localSave []byte
 			if end != procedureEnd {
-				if collectedUnwind == nil || info[0] != 1 || uint32(info[1]) > end-begin {
+				if collectedUnwind == nil || (info[0] != 1 && info[0] != 9 && info[0] != 17 && info[0] != 25) || uint32(info[1]) > end-begin {
 					return fail("partial runtime-function overlap")
 				}
 				chainBoundaries, chainGaps, localSave = p.chainedUnwind(offset, procedureEnd, info[3])
-				if len(chainBoundaries) == 0 {
+				if len(chainBoundaries) == 0 || info[0] != 1 && (len(localSave) != 0 || len(chainGaps) != 0) {
 					return fail("procedure extent is not covered by an inherited unwind chain")
 				}
 			}
@@ -295,6 +295,9 @@ func (p *PEImage) readCode(rva, size uint32, collectedUnwind *functionUnwind) ([
 							collectedUnwind.scopeStyle = 2
 						default:
 							return fail("unrecognized exception handler; requires a recognized CRT or reviewed Delphi handler")
+						}
+						if len(chainBoundaries) != 0 && collectedUnwind.scopeStyle != 1 {
+							return fail("inherited exception scopes require the verified CRT handler")
 						}
 						// Probe the bounded table header first; its typed branches need a
 						// separately recognized resolver before interpreting nested tables.
@@ -363,10 +366,10 @@ func (p *PEImage) chainedUnwind(primaryAt int, procedureEnd uint32, frame byte) 
 		}
 		if info[2] != 0 {
 			// One contiguous final fragment can add local nonvolatile saves.
-			if frame != 0 || len(boundaries) != 0 || nextBegin != end || nextEnd != procedureEnd || info[2]%2 != 0 || info[2] > 16 {
+			if frame != 0 || len(boundaries) != 0 || nextBegin != end || nextEnd != procedureEnd || info[2] > 24 {
 				return nil, nil, nil
 			}
-			length := 4 + uint32(info[2])*2
+			length := 4 + ((uint32(info[2])+1)&^1)*2
 			info, ok = p.mapped(u32(entry[8:]), length+12, false)
 			if !ok || !bytes.Equal(info[length:], primary) {
 				return nil, nil, nil

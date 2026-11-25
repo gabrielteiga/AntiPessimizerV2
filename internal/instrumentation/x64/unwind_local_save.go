@@ -13,10 +13,9 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 	fail := func() error {
 		return fmt.Errorf("%w: chained nonvolatile saves do not match verified frame and control flow", ErrUnsupported)
 	}
-	if len(primary) != 8 || primary[2] != 1 || primary[3] != 0 || primary[5]&15 != 2 || primary[4] != primary[1] {
+	if len(primary) < 8 || primary[3] != 0 || validateUnwindCodes(primary) != nil || validatePrologueActions(code, primary) != nil {
 		return fail()
 	}
-	allocation := int64(primary[5]>>4)*8 + 8
 	info := append([]byte(nil), local...)
 	info[0] = 1
 	if validateUnwindCodes(info) != nil || info[4] != info[1] {
@@ -27,29 +26,51 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 		return fail()
 	}
 
-	var registers, slots uint32
-	for at := 4; at < len(local); at += 4 {
-		reg := uint32(local[at+1] >> 4)
-		slot := uint32(binary.LittleEndian.Uint16(local[at+2:]))
-		width := uint32(1)
-		switch local[at+1] & 15 {
-		case 4:
-		case 8:
-			reg += 16
-			slot *= 2
-			width = 2
+	allocation, ok := prologue.Args[1].(x86asm.Imm)
+	if !ok || allocation <= 0 {
+		return fail()
+	}
+
+	type savedRegister struct {
+		end  byte
+		reg  x86asm.Reg
+		disp int64
+		xmm  bool
+	}
+	var saves []savedRegister
+	var registers uint32
+	slots := make(map[uint32]bool)
+	for at := 4; at < 4+int(local[2])*2; {
+		op, number := local[at+1]&15, uint32(local[at+1]>>4)
+		width, step := uint32(8), 4
+		reg := x86asm.RAX + x86asm.Reg(number)
+		xmm := op == 8 || op == 9
+		if xmm {
+			reg = x86asm.X0 + x86asm.Reg(number)
+			number += 16
+			width = 16
+		}
+		disp := uint32(binary.LittleEndian.Uint16(local[at+2:])) * width
+		switch op {
+		case 4, 8:
+		case 5, 9:
+			disp = binary.LittleEndian.Uint32(local[at+2:])
+			step = 6
 		default:
 			return fail()
 		}
-		if (slot+width)*8 > uint32(allocation) {
+		if disp%width != 0 || uint64(disp)+uint64(width) > uint64(allocation) || registers&(1<<number) != 0 {
 			return fail()
 		}
-		mask := uint32((1<<width)-1) << slot
-		if registers&(1<<reg) != 0 || slots&mask != 0 {
-			return fail()
+		registers |= 1 << number
+		for occupied := disp / 8; occupied < (disp+width)/8; occupied++ {
+			if slots[occupied] {
+				return fail()
+			}
+			slots[occupied] = true
 		}
-		registers |= 1 << reg
-		slots |= mask
+		saves = append(saves, savedRegister{local[at], reg, int64(disp), xmm})
+		at += step
 	}
 
 	var fragment []x86asm.Inst
@@ -71,7 +92,7 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 		}
 		at = next
 	}
-	count := int(local[2]) / 2
+	count := len(saves)
 	if len(fragment) < count*2+2 {
 		return fail()
 	}
@@ -80,26 +101,24 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 	for i := 0; i < count; i++ {
 		// Metadata lists saves from last to first. The epilogue reloads
 		// them in that same order.
-		at := 4 + (count-1-i)*4
-		reg := x86asm.RAX + x86asm.Reg(local[at+1]>>4)
-		disp := int64(binary.LittleEndian.Uint16(local[at+2:])) * 8
+		metadata := saves[count-1-i]
 		op := x86asm.MOV
-		if local[at+1]&15 == 8 {
-			reg = x86asm.X0 + x86asm.Reg(local[at+1]>>4)
-			disp *= 2
+		if metadata.xmm {
 			op = fragment[i].Op
-			if op != x86asm.MOVAPS && op != x86asm.MOVUPS {
+			switch op {
+			case x86asm.MOVAPS, x86asm.MOVUPS, x86asm.MOVAPD, x86asm.MOVUPD, x86asm.MOVDQA, x86asm.MOVDQU:
+			default:
 				return fail()
 			}
 		}
 		matchesSlot := func(arg x86asm.Arg) bool {
 			mem, ok := arg.(x86asm.Mem)
-			return ok && mem.Base == x86asm.RSP && mem.Index == 0 && mem.Segment == 0 && mem.Disp == disp
+			return ok && mem.Base == x86asm.RSP && mem.Index == 0 && mem.Segment == 0 && mem.Disp == metadata.disp
 		}
 		save, load := fragment[i], fragment[restore+count-1-i]
 		offset += save.Len
-		if offset != int(local[at]) || save.Op != op || !matchesSlot(save.Args[0]) || save.Args[1] != reg ||
-			load.Op != op || load.Args[0] != reg || !matchesSlot(load.Args[1]) {
+		if offset != int(metadata.end) || save.Op != op || !matchesSlot(save.Args[0]) || save.Args[1] != metadata.reg ||
+			load.Op != op || load.Args[0] != metadata.reg || !matchesSlot(load.Args[1]) {
 			return fail()
 		}
 	}

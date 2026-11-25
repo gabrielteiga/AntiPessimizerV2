@@ -17,6 +17,7 @@ import (
 type Model struct {
 	MetricComparison        *instrumentation.Comparison
 	MetricUnit              MetricTimeUnit
+	CallDiscountTicks       uint64
 	metricSizes             []int
 	metricBytes, metricRows int
 

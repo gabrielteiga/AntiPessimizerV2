@@ -272,3 +272,158 @@ func TestChainedMOVUPSSavesMatchUnwind(t *testing.T) {
 		}
 	}
 }
+
+func TestInheritedChainPreservesOriginalCleanupDescriptor(t *testing.T) {
+	image, code := chainedPE()
+	image[0x480] = 17
+	binary.LittleEndian.PutUint32(image[0x488:], 0x1080)
+	binary.LittleEndian.PutUint32(image[0x48c:], 0x31415926)
+	plan, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+	if err != nil || plan.OriginalHandlerRVA != 0x1080 || !plan.InheritedHandler || plan.RelocatedHandler || len(plan.Functions) != 3 {
+		t.Fatal("original cleanup chain rejected", err, plan.OriginalHandlerRVA)
+	}
+	info := plan.Image[plan.Functions[1].Unwind:]
+	descriptor := info[12:]
+	for i, want := range []uint32{7, 1, peLeafRVA, uint32(len(code)), 0x2000, 0x2080, 0x1080, 0x208c} {
+		if got := binary.LittleEndian.Uint32(descriptor[i*4:]); got != want {
+			t.Fatal("original cleanup descriptor changed", i, got, want)
+		}
+	}
+	image, code = localSavePE()
+	image[0x480] = 17
+	binary.LittleEndian.PutUint32(image[0x488:], 0x1080)
+	if _, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7); !errors.Is(err, ErrUnsupported) {
+		t.Fatal("unverified combination of local saves and cleanup accepted", err)
+	}
+}
+
+func TestInheritedChainRelocatesRecognizedExceptionScopes(t *testing.T) {
+	for _, flags := range []byte{9, 25} {
+		image, code := scopesPE()
+		copy(image[0x418:0x424], image[0x40c:0x418])
+		w32(image, peOptional+140, 36)
+		w32(image, 0x404, peLeafRVA+16)
+		w32(image, 0x40c, peLeafRVA+16)
+		w32(image, 0x410, peLeafRVA+uint32(len(code)))
+		w32(image, 0x414, 0x20c0)
+		image[0x4c0] = 33
+		copy(image[0x4c4:], image[0x400:0x40c])
+		image[0x480] = flags
+		w32(image, 0x490, peLeafRVA+16)
+		w32(image, 0x494, peLeafRVA+24)
+		w32(image, 0x49c, peLeafRVA+24)
+		plan, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+		if err != nil || !plan.RelocatedHandler || !plan.InheritedHandler || plan.HandlerScopeStyle != 1 {
+			t.Fatal("inherited exception scopes rejected", flags, err)
+		}
+		descriptor := plan.Image[plan.Functions[1].Unwind+12:]
+		scopes := descriptor[binary.LittleEndian.Uint32(descriptor[52:]):]
+		for i, want := range []uint32{1, 0x80210, 0x80218, 1, 0x80218} {
+			if got := binary.LittleEndian.Uint32(scopes[i*4:]); got != want {
+				t.Fatal("inherited scope lost relocated PC", i, got, want)
+			}
+		}
+	}
+}
+
+func TestChainedLargeAllocationChecksHighSaveSlots(t *testing.T) {
+	code := []byte{
+		0x48, 0x81, 0xec, 0x28, 0x02, 0, 0, 0x90, 0xeb, 0,
+		0x48, 0x89, 0x9c, 0x24, 0x20, 0x02, 0, 0,
+		0x0f, 0x29, 0xb4, 0x24, 0x10, 0x02, 0, 0,
+		0x48, 0x8b, 0x01,
+		0x0f, 0x28, 0xb4, 0x24, 0x10, 0x02, 0, 0,
+		0x48, 0x8b, 0x9c, 0x24, 0x20, 0x02, 0, 0,
+		0x48, 0x81, 0xc4, 0x28, 0x02, 0, 0, 0xc3,
+	}
+	local := []byte{33, 16, 4, 0, 16, 0x68, 33, 0, 8, 0x34, 68, 0}
+	for _, primary := range [][]byte{
+		{1, 7, 2, 0, 7, 1, 69, 0},
+		{1, 7, 3, 0, 7, 0x11, 0x28, 2, 0, 0, 0, 0},
+	} {
+		if err := validateLocalSave(code, primary, 10, local); err != nil {
+			t.Fatal(err)
+		}
+		image := scalarImage(code)
+		put := binary.LittleEndian.PutUint32
+		put(image[0x404:], peLeafRVA+10)
+		put(image[0x40c:], peLeafRVA+10)
+		put(image[0x410:], peLeafRVA+uint32(len(code)))
+		put(image[0x414:], 0x20a0)
+		copy(image[0x480:], primary)
+		copy(image[0x4a0:], local)
+		copy(image[0x4ac:], image[0x400:0x40c])
+		plan, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+		if err != nil || len(plan.Functions) != 4 {
+			t.Fatal("large allocation chain rejected", err)
+		}
+		for _, slot := range []byte{66, 67, 69} {
+			bad := bytes.Clone(local)
+			bad[10] = slot
+			changedCode := bytes.Clone(code)
+			binary.LittleEndian.PutUint32(changedCode[14:], uint32(slot)*8)
+			binary.LittleEndian.PutUint32(changedCode[41:], uint32(slot)*8)
+			if err := validateLocalSave(changedCode, primary, 10, bad); !errors.Is(err, ErrUnsupported) {
+				t.Fatal("overlap or out-of-frame save accepted", slot, err)
+			}
+		}
+		wrongAllocation := bytes.Clone(primary)
+		wrongAllocation[6]++
+		if err := validateLocalSave(code, wrongAllocation, 10, local); !errors.Is(err, ErrUnsupported) {
+			t.Fatal("wrong allocation accepted", err)
+		}
+	}
+}
+
+func TestChainedFarSaveAlignsEmbeddedRuntimeRecord(t *testing.T) {
+	image, code := localSavePE()
+	local := []byte{33, 5, 3, 0, 5, 0x35, 24, 0, 0, 0, 0, 0}
+	copy(image[0x4a0:], local)
+	copy(image[0x4ac:], image[0x400:0x40c])
+	plan, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+	if err != nil || len(plan.Functions) != 4 {
+		t.Fatal("far save rejected", err)
+	}
+	info := plan.Image[plan.Functions[2].Unwind:]
+	if !bytes.Equal(info[:12], local) || binary.LittleEndian.Uint32(info[20:]) != plan.Functions[1].Unwind {
+		t.Fatal("odd unwind slots lost aligned primary record", info[:24])
+	}
+	for _, change := range []struct {
+		at int
+		b  byte
+	}{{0x4a6, 25}, {0x4a8, 1}, {0x4a5, 0x55}} {
+		bad := bytes.Clone(image)
+		bad[change.at] = change.b
+		if _, err := BuildPEFunction(bad, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7); !errors.Is(err, ErrUnsupported) {
+			t.Fatal("invalid far save accepted", change, err)
+		}
+	}
+}
+
+func TestChainedFullWidthXMMMoveVariants(t *testing.T) {
+	primary := []byte{1, 7, 2, 0, 7, 1, 69, 0}
+	local := []byte{33, 17, 6, 0, 17, 0x69, 0x10, 2, 0, 0, 8, 0x35, 0x20, 2, 0, 0}
+	for _, tc := range []struct {
+		name                string
+		prefix, store, load byte
+	}{
+		{"MOVAPD", 0x66, 0x29, 0x28}, {"MOVUPD", 0x66, 0x11, 0x10}, {"MOVDQA", 0x66, 0x7f, 0x6f}, {"MOVDQU", 0xf3, 0x7f, 0x6f},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code := []byte{0x48, 0x81, 0xec, 0x28, 2, 0, 0, 0x90, 0xeb, 0, 0x48, 0x89, 0x9c, 0x24, 0x20, 2, 0, 0}
+			code = append(code, tc.prefix, 0x0f, tc.store, 0xb4, 0x24, 0x10, 2, 0, 0)
+			code = append(code, 0x48, 0x8b, 0x01)
+			code = append(code, tc.prefix, 0x0f, tc.load, 0xb4, 0x24, 0x10, 2, 0, 0)
+			code = append(code, 0x48, 0x8b, 0x9c, 0x24, 0x20, 2, 0, 0, 0x48, 0x81, 0xc4, 0x28, 2, 0, 0, 0xc3)
+			if err := validateLocalSave(code, primary, 10, local); err != nil {
+				t.Fatal(err)
+			}
+			partial := bytes.Clone(code)
+			copy(partial[18:21], []byte{0xf2, 0x0f, 0x11})
+			copy(partial[30:33], []byte{0xf2, 0x0f, 0x10})
+			if err := validateLocalSave(partial, primary, 10, local); !errors.Is(err, ErrUnsupported) {
+				t.Fatal("partial-width XMM save accepted", err)
+			}
+		})
+	}
+}
