@@ -121,18 +121,25 @@ A API de inventário de self-hosted runners retornou HTTP 403 pela integração.
 Reavaliar a disponibilidade real na retomada. Não presumir que a ausência
 de atribuição de ontem continuará, nem pedir teste manual ao usuário.
 
-## Incremento em acompanhamento após a retomada
+## Retomada após o PR #93
 
-- O #92 foi integrado em `2fae317dfc0f772573884e6c3560514387bdce89` após
-  todos os checks do head `f56fedb03c52e69640456d32b6f315dea096ef33` aprovados.
-- O #93 acrescenta MOVUPS aos saves XMM do fragmento final encadeado.
+- A main integrou #92 e #93. O commit `229a22dc4256827ef0bdaedaf807577d5d7259d5`
+  tem árvore idêntica ao head aprovado do #93, `ca59c8d5880dd8be87d7e3ff1b047f8253d86036`.
+  A CI pós-merge 45630205132 passou, inclusive pacote.
+- O #93 acrescentou MOVUPS aos saves XMM do fragmento final encadeado.
   A fixture exige retorno e unwind Windows com RBX e XMM6 preservados.
-  Conferir o novo head e a CI antes do merge.
+- O próximo incremento está em `feat/chained-large-allocation`. Reutiliza a
+  validação de prólogo para aceitar ALLOC_LARGE com SUB único no primário,
+  e verifica slots altos de saves GPR/XMM sem truncar o mapa de ocupação.
+  A fixture usa frame de 552 bytes, com slots em 528 e 544 bytes.
+  Conferir o PR e os checks do head antes do merge.
 - O job Delphi `138768575160` do #61 continua queued na conferência desta
-  retomada, sem execução licenciada.
-- Ambiente novo em `/workspace/work/AntiPessimizerV2`, sem alterações locais
-  anteriores. Go em `/workspace/work/toolchains/go/bin`, cache em
-  `/workspace/work/cache` e GOPATH em `/workspace/work/gopath`.
+  retomada, sem execução licenciada. Há pendências independentes desse runner.
+- Ambiente em `/workspace/work/AntiPessimizerV2`, Go em
+  `/workspace/work/toolchains/go/bin`, cache em `/workspace/work/cache`
+  e GOPATH em `/workspace/work/gopath`. Preservar alterações antes de trocar branch.
+- O usuário reforçou que a sessão deve continuar até concluir o projeto ou
+  esgotar o contexto disponível. Não encerrar após um único bloco integrado.
 
 ## Próxima ação na nova sessão
 

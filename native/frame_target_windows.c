@@ -277,6 +277,27 @@ __asm__(
  ".rva .Lmixed_saves_try,.Lmixed_saves_try_end,APFrameMemoryFilter,.Lmixed_saves_catch\n .text\n .seh_endproc\n"
 );
 
+extern uint64_t APFrameLargeSaveFrame(const uint64_t *),APFrameLargeSaveFrameCatch(void);
+__asm__(
+ ".text\n .globl APFrameLargeSaveFrame\n .def APFrameLargeSaveFrame; .scl 2; .type 32; .endef\n"
+ "APFrameLargeSaveFrame:\n subq $552,%rsp\n .fill 8,1,0x90\n"
+ ".globl APFrameLargeSaveFrameCold\n .def APFrameLargeSaveFrameCold; .scl 2; .type 32; .endef\n"
+ "APFrameLargeSaveFrameCold:\n movq %rbx,544(%rsp)\n movaps %xmm6,528(%rsp)\n movq %rcx,%rbx\n pxor %xmm6,%xmm6\n movq (%rbx),%rax\n"
+ "movaps 528(%rsp),%xmm6\n movq 544(%rsp),%rbx\n addq $552,%rsp\n ret\n .Llarge_save_frame_end:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n .Llarge_save_frame_primary:\n .byte 1,7,2,0,7,1,69,0\n"
+ ".Llarge_save_frame_secondary:\n .byte 33,16,4,0,16,0x68,33,0,8,0x34,68,0\n .rva APFrameLargeSaveFrame,APFrameLargeSaveFrameCold,.Llarge_save_frame_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n .rva APFrameLargeSaveFrame,APFrameLargeSaveFrameCold,.Llarge_save_frame_primary\n"
+ ".rva APFrameLargeSaveFrameCold,.Llarge_save_frame_end,.Llarge_save_frame_secondary\n"
+ ".text\n .globl APFrameLargeSaveFrameCatch\n .def APFrameLargeSaveFrameCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameLargeSaveFrameCatch\n APFrameLargeSaveFrameCatch:\n pushq %rbx\n .seh_pushreg %rbx\n subq $48,%rsp\n .seh_stackalloc 48\n movaps %xmm6,32(%rsp)\n .seh_savexmm %xmm6,32\n .seh_endprologue\n"
+ "movl $0x42012345,%ebx\n movl $0x44113322,%edx\n movq %rdx,%xmm6\n movl $0x55667788,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm6\n .Llarge_save_frame_try:\n xorq %rcx,%rcx\n call APFrameLargeSaveFrame\n nop\n"
+ ".Llarge_save_frame_try_end:\n xorl %eax,%eax\n jmp .Llarge_save_frame_return\n"
+ ".Llarge_save_frame_catch:\n xorl %eax,%eax\n cmpl $0x42012345,%ebx\n sete %al\n movq %xmm6,%rdx\n cmpl $0x44113322,%edx\n sete %cl\n andb %cl,%al\n movhlps %xmm6,%xmm0\n movq %xmm0,%rdx\n cmpl $0x55667788,%edx\n sete %cl\n andb %cl,%al\n"
+ ".Llarge_save_frame_return:\n movaps 32(%rsp),%xmm6\n addq $48,%rsp\n popq %rbx\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Llarge_save_frame_try,.Llarge_save_frame_try_end,APFrameMemoryFilter,.Llarge_save_frame_catch\n .text\n .seh_endproc\n"
+);
+
 extern uint64_t APFrameUnalignedSaves(const uint64_t *),APFrameUnalignedSavesCatch(void);
 __asm__(
  ".text\n .globl APFrameUnalignedSaves\n .def APFrameUnalignedSaves; .scl 2; .type 32; .endef\n"
@@ -583,6 +604,8 @@ static DWORD WINAPI worker(void *unused){
    if(APFrameScopeChain(&value)!=value || APFrameScopeChain(NULL)!=913)return 12;
   }else if(check_chain==8){
    if(APFrameCleanupChain(&value)!=value || APFrameCleanupChainCatch()!=903)return 12;
+  }else if(check_chain==7){
+   if(APFrameLargeSaveFrame(&value)!=value || APFrameLargeSaveFrameCatch()!=1)return 12;
   }else if(check_chain==6){
    if(APFrameUnalignedSaves(&value)!=value || APFrameUnalignedSavesCatch()!=1)return 12;
   }else if(check_chain==5){
