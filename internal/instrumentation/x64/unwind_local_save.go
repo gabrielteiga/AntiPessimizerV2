@@ -140,7 +140,24 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 			return fail()
 		}
 	}
+	bodyStart, bodyEnd := start+offset, start+offset
 	for _, inst := range fragment[count:restore] {
+		bodyEnd += inst.Len
+	}
+	bodyPC := bodyStart
+	for _, inst := range fragment[count:restore] {
+		bodyPC += inst.Len
+		if rel, relative := inst.Args[0].(x86asm.Rel); relative && inst.Op != x86asm.CALL {
+			op := inst.Op.String()
+			target := int64(bodyPC) + int64(rel)
+			if len(op) == 0 || op[0] != 'J' || target < int64(bodyStart) || target > int64(bodyEnd) {
+				return fail()
+			}
+			// The normal control-flow planner also requires instruction
+			// boundaries and a supported branch encoding. No path may enter
+			// a partial save or skip an epilogue reload.
+			continue
+		}
 		if inst.Op == x86asm.CALL {
 			if _, direct := inst.Args[0].(x86asm.Rel); !direct || inst.Len != 5 || (allocation+uint64(len(pops))*8)%16 != 8 || allocation < 32 {
 				return fail()

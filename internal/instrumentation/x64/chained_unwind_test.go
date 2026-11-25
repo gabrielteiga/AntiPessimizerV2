@@ -665,6 +665,27 @@ func TestChainedLocalSaveDirectCallsReserveCalleeHomeSlots(t *testing.T) {
 	if err := check(prefix, body, unwind, local); err != nil {
 		t.Fatal("verified direct call rejected", err)
 	}
+	branched := append(bytes.Clone(body[:17]),
+		0xb9, 3, 0, 0, 0, 0xff, 0xc9, 0x75, 0xfc, 0x48, 0x85, 0xf6, 0x74, 11,
+		0x48, 0x89, 0xf1, 0xe8, 0, 1, 0, 0, 0x90, 0xeb, 3, 0x48, 0x8b, 6)
+	branched = append(branched, body[26:]...)
+	if err := check(prefix, branched, unwind, local); err != nil {
+		t.Fatal("bounded branches rejected", err)
+	}
+	for name, displacement := range map[string]byte{
+		"branch skips saves":          225, // target offset zero, from next PC 31
+		"branch enters a reload":      15,  // target offset 46, inside the first reload
+		"branch skips a reload":       19,  // target offset 50, second reload
+		"branch leaves the procedure": 100,
+	} {
+		t.Run(name, func(t *testing.T) {
+			bad := bytes.Clone(branched)
+			bad[30] = displacement
+			if err := check(prefix, bad, unwind, local); !errors.Is(err, ErrUnsupported) {
+				t.Fatal("unsafe branch accepted", err)
+			}
+		})
+	}
 	for name, change := range map[string]func([]byte, []byte, []byte, []byte){
 		"local save in callee home area":   func(p, b, u, l []byte) { b[9] = 16; b[30] = 16; l[6] = 1 },
 		"primary save in callee home area": func(p, b, u, l []byte) { p[13] = 16; b[40] = 16; u[6] = 1 },
