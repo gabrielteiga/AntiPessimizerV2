@@ -48,7 +48,7 @@ func (m *Model) AppendMetrics(r instrumentation.Record) error {
 		m.metricSizes, m.metricBytes, m.metricRows = sizes, bytes, rows
 	}
 	if len(m.Metrics) == 0 {
-		*m = Model{MetricUnit: m.MetricUnit, Session: r.SessionID, SortColumn: 1}
+		*m = Model{MetricUnit: m.MetricUnit, CallDiscountTicks: m.CallDiscountTicks, Session: r.SessionID, SortColumn: 1}
 	} else if m.Last > 0 {
 		m.Omitted += r.Sequence - m.Last - 1
 	}

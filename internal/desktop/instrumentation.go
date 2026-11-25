@@ -24,7 +24,7 @@ func (m *Model) ReplaceMetrics(records []instrumentation.Record) error {
 			omitted += r.Sequence - records[i-1].Sequence - 1
 		}
 	}
-	*m = Model{MetricUnit: m.MetricUnit, Metrics: clone, Session: clone[0].SessionID, Last: clone[len(clone)-1].Sequence, Omitted: omitted, SortColumn: 1}
+	*m = Model{MetricUnit: m.MetricUnit, CallDiscountTicks: m.CallDiscountTicks, Metrics: clone, Session: clone[0].SessionID, Last: clone[len(clone)-1].Sequence, Omitted: omitted, SortColumn: 1}
 	return nil
 }
 
@@ -49,7 +49,7 @@ func (m *Model) Headers() []string {
 		return m.metricComparisonHeaders()
 	}
 	if len(m.Metrics) > 0 {
-		unit := m.MetricUnit.label()
+		unit := m.metricTimeLabel()
 		return []string{"Chamadas", "Exclusivo (" + unit + ")", "Média exclusiva (" + unit + ")", "Inclusivo (" + unit + ")", "Média inclusiva (" + unit + ")", "Thread", "Instância (ticks)", "Módulo", "Procedimento", "RVA", "Unidade Pascal", "Unwind", "Frames abertos"}
 	}
 	if m.Comparison != nil {
@@ -139,6 +139,17 @@ func (m *Model) rebuildMetrics(f report.Filter) error {
 		return order > 0
 	})
 	for _, row := range rows {
+		if m.CallDiscountTicks != 0 {
+			totals, err := discountedMetricTotals(instrumentation.ProcedureTotals{Calls: row.Calls, InclusiveTicks: row.InclusiveTicks, ExclusiveTicks: row.ExclusiveTicks}, r.Metrics.Frequency, m.CallDiscountTicks)
+			if err != nil {
+				return err
+			}
+			row.InclusiveTicks, row.ExclusiveTicks = totals.InclusiveTicks, totals.ExclusiveTicks
+			row.InclusiveNS, row.ExclusiveNS = totals.InclusiveNS, totals.ExclusiveNS
+			if row.Calls > 0 {
+				row.AverageInclusiveNS, row.AverageExclusiveNS = *totals.AverageInclusiveNS, *totals.AverageExclusiveNS
+			}
+		}
 		m.Rows = append(m.Rows, []string{strconv.FormatUint(row.Calls, 10), unit.total(row.ExclusiveNS, row.ExclusiveTicks), unit.average(row.AverageExclusiveNS, row.ExclusiveTicks, row.Calls), unit.total(row.InclusiveNS, row.InclusiveTicks), unit.average(row.AverageInclusiveNS, row.InclusiveTicks, row.Calls), strconv.FormatUint(uint64(row.ThreadID), 10), strconv.FormatUint(row.ThreadInstance, 10), row.Module, row.Procedure, row.RVA, row.Unit, strconv.FormatUint(row.UnwoundCalls, 10), strconv.FormatUint(uint64(row.ActiveFrames), 10)})
 	}
 	return nil

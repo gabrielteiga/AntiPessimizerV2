@@ -298,7 +298,9 @@ func (e *Engine) Clear(tick uint64) error {
 	e.incomplete = false
 	return nil
 }
-func nanoseconds(ticks, frequency uint64) (uint64, error) {
+
+// NanosecondsFromTicks converts a clock duration with integer overflow checks.
+func NanosecondsFromTicks(ticks, frequency uint64) (uint64, error) {
 	if frequency == 0 {
 		return 0, errors.New("zero clock frequency")
 	}
@@ -318,11 +320,11 @@ func (e *Engine) Snapshot() (Snapshot, error) {
 		if v.Calls == 0 {
 			continue
 		}
-		inclusive, err := nanoseconds(v.Inclusive, e.config.Frequency)
+		inclusive, err := NanosecondsFromTicks(v.Inclusive, e.config.Frequency)
 		if err != nil {
 			return Snapshot{}, fmt.Errorf("inclusive: %w", err)
 		}
-		exclusive, err := nanoseconds(v.Exclusive, e.config.Frequency)
+		exclusive, err := NanosecondsFromTicks(v.Exclusive, e.config.Frequency)
 		if err != nil {
 			return Snapshot{}, fmt.Errorf("exclusive: %w", err)
 		}
