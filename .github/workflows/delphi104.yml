@@ -8,6 +8,9 @@ on:
         description: Seconds per endurance mode (0 skips, 6–7200 runs)
         type: number
         default: 0
+concurrency:
+  group: delphi104-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
