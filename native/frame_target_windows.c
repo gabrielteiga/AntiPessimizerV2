@@ -128,7 +128,7 @@ extern uint64_t APFramePaddedChain(const uint64_t *),APFramePaddedChainCatch(voi
 __asm__(
  ".text\n .globl APFramePaddedChain\n .def APFramePaddedChain; .scl 2; .type 32; .endef\n"
  "APFramePaddedChain:\n pushq %rbx\n subq $32,%rsp\n movq %rcx,%rbx\n .fill 8,1,0x90\n jmp APFramePaddedChainCold\n"
- ".Lpadded_chain_primary_end:\n .fill 8,1,0x90\n"
+ ".Lpadded_chain_primary_end:\n .byte 0x0f,0x1f,0x44,0,0,0x66,0x90,0xcc\n"
  ".globl APFramePaddedChainCold\n .def APFramePaddedChainCold; .scl 2; .type 32; .endef\n"
  "APFramePaddedChainCold:\n movq (%rbx),%rax\n addq $32,%rsp\n popq %rbx\n ret\n"
  ".Lpadded_chain_end:\n"

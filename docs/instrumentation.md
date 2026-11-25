@@ -906,6 +906,11 @@ Lacunas entre fragmentos podem conter bytes NOP se o fluxo anterior termina
 antes delas e nenhum salto tem destino dentro da lacuna. O ensaio Windows
 confere retorno e uma falha no fragmento após oito bytes de padding.
 
+Lacunas de alinhamento verificadas podem combinar NOPs de vários bytes
+e preenchimento INT3. O instalador confere os bytes originais e o clone usa
+NOPs com o mesmo comprimento total. O teste Windows atravessa oito bytes de
+preenchimento misto e confere o retorno e o unwind no fragmento seguinte.
+
 ## Tabelas de salto internas verificadas
 
 Um método sem frame nem handler pode usar uma tabela de 2 a 32 endereços
