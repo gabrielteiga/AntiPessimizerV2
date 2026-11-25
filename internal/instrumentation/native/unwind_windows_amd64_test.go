@@ -113,10 +113,14 @@ func TestNativeProducerUnwindsChainedUnalignedXMMSaves(t *testing.T) {
 	testNativeInheritedChainedFrame(t, "APFrameUnalignedSaves", 0, "6")
 }
 
+func TestNativeProducerUnwindsChainedLargeAllocation(t *testing.T) {
+	testNativeInheritedChainedFrame(t, "APFrameLargeSaveFrame", 0, "7")
+}
+
 func testNativeInheritedChainedFrame(t *testing.T, symbol string, gap uint32, mode string) {
 	t.Helper()
 	names := map[string]uint32{symbol: 1, symbol + "Cold": 2}
-	withStackProbe := mode == "3" || mode == "4" || mode == "5" || mode == "6"
+	withStackProbe := mode == "3" || mode == "4" || mode == "5" || mode == "6" || mode == "7"
 	if withStackProbe {
 		names["APFrameStackProbe"] = 3
 	}
