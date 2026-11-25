@@ -938,6 +938,12 @@ PUSHs na ordem inversa e retornar. O adaptador anuncia APHOOKH para saves locais
 com frame register. O ensaio Windows usa RBP com bias de 32 bytes e exige RBP,
 RBX e os 128 bits de XMM6 preservados após falha no fragmento secundário.
 
+Um primário sem frame register pode combinar SUB/ALLOC_SMALL com um
+SAVE_NONVOL na alocação fixa. Esse slot fica reservado ao verificar os saves
+locais do secundário. O epílogo repõe primeiro os saves locais e depois o
+registrador salvo pelo primário. O ensaio Windows exige RBX, RSI e XMM6
+preservados após a exceção, além de retorno e contagens conhecidos.
+
 Cadeias contíguas que herdam o frame também podem encaminhar o cleanup
 UHANDLER-only original ou traduzir scopes CRT reconhecidos, com APHOOKF. O
 handler original recebe o PC e a entrada runtime do fragmento de origem e os

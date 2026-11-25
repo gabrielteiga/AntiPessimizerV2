@@ -22,8 +22,18 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 	if validateUnwindCodes(info) != nil || info[4] != info[1] {
 		return fail()
 	}
-	allocation, pops, ok := stackFrameLayout(primary)
-	if !ok || allocation == 0 {
+	stackInfo := primary
+	primaryReloads := 0
+	var primarySlot uint64
+	var primaryRegister x86asm.Reg
+	if len(primary) == 12 && primary[2] == 3 && primary[3] == 0 && primary[5]&15 == 4 && primary[9]&15 == 2 {
+		primaryReloads = 1
+		primarySlot = uint64(binary.LittleEndian.Uint16(primary[6:])) * 8
+		primaryRegister = x86asm.RAX + x86asm.Reg(primary[5]>>4)
+		stackInfo = []byte{1, primary[1], 1, 0, primary[8], primary[9], 0, 0}
+	}
+	allocation, pops, ok := stackFrameLayout(stackInfo)
+	if !ok || allocation == 0 || primaryReloads != 0 && primarySlot+8 > allocation {
 		return fail()
 	}
 
@@ -36,6 +46,9 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 	var saves []savedRegister
 	var registers uint32
 	slots := make(map[uint32]bool)
+	if primaryReloads != 0 {
+		slots[uint32(primarySlot/8)] = true
+	}
 	for at := 4; at < 4+int(local[2])*2; {
 		op, number := local[at+1]&15, uint32(local[at+1]>>4)
 		width, step := uint32(8), 4
@@ -89,10 +102,10 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 		at = next
 	}
 	count := len(saves)
-	if len(fragment) < count*2+len(pops)+2 {
+	if len(fragment) < count*2+len(pops)+2+primaryReloads {
 		return fail()
 	}
-	restore := len(fragment) - count - len(pops) - 2
+	restore := len(fragment) - count - len(pops) - 2 - primaryReloads
 	offset := 0
 	for i := 0; i < count; i++ {
 		// Metadata lists saves from last to first. The epilogue reloads
@@ -127,6 +140,13 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 	for _, inst := range fragment[count:restore] {
 		if _, relative := inst.Args[0].(x86asm.Rel); relative || inst.Op == x86asm.RET || frameOperations[inst.Op.String()] ||
 			inst.Args[0] == x86asm.RSP || inst.Args[1] == x86asm.RSP {
+			return fail()
+		}
+	}
+	if primaryReloads != 0 {
+		load := fragment[restore+count]
+		mem, ok := load.Args[1].(x86asm.Mem)
+		if load.Op != x86asm.MOV || load.Args[0] != primaryRegister || !ok || !savedAtOffset(mem, int64(primarySlot), 0, 0, false) {
 			return fail()
 		}
 	}
