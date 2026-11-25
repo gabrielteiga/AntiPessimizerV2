@@ -290,3 +290,25 @@ Para economizar contexto, ler trechos relevantes com rg, evitar despejar logs
 inteiros e consultar passos da CI por etapa. Aguardar até 60 segundos entre
 conferências quando não houver trabalho independente. Aguardar sempre a CI
 pós-merge da main depois de conferir a equivalência da árvore com o head.
+
+## Continuação em 25/11: layouts dos saves primários
+
+- #101 integrado em `8def41eccaf9abd9c445215c9625c9f779ca7fa4`, árvore igual
+  ao head aprovado `3a02be3c637cdd30b7b26eb67e01678bba1b2677`.
+  Pós-merge Go 45698901691 e autoria 45698902091 passaram.
+- Pós-merge dos #97, #99 e #100 também concluídos com sucesso.
+- #102 atualizado com #101: head `a9242aa4903a18f54ecca7b0740983fbb536e0f3`.
+  Conferir todos os checks desse SHA antes do merge e a CI pós-merge.
+- #61 atualizado com #101: head `d3f4eb4e0beb269971ff6ed4cef367f214ab3902`.
+  Execução licenciada 45699043814 continua na fila. Execuções substituídas
+  45695501159 e 45631995894 foram canceladas. O workflow agora usa concurrency
+  por branch para manter somente a validação do SHA atual. Os checks de autoria
+  passaram; conferir a CI Go/Windows. O PR continua em rascunho.
+- Incremento em `feat/chained-primary-save-layout`, worktree
+  `/workspace/work/AntiPessimizerV2-primary-save-layout`, baseado em #102.
+  Generaliza os saves primários de memória para GPR/XMM, inclusive FAR e
+  ALLOC_LARGE, pushes/frame pointer, slots distintos e reloads conferidos.
+  Fixtures Windows modos 20/21/22 exigem RBX/RSI/XMM6/XMM7 após exceção.
+  Testes portáveis também rejeitam slots sobrepostos, duplicação, desalinhamento
+  e reloads com registrador/largura/endereço incorretos. Conferir PR/CI antes
+  de declarar integrado.

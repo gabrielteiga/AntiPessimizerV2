@@ -547,3 +547,88 @@ func TestChainedLocalSavesPreservePrimaryMemorySave(t *testing.T) {
 		})
 	}
 }
+
+func TestChainedMultiplePrimaryMemorySaves(t *testing.T) {
+	primary := []byte{0x48, 0x83, 0xec, 88, 0x48, 0x89, 0x5c, 0x24, 80,
+		0x0f, 0x29, 0x7c, 0x24, 48, 0x66, 0x0f, 0xef, 0xff, 0x48, 0x89, 0xcb}
+	secondary := []byte{0x48, 0x89, 0x74, 0x24, 72, 0x0f, 0x29, 0x74, 0x24, 16,
+		0x48, 0x89, 0xde, 0x66, 0x0f, 0xef, 0xf6, 0x48, 0x8b, 0x06,
+		0x0f, 0x28, 0x74, 0x24, 16, 0x48, 0x8b, 0x74, 0x24, 72,
+		0x0f, 0x28, 0x7c, 0x24, 48, 0x48, 0x8b, 0x5c, 0x24, 80, 0x48, 0x83, 0xc4, 88, 0xc3}
+	info := []byte{1, 21, 5, 0, 14, 0x78, 3, 0, 9, 0x34, 10, 0, 4, 0xa2, 0, 0}
+	local := []byte{33, 10, 4, 0, 10, 0x68, 1, 0, 5, 0x64, 9, 0}
+	build := func(prefix, suffix, unwind, chain []byte) ([]byte, []byte) {
+		code := append(bytes.Clone(prefix), bytes.Repeat([]byte{0x90}, 8)...)
+		start := len(code)
+		code = append(code, suffix...)
+		image := scalarImage(code)
+		put := binary.LittleEndian.PutUint32
+		put(image[0x404:], peLeafRVA+uint32(start))
+		put(image[0x40c:], peLeafRVA+uint32(start))
+		put(image[0x410:], peLeafRVA+uint32(len(code)))
+		put(image[0x414:], 0x20a0)
+		copy(image[0x480:], unwind)
+		copy(image[0x4a0:], chain)
+		copy(image[0x4ac:], image[0x400:0x40c])
+		return image, code
+	}
+	check := func(t *testing.T, prefix, suffix, unwind, chain []byte) {
+		t.Helper()
+		image, code := build(prefix, suffix, unwind, chain)
+		plan, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+		if err != nil || len(plan.Functions) != 4 {
+			t.Fatal("primary save combination rejected", err)
+		}
+		at := plan.Functions[1].Unwind
+		if !bytes.Equal(plan.Image[at+1:at+uint32(len(unwind))], unwind[1:]) {
+			t.Fatal("primary metadata changed")
+		}
+	}
+	t.Run("small mixed saves", func(t *testing.T) { check(t, primary, secondary, info, local) })
+	t.Run("large allocation and FAR saves", func(t *testing.T) {
+		prefix := append([]byte{0x48, 0x81, 0xec, 0x98, 0, 0, 0}, primary[4:]...)
+		suffix := append(bytes.Clone(secondary[:len(secondary)-5]), 0x48, 0x81, 0xc4, 0x98, 0, 0, 0, 0xc3)
+		unwind := []byte{1, 24, 8, 0, 17, 0x79, 48, 0, 0, 0, 12, 0x35, 80, 0, 0, 0, 7, 1, 19, 0}
+		check(t, prefix, suffix, unwind, local)
+	})
+	t.Run("frame pointer and pushes", func(t *testing.T) {
+		prefix := []byte{0x55, 0x48, 0x83, 0xec, 80, 0x48, 0x8d, 0x6c, 0x24, 32}
+		prefix = append(prefix, primary[4:]...)
+		prefix[14] = 72
+		suffix := bytes.Clone(secondary[:len(secondary)-5])
+		suffix[4], suffix[29], suffix[39] = 64, 64, 72
+		suffix = append(suffix, 0x48, 0x8d, 0x65, 48, 0x5d, 0xc3)
+		unwind := []byte{1, 27, 7, 0x25, 20, 0x78, 3, 0, 15, 0x34, 9, 0, 10, 3, 5, 0x92, 1, 0x50, 0, 0}
+		chain := bytes.Clone(local)
+		chain[3], chain[10] = 0x25, 8
+		check(t, prefix, suffix, unwind, chain)
+	})
+	for name, change := range map[string]func([]byte, []byte, []byte){
+		"primary save overlaps local": func(p, s, u []byte) { p[13] = 16; s[34] = 16; u[6] = 1 },
+		"primary XMM misalignment": func(p, s, u []byte) {
+			p[3] = 80
+			p[8] = 72
+			s[4] = 64
+			s[29] = 64
+			s[39] = 72
+			s[len(s)-2] = 80
+			u[10] = 9
+			u[13] = 0x92
+		},
+		"primary reload wrong register": func(p, s, u []byte) { s[32] = 0x74 },
+		"primary reload wrong width":    func(p, s, u []byte) { s[31] = 0x12 },
+		"primary reload wrong slot":     func(p, s, u []byte) { s[39] = 72 },
+		"duplicate primary register":    func(p, s, u []byte) { p[11] = 0x74; u[5] = 0x68 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			p, s, u := bytes.Clone(primary), bytes.Clone(secondary), bytes.Clone(info)
+			change(p, s, u)
+			code := append(p, bytes.Repeat([]byte{0x90}, 8)...)
+			start := len(code)
+			code = append(code, s...)
+			if err := validateLocalSave(code, u, start, local); !errors.Is(err, ErrUnsupported) {
+				t.Fatal("invalid primary save accepted", err)
+			}
+		})
+	}
+}
