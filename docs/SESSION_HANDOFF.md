@@ -132,17 +132,21 @@ de atribuição de ontem continuará, nem pedir teste manual ao usuário.
   CI pós-merge 45632877136 concluída com sucesso, inclusive pacote.
 - O #95 foi integrado em `d69638de1115411c95476d24f0ff248daf0d390d`, após
   todos os checks do head `9250a94f61e17c6efa58e651c5badfeed7cd3f7f` aprovados.
-  A árvore é idêntica ao head. A CI pós-merge 45635165860 está em acompanhamento.
+  A árvore é idêntica ao head. A CI pós-merge 45635165860 passou, inclusive pacote.
   Preserva cleanup UHANDLER-only e scopes CRT em fragmentos contíguos que herdam
   o frame. O baseline mostrou que o dispatcher aponta para a entrada runtime
   secundária e usa os dados do handler primário. O adaptador mantém essa identidade,
   confere a cadeia original e negocia APHOOKF. Windows exige cleanup, captura e
   captura/finally combinados, com métricas e finalizadores exatos.
-- Próximo incremento em `feat/chained-far-saves`, worktree
+- O PR #96 usa `feat/chained-far-saves`, worktree
   `/workspace/work/AntiPessimizerV2-far-saves`. Acrescenta SAVE_NONVOL_FAR e
   SAVE_XMM128_FAR com offsets sem escala, alinhamento dos códigos ímpares antes
-  do vínculo runtime, slots não sobrepostos e negociação APHOOKG. Conferir o PR
-  e o último head antes de considerar esse bloco integrado.
+  do vínculo runtime, slots não sobrepostos e negociação APHOOKG. A fixture ímpar
+  encontrou e corrigiu a realocação do vínculo quando o método ocupa um stride
+  posterior. O teste Go usa dois procedimentos e confere os três campos do
+  runtime embutido após o padding. Conferir o estado do #96 e seu último head
+  antes de considerar esse bloco integrado. O MinGW local está em
+  `/workspace/work/toolchains/mingw/root/usr/bin/x86_64-w64-mingw32-gcc-posix`.
 - O #61 incorporou a main após #93 em `95592017084f136cae8386e82631a4272e2b711a`.
   Testes locais passaram. A execução licenciada 45631995894/job 139267375260
   está queued, sem runner atribuído. A worktree é
