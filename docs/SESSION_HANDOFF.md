@@ -150,22 +150,32 @@ de atribuição de ontem continuará, nem pedir teste manual ao usuário.
   Acrescenta MOVAPD/MOVUPD/MOVDQA/MOVDQU aos saves XMM de 128 bits, com quatro
   fixtures Windows de baseline/unwind/registradores. CI pós-merge 45691071003
   em acompanhamento.
-- Próximo incremento em `feat/viewer-time-discount`, worktree
-  `/workspace/work/AntiPessimizerV2-time-discount`. Implementa a preferência
-  `Cycle discount`/`FixedCycleDiscount` de `src/gui.cpp` da revisão fixada.
-  Usa desconto por chamada em ticks QPC, padrão zero e saturação em zero.
-  A apresentação recalcula médias e deltas de comparação com a frequência de
-  cada captura. A ordenação e os dados gravados preservam as medições originais.
-  Há teste portável de precisão u64, overflow, histórico/Clear, imutabilidade e
-  comparação, e smoke Win32 de edição, entrada inválida e reabertura. Conferir
-  o PR e seu último head antes do merge.
+- O #98 foi integrado em `12c0754431fa3cb8521003d5b38a7e64b1451b39`, após
+  checks do head `0b950d242dd95c42d1b4a57d53974af71ff66188` aprovados.
+  Implementa o desconto QPC por chamada do viewer, com padrão zero, saturação,
+  médias/deltas recalculados, persistência e controle Win32 testado. CI pós-merge
+  45692712032 passou, inclusive pacote.
+- O #99 foi integrado em `7d8561f6db0d06ca9c6446f65e515949d07ac088` após todos
+  os checks do head `e7965e1d2d2d1e22b5a2c1f885d5ce5ee24e1aac` aprovados.
+  O usuário exige autoria exclusiva do proprietário em todas as sessões de código.
+  AGENTS.md, hooks de commit/push e CI de autoria registram e verificam a regra.
+  Execute `scripts/configure-owner-attribution.sh` em cada clone/sessão e confira
+  autor, committer e trailers antes de publicar. CI pós-merge Go 45695370423 em
+  acompanhamento; a CI de autoria 45695372659 já passou.
+- Próximo incremento em `feat/chained-frame-register-saves`, worktree
+  `/workspace/work/AntiPessimizerV2-frame-local-saves`. Aceita pushes no primário
+  antes da alocação e frame register herdado pelos saves locais; valida a liberação
+  por ADD/LEA e os POPs em ordem inversa usando a lógica das tail calls. Negocia
+  APHOOKH. Fixture Windows usa RBP com bias de 32 bytes e exige RBP, RBX e XMM6
+  após falha no secundário. Conferir o PR e seu último head antes do merge.
 - O MinGW local está em
   `/workspace/work/toolchains/mingw/root/usr/bin/x86_64-w64-mingw32-gcc-posix`.
-- O #61 incorporou a main após #93 em `95592017084f136cae8386e82631a4272e2b711a`.
-  Testes locais passaram. A execução licenciada 45631995894/job 139267375260
-  está queued, sem runner atribuído. A worktree é
-  `/workspace/work/AntiPessimizerV2-delphi104`. Conferir a CI do head e atualizar
-  novamente com a main quando necessário antes do merge.
+- O #61 incorporou a main após #99 e corrigiu os autores dos commits pendentes.
+  Head `bc99ab201bb9afca7e9af8557a712e99406b542c`, branch `test/delphi104-owned`.
+  A correção de autoria preservou a árvore original, e a atualização com main
+  passou nos testes locais. Execução licenciada 45695501159 aguardando runner.
+  A worktree é `/workspace/work/AntiPessimizerV2-delphi104`. Exigir execução real
+  e os checks do novo head antes do merge.
 - Ambiente em `/workspace/work/AntiPessimizerV2`, Go em
   `/workspace/work/toolchains/go/bin`, cache em `/workspace/work/cache`
   e GOPATH em `/workspace/work/gopath`. Preservar alterações antes de trocar branch.
