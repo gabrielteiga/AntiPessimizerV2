@@ -312,3 +312,19 @@ pós-merge da main depois de conferir a equivalência da árvore com o head.
   Testes portáveis também rejeitam slots sobrepostos, duplicação, desalinhamento
   e reloads com registrador/largura/endereço incorretos. Conferir PR/CI antes
   de declarar integrado.
+
+## Incremento de chamadas em fragmentos com saves locais
+
+- #102 integrado em `10beda50058948876cf312b19cd50004abef57b4`, árvore igual
+  ao head `a9242aa4903a18f54ecca7b0740983fbb536e0f3` com todos os checks aprovados.
+  Pós-merge Go 45700279165 em acompanhamento, autoria 45700279230 aprovada.
+- #103 em `feat/chained-primary-save-layout`, atualizado com a main após #102.
+  Head `768ada028472fb54e8d753a0cc9e45674d404e77`, checks em andamento.
+- Próxima branch `feat/chained-local-calls`, worktree
+  `/workspace/work/AntiPessimizerV2-local-calls`, permite CALL direto no corpo
+  com saves locais se RSP estiver alinhado e os 32 bytes de home slots livres.
+  Reutiliza a relocação normal de calls, sem liberar calls indiretos/branches.
+  Fixture Windows modo 23 escreve todos os home slots no callee e causa AV,
+  verificando os registradores do frame, contagens e unwind contra o baseline.
+  Testes portáveis rejeitam slots de saves na área do callee e CALL desalinhado.
+  Exigir todos os checks do head e pós-merge dos predecessores antes do merge.

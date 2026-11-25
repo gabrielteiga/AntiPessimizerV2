@@ -632,3 +632,54 @@ func TestChainedMultiplePrimaryMemorySaves(t *testing.T) {
 		})
 	}
 }
+
+func TestChainedLocalSaveDirectCallsReserveCalleeHomeSlots(t *testing.T) {
+	prefix := []byte{0x48, 0x83, 0xec, 88, 0x48, 0x89, 0x5c, 0x24, 80, 0x0f, 0x29, 0x7c, 0x24, 48, 0x66, 0x0f, 0xef, 0xff, 0x48, 0x89, 0xcb}
+	body := []byte{0x48, 0x89, 0x74, 0x24, 72, 0x0f, 0x29, 0x74, 0x24, 32, 0x48, 0x89, 0xde, 0x66, 0x0f, 0xef, 0xf6,
+		0x48, 0x89, 0xf1, 0xe8, 0, 1, 0, 0, 0x90,
+		0x0f, 0x28, 0x74, 0x24, 32, 0x48, 0x8b, 0x74, 0x24, 72,
+		0x0f, 0x28, 0x7c, 0x24, 48, 0x48, 0x8b, 0x5c, 0x24, 80, 0x48, 0x83, 0xc4, 88, 0xc3}
+	unwind := []byte{1, 21, 5, 0, 14, 0x78, 3, 0, 9, 0x34, 10, 0, 4, 0xa2, 0, 0}
+	local := []byte{33, 10, 4, 0, 10, 0x68, 2, 0, 5, 0x64, 9, 0}
+	check := func(p, b, u, l []byte) error {
+		code := append(bytes.Clone(p), bytes.Repeat([]byte{0x90}, 8)...)
+		start := len(code)
+		code = append(code, b...)
+		image := scalarImage(code)
+		put := binary.LittleEndian.PutUint32
+		put(image[0x404:], peLeafRVA+uint32(start))
+		put(image[0x40c:], peLeafRVA+uint32(start))
+		put(image[0x410:], peLeafRVA+uint32(len(code)))
+		put(image[0x414:], 0x20a0)
+		copy(image[0x480:], u)
+		copy(image[0x4a0:], l)
+		copy(image[0x4ac:], image[0x400:0x40c])
+		_, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+		return err
+	}
+	if err := check(prefix, body, unwind, local); err != nil {
+		t.Fatal("verified direct call rejected", err)
+	}
+	for name, change := range map[string]func([]byte, []byte, []byte, []byte){
+		"local save in callee home area":   func(p, b, u, l []byte) { b[9] = 16; b[30] = 16; l[6] = 1 },
+		"primary save in callee home area": func(p, b, u, l []byte) { p[13] = 16; b[40] = 16; u[6] = 1 },
+		"indirect call":                    func(p, b, u, l []byte) { copy(b[20:], []byte{0xff, 0xd0, 0x90, 0x90, 0x90}) },
+		"misaligned call stack": func(p, b, u, l []byte) {
+			p[3] = 96
+			p[10] = 0x11
+			b[6] = 0x11
+			b[27] = 0x10
+			b[37] = 0x10
+			b[len(b)-2] = 96
+			u[13] = 0xb2
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p, b, u, l := bytes.Clone(prefix), bytes.Clone(body), bytes.Clone(unwind), bytes.Clone(local)
+			change(p, b, u, l)
+			if err := check(p, b, u, l); !errors.Is(err, ErrUnsupported) {
+				t.Fatal("unsafe chained call accepted", err)
+			}
+		})
+	}
+}
