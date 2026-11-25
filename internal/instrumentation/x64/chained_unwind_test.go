@@ -503,3 +503,47 @@ func TestChainedLocalSavesUseHighFrameRegister(t *testing.T) {
 		t.Fatal("high frame-register identity changed")
 	}
 }
+
+func primaryAndLocalSavePE() ([]byte, []byte) {
+	code := []byte{0x48, 0x83, 0xec, 56, 0x48, 0x89, 0x5c, 0x24, 48, 0x48, 0x89, 0xcb}
+	code = append(code, bytes.Repeat([]byte{0x90}, 8)...)
+	code = append(code,
+		0x48, 0x89, 0x74, 0x24, 40, 0x0f, 0x29, 0x74, 0x24, 16,
+		0x48, 0x89, 0xde, 0x66, 0x0f, 0xef, 0xf6, 0x48, 0x8b, 0x06,
+		0x0f, 0x28, 0x74, 0x24, 16, 0x48, 0x8b, 0x74, 0x24, 40,
+		0x48, 0x8b, 0x5c, 0x24, 48, 0x48, 0x83, 0xc4, 56, 0xc3)
+	image := scalarImage(code)
+	put := binary.LittleEndian.PutUint32
+	put(image[0x404:], peLeafRVA+20)
+	put(image[0x40c:], peLeafRVA+20)
+	put(image[0x410:], peLeafRVA+uint32(len(code)))
+	put(image[0x414:], 0x20a0)
+	copy(image[0x480:], []byte{1, 12, 3, 0, 9, 0x34, 6, 0, 4, 0x62, 0, 0})
+	copy(image[0x4a0:], []byte{33, 10, 4, 0, 10, 0x68, 1, 0, 5, 0x64, 5, 0})
+	copy(image[0x4ac:], image[0x400:0x40c])
+	return image, code
+}
+
+func TestChainedLocalSavesPreservePrimaryMemorySave(t *testing.T) {
+	image, code := primaryAndLocalSavePE()
+	plan, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+	if err != nil || len(plan.Functions) != 4 {
+		t.Fatal("primary memory save rejected", err)
+	}
+	if !bytes.Equal(plan.Image[plan.Functions[1].Unwind+1:plan.Functions[1].Unwind+12], image[0x481:0x48c]) {
+		t.Fatal("primary unwind actions changed")
+	}
+	for name, change := range map[string]func([]byte){
+		"overlapping primary and local slots": func(b []byte) { b[0x4aa] = 6; b[0x220+24] = 48; b[0x220+49] = 48 },
+		"XMM slot outside the frame":          func(b []byte) { b[0x4a6] = 3 },
+		"primary reload reads another slot":   func(b []byte) { b[0x220+len(code)-6] = 40 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			bad := bytes.Clone(image)
+			change(bad)
+			if _, err := BuildPEFunction(bad, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7); !errors.Is(err, ErrUnsupported) {
+				t.Fatal("invalid primary/local save combination accepted", err)
+			}
+		})
+	}
+}

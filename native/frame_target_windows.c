@@ -321,6 +321,27 @@ __asm__(
  ".rva .Lmixed_saves_try,.Lmixed_saves_try_end,APFrameMemoryFilter,.Lmixed_saves_catch\n .text\n .seh_endproc\n"
 );
 
+extern uint64_t APFramePrimaryMemorySave(const uint64_t *),APFramePrimaryMemorySaveCatch(void);
+__asm__(
+ ".text\n .globl APFramePrimaryMemorySave\n .def APFramePrimaryMemorySave; .scl 2; .type 32; .endef\n"
+ "APFramePrimaryMemorySave:\n subq $56,%rsp\n movq %rbx,48(%rsp)\n movq %rcx,%rbx\n .fill 8,1,0x90\n"
+ ".globl APFramePrimaryMemorySaveCold\n .def APFramePrimaryMemorySaveCold; .scl 2; .type 32; .endef\n"
+ "APFramePrimaryMemorySaveCold:\n movq %rsi,40(%rsp)\n movaps %xmm6,16(%rsp)\n movq %rbx,%rsi\n pxor %xmm6,%xmm6\n movq (%rsi),%rax\n"
+ "movaps 16(%rsp),%xmm6\n movq 40(%rsp),%rsi\n movq 48(%rsp),%rbx\n addq $56,%rsp\n ret\n .Lprimary_memory_save_end:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n .Lprimary_memory_save_primary:\n .byte 1,12,3,0,9,0x34,6,0,4,0x62,0,0\n"
+ ".Lprimary_memory_save_secondary:\n .byte 33,10,4,0,10,0x68,1,0,5,0x64,5,0\n .rva APFramePrimaryMemorySave,APFramePrimaryMemorySaveCold,.Lprimary_memory_save_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n .rva APFramePrimaryMemorySave,APFramePrimaryMemorySaveCold,.Lprimary_memory_save_primary\n"
+ ".rva APFramePrimaryMemorySaveCold,.Lprimary_memory_save_end,.Lprimary_memory_save_secondary\n"
+ ".text\n .globl APFramePrimaryMemorySaveCatch\n .def APFramePrimaryMemorySaveCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFramePrimaryMemorySaveCatch\n APFramePrimaryMemorySaveCatch:\n pushq %rbx\n .seh_pushreg %rbx\n pushq %rsi\n .seh_pushreg %rsi\n subq $56,%rsp\n .seh_stackalloc 56\n movaps %xmm6,32(%rsp)\n .seh_savexmm %xmm6,32\n .seh_endprologue\n"
+ "movl $0x42012345,%ebx\n movl $0x12345678,%esi\n movl $0x44113322,%edx\n movq %rdx,%xmm6\n movl $0x55667788,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm6\n .Lprimary_memory_save_try:\n xorq %rcx,%rcx\n call APFramePrimaryMemorySave\n nop\n"
+ ".Lprimary_memory_save_try_end:\n xorl %eax,%eax\n jmp .Lprimary_memory_save_return\n"
+ ".Lprimary_memory_save_catch:\n xorl %eax,%eax\n cmpl $0x42012345,%ebx\n sete %al\n movq %xmm6,%rdx\n cmpl $0x44113322,%edx\n sete %cl\n andb %cl,%al\n movhlps %xmm6,%xmm0\n movq %xmm0,%rdx\n cmpl $0x55667788,%edx\n sete %cl\n andb %cl,%al\n"
+ "cmpl $0x12345678,%esi\n sete %cl\n andb %cl,%al\n .Lprimary_memory_save_return:\n movaps 32(%rsp),%xmm6\n addq $56,%rsp\n popq %rsi\n popq %rbx\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Lprimary_memory_save_try,.Lprimary_memory_save_try_end,APFrameMemoryFilter,.Lprimary_memory_save_catch\n .text\n .seh_endproc\n"
+);
+
 extern uint64_t APFrameBiasedLocalSaves(const uint64_t *),APFrameBiasedLocalSavesCatch(void);
 __asm__(
  ".text\n .globl APFrameBiasedLocalSaves\n .def APFrameBiasedLocalSaves; .scl 2; .type 32; .endef\n"
@@ -735,6 +756,8 @@ static DWORD WINAPI worker(void *unused){
   const uint64_t value=UINT64_C(0x1122334455667788);
   if(check_chain==3){
    if(APFrameLocalSave(&value)!=value || APFrameLocalSaveCatch()!=1)return 12;
+  }else if(check_chain==19){
+   if(APFramePrimaryMemorySave(&value)!=value || APFramePrimaryMemorySaveCatch()!=1)return 12;
   }else if(check_chain==18){
    if(APFrameR12LocalSaves(&value)!=value || APFrameR12LocalSavesCatch()!=1)return 12;
   }else if(check_chain==17){

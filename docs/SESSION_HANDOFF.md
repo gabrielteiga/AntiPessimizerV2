@@ -162,12 +162,21 @@ de atribuição de ontem continuará, nem pedir teste manual ao usuário.
   Execute `scripts/configure-owner-attribution.sh` em cada clone/sessão e confira
   autor, committer e trailers antes de publicar. CI pós-merge Go 45695370423 em
   acompanhamento; a CI de autoria 45695372659 já passou.
-- Próximo incremento em `feat/chained-frame-register-saves`, worktree
-  `/workspace/work/AntiPessimizerV2-frame-local-saves`. Aceita pushes no primário
-  antes da alocação e frame register herdado pelos saves locais; valida a liberação
-  por ADD/LEA e os POPs em ordem inversa usando a lógica das tail calls. Negocia
-  APHOOKH. Fixture Windows usa RBP com bias de 32 bytes e exige RBP, RBX e XMM6
-  após falha no secundário. Conferir o PR e seu último head antes do merge.
+- O #100 foi integrado em `16c0cfa7cb3e652b15589378e7a2afc404a35d45` após
+  todos os checks do head `63c8d81915c19486adc6483adcdb99bd843748e7` aprovados.
+  Usa pushes/frame register no primário, liberação ADD/LEA e POPs conferidos,
+  negociação APHOOKH e fixtures Windows com RBP/R12, ambos com bias de 32 bytes.
+  O teste adicional rejeita MOVAPS desalinhado após os pushes do primário.
+  CI pós-merge Go 45698002587 e autoria 45698002492 em acompanhamento.
+- O #101 corrige o check de autoria quando o SHA anterior de uma branch
+  reescrita não está disponível no checkout. A branch `fix/owner-attribution-force-update`
+  inclui a main após #100. Conferir o head e a CI antes do merge. Essa correção
+  deve integrar a próxima atualização do #61 para resolver o check do push.
+- Próximo incremento em `feat/chained-primary-memory-save`, worktree
+  `/workspace/work/AntiPessimizerV2-primary-local-saves`. Combina SAVE_NONVOL
+  do primário com saves locais GPR/XMM no secundário. Reserva o slot primário,
+  verifica a restauração depois dos saves locais e exige RBX/RSI/XMM6 no catch.
+  Conferir o PR e os checks do head antes de considerar integrado.
 - O MinGW local está em
   `/workspace/work/toolchains/mingw/root/usr/bin/x86_64-w64-mingw32-gcc-posix`.
 - O #61 incorporou a main após #99 e corrigiu os autores dos commits pendentes.
