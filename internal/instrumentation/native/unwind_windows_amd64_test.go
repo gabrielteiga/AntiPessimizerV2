@@ -117,6 +117,10 @@ func TestNativeProducerForwardsCleanupAcrossInheritedChain(t *testing.T) {
 	testNativeInheritedChainedFrame(t, "APFrameCleanupChain", 0, "8")
 }
 
+func TestNativeProducerCatchesWithinInheritedChain(t *testing.T) {
+	testNativeInheritedChainedFrame(t, "APFrameScopeChain", 0, "9")
+}
+
 func testNativeInheritedChainedFrame(t *testing.T, symbol string, gap uint32, mode string) {
 	t.Helper()
 	names := map[string]uint32{symbol: 1, symbol + "Cold": 2}
@@ -161,9 +165,13 @@ func testNativeInheritedChainedFrame(t *testing.T, symbol string, gap uint32, mo
 	if s.Incomplete || s.OpenCalls != 0 || s.AbandonedCalls != 0 || record.NativeLostEvents != 0 || len(s.Rows) != 3*len(o.Procedures) {
 		t.Fatal("chained unwind left incomplete or missing frames", s)
 	}
+	wantUnwound := uint64(1)
+	if mode == "9" {
+		wantUnwound = 0
+	}
 	for _, row := range s.Rows {
-		if row.ProcedureID != primary.ID && (!withStackProbe || row.ProcedureID != 3) || row.Calls != 2 || row.UnwoundCalls != 1 || row.InclusiveTicks == 0 || row.InclusiveTicks != row.ExclusiveTicks {
-			t.Fatal("chained procedure did not record one return and one unwind per thread", row)
+		if row.ProcedureID != primary.ID && (!withStackProbe || row.ProcedureID != 3) || row.Calls != 2 || row.UnwoundCalls != wantUnwound || row.InclusiveTicks == 0 || row.InclusiveTicks != row.ExclusiveTicks {
+			t.Fatal("chained procedure did not preserve expected calls and unwinds per thread", row)
 		}
 	}
 }

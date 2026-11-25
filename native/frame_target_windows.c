@@ -242,6 +242,20 @@ __asm__(
  ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
  ".rva .Lmultiple_saves_try,.Lmultiple_saves_try_end,APFrameMemoryFilter,.Lmultiple_saves_catch\n .text\n .seh_endproc\n"
 );
+extern uint64_t APFrameScopeChain(const uint64_t *);
+__asm__(
+ ".text\n .globl APFrameScopeChain\n .def APFrameScopeChain; .scl 2; .type 32; .endef\n"
+ "APFrameScopeChain:\n subq $40,%rsp\n .fill 8,1,0x90\n"
+ ".globl APFrameScopeChainCold\n .def APFrameScopeChainCold; .scl 2; .type 32; .endef\n"
+ "APFrameScopeChainCold:\n movq (%rcx),%rax\n .Lscope_chain_try_end:\n addq $40,%rsp\n ret\n"
+ ".Lscope_chain_catch:\n movl $913,%eax\n addq $40,%rsp\n ret\n .Lscope_chain_end:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n .Lscope_chain_primary:\n .byte 9,4,1,0,4,0x42,0,0\n"
+ ".rva __C_specific_handler\n .long 1\n .rva APFrameScopeChainCold,.Lscope_chain_try_end,APFrameMemoryFilter,.Lscope_chain_catch\n"
+ ".Lscope_chain_secondary:\n .byte 33,0,0,0\n .rva APFrameScopeChain,APFrameScopeChainCold,.Lscope_chain_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n .rva APFrameScopeChain,APFrameScopeChainCold,.Lscope_chain_primary\n"
+ ".rva APFrameScopeChainCold,.Lscope_chain_end,.Lscope_chain_secondary\n .text\n"
+);
+
 extern uint64_t APFrameMixedSaves(const uint64_t *),APFrameMixedSavesCatch(void);
 __asm__(
  ".text\n .globl APFrameMixedSaves\n .def APFrameMixedSaves; .scl 2; .type 32; .endef\n"
@@ -565,6 +579,8 @@ static DWORD WINAPI worker(void *unused){
   const uint64_t value=UINT64_C(0x1122334455667788);
   if(check_chain==3){
    if(APFrameLocalSave(&value)!=value || APFrameLocalSaveCatch()!=1)return 12;
+  }else if(check_chain==9){
+   if(APFrameScopeChain(&value)!=value || APFrameScopeChain(NULL)!=913)return 12;
   }else if(check_chain==8){
    if(APFrameCleanupChain(&value)!=value || APFrameCleanupChainCatch()!=903)return 12;
   }else if(check_chain==6){

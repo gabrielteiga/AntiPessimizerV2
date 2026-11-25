@@ -296,3 +296,32 @@ func TestInheritedChainPreservesOriginalCleanupDescriptor(t *testing.T) {
 		t.Fatal("unverified combination of local saves and cleanup accepted", err)
 	}
 }
+
+func TestInheritedChainRelocatesRecognizedExceptionScopes(t *testing.T) {
+	for _, flags := range []byte{9, 25} {
+		image, code := scopesPE()
+		copy(image[0x418:0x424], image[0x40c:0x418])
+		w32(image, peOptional+140, 36)
+		w32(image, 0x404, peLeafRVA+16)
+		w32(image, 0x40c, peLeafRVA+16)
+		w32(image, 0x410, peLeafRVA+uint32(len(code)))
+		w32(image, 0x414, 0x20c0)
+		image[0x4c0] = 33
+		copy(image[0x4c4:], image[0x400:0x40c])
+		image[0x480] = flags
+		w32(image, 0x490, peLeafRVA+16)
+		w32(image, 0x494, peLeafRVA+24)
+		w32(image, 0x49c, peLeafRVA+24)
+		plan, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+		if err != nil || !plan.RelocatedHandler || plan.HandlerScopeStyle != 1 {
+			t.Fatal("inherited exception scopes rejected", flags, err)
+		}
+		descriptor := plan.Image[plan.Functions[1].Unwind+12:]
+		scopes := descriptor[binary.LittleEndian.Uint32(descriptor[52:]):]
+		for i, want := range []uint32{1, 0x80210, 0x80218, 1, 0x80218} {
+			if got := binary.LittleEndian.Uint32(scopes[i*4:]); got != want {
+				t.Fatal("inherited scope lost relocated PC", i, got, want)
+			}
+		}
+	}
+}
