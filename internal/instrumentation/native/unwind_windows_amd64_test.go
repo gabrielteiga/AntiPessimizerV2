@@ -155,10 +155,16 @@ func TestNativeProducerUnwindsPrimaryAndLocalMemorySaves(t *testing.T) {
 	testNativeInheritedChainedFrame(t, "APFramePrimaryMemorySave", 0, "19")
 }
 
+func TestNativeProducerUnwindsPrimaryMixedAndLocalMemorySaves(t *testing.T) {
+	for _, tc := range []struct{ symbol, mode string }{{"APFramePrimaryMixedSaves", "20"}, {"APFramePrimaryFarSaves", "21"}, {"APFramePrimaryFrameSaves", "22"}} {
+		t.Run(tc.symbol, func(t *testing.T) { testNativeInheritedChainedFrame(t, tc.symbol, 0, tc.mode) })
+	}
+}
+
 func testNativeInheritedChainedFrame(t *testing.T, symbol string, gap uint32, mode string) {
 	t.Helper()
 	names := map[string]uint32{symbol: 1, symbol + "Cold": 2}
-	withStackProbe := mode == "3" || mode == "4" || mode == "5" || mode == "6" || mode == "7" || mode == "11" || mode == "12" || mode == "13" || mode == "14" || mode == "15" || mode == "16" || mode == "17" || mode == "18" || mode == "19"
+	withStackProbe := mode == "3" || mode == "4" || mode == "5" || mode == "6" || mode == "7" || mode == "11" || mode == "12" || mode == "13" || mode == "14" || mode == "15" || mode == "16" || mode == "17" || mode == "18" || mode == "19" || mode == "20" || mode == "21" || mode == "22"
 	if withStackProbe {
 		names["APFrameStackProbe"] = 3
 	}
