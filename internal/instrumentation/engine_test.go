@@ -147,10 +147,10 @@ func TestLimitsAndOverflow(t *testing.T) {
 		t.Fatal("row limit ignored")
 	}
 	// Raw ticks may be valid while their nanosecond representation overflows.
-	if _, err := nanoseconds(math.MaxUint64, 1); err == nil {
+	if _, err := NanosecondsFromTicks(math.MaxUint64, 1); err == nil {
 		t.Fatal("duration conversion overflow")
 	}
-	if n, err := nanoseconds(3, 2); err != nil || n != 1500000000 {
+	if n, err := NanosecondsFromTicks(3, 2); err != nil || n != 1500000000 {
 		t.Fatal(n, err)
 	}
 }

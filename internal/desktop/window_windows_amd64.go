@@ -111,6 +111,8 @@ type window struct {
 	preferencesProblem, preferencesWriteErr                                        error
 	preferencesSaved                                                               bool
 	metricUnits                                                                    uintptr
+	callDiscountLabel, callDiscount                                                uintptr
+	discountProblem                                                                bool
 	clearButton                                                                    uintptr
 	instrumentMode                                                                 bool
 	browseExecutable                                                               uintptr
@@ -362,6 +364,11 @@ func (a *window) open() error {
 		send.Call(a.metricUnits, 0x143, 0, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(label))))
 	}
 	send.Call(a.metricUnits, 0x14e, 2, 0)
+	a.callDiscountLabel = child(a.hwnd, "STATIC", "Desconto/chamada (ticks QPC)", 0, 34)
+	a.callDiscount = child(a.hwnd, "EDIT", "0", 0x00812080, 35)
+	send.Call(a.callDiscount, 0xc5, 20, 0)
+	user.NewProc("ShowWindow").Call(a.callDiscountLabel, 0)
+	user.NewProc("ShowWindow").Call(a.callDiscount, 0)
 	a.clearButton = child(a.hwnd, "BUTTON", "Limpar métricas", 0x10000, 24)
 	a.modeButton = child(a.hwnd, "BUTTON", "Chamadas", 0x10000, 18)
 	a.imagePath = child(a.hwnd, "EDIT", "", 0x00810080, 19)
@@ -446,6 +453,8 @@ func (a *window) applyPreferences() {
 		send.Call(a.wholeUnit, 0xf1, 1, 0)
 	}
 	a.model.MetricUnit = a.preferences.TimeUnit.normalized()
+	a.model.CallDiscountTicks = a.preferences.CallDiscountTicks
+	text(a.callDiscount, strconv.FormatUint(a.preferences.CallDiscountTicks, 10))
 	for index, unit := range []MetricTimeUnit{Nanoseconds, Microseconds, Milliseconds, Seconds, ClockTicks} {
 		if unit == a.model.MetricUnit {
 			send.Call(a.metricUnits, 0x14e, uintptr(index), 0)
@@ -460,7 +469,11 @@ func (a *window) persistPreferences() {
 	a.preferencesSaved = true
 	whole, _, _ := send.Call(a.wholeUnit, 0xf0, 0, 0)
 	a.storeColumnLayout()
-	p := Preferences{Columns: a.preferences.Columns, ExcludeRuntime: a.excludesRuntime(), WholeUnit: whole == 1, Version: 1, ImagePath: value(a.imagePath), ResultFilter: value(a.filter), SymbolFilter: value(a.symbolSearch), TimeUnit: Milliseconds}
+	discount := a.preferences.CallDiscountTicks
+	if current, err := parseCallDiscount(value(a.callDiscount)); err == nil {
+		discount = current
+	}
+	p := Preferences{CallDiscountTicks: discount, Columns: a.preferences.Columns, ExcludeRuntime: a.excludesRuntime(), WholeUnit: whole == 1, Version: 1, ImagePath: value(a.imagePath), ResultFilter: value(a.filter), SymbolFilter: value(a.symbolSearch), TimeUnit: Milliseconds}
 	index, _, _ := send.Call(a.metricUnits, 0x147, 0, 0)
 	units := []MetricTimeUnit{Nanoseconds, Microseconds, Milliseconds, Seconds, ClockTicks}
 	if index < uintptr(len(units)) {
@@ -502,6 +515,8 @@ func (a *window) layout() {
 	pos(a.details, 12, h-174, w-300, 44)
 	pos(a.diagnosticButton, w-280, h-174, 105, 28)
 	pos(a.copyDiagnosticsButton, w-165, h-174, 150, 28)
+	pos(a.callDiscountLabel, 12, h-90, 215, 24)
+	pos(a.callDiscount, 230, h-94, 150, 28)
 	pos(a.path, 12, h-52, w-480, 28)
 	pos(a.save, w-455, h-52, 140, 28)
 	pos(a.replay, w-305, h-52, 140, 28)
@@ -1015,6 +1030,8 @@ func (a *window) tick() {
 	if instrumented {
 		showUnits, showSeconds = 5, 0
 	}
+	user.NewProc("ShowWindow").Call(a.callDiscountLabel, showUnits)
+	user.NewProc("ShowWindow").Call(a.callDiscount, showUnits)
 	user.NewProc("ShowWindow").Call(a.metricUnits, showUnits)
 	user.NewProc("ShowWindow").Call(a.seconds, showSeconds)
 	if instrumented {
@@ -1024,7 +1041,21 @@ func (a *window) tick() {
 			a.model.MetricUnit = units[index]
 		}
 	}
-	key := string(a.model.MetricUnit) + "|" + a.model.Session + "|" + value(a.filter) + "|" + value(a.thread) + "|" + value(a.seconds)
+	if instrumented {
+		discount, err := parseCallDiscount(value(a.callDiscount))
+		if err != nil {
+			a.discountProblem = true
+			a.setStatus("Desconto/chamada exige um inteiro de 0 a 18446744073709551615 ticks QPC.")
+			return
+		}
+		if a.discountProblem {
+			a.discountProblem = false
+			a.setStatus("Desconto de apresentação atualizado.")
+		}
+		a.model.CallDiscountTicks = discount
+		a.preferences.CallDiscountTicks = discount
+	}
+	key := strconv.FormatUint(a.model.CallDiscountTicks, 10) + "|" + string(a.model.MetricUnit) + "|" + a.model.Session + "|" + value(a.filter) + "|" + value(a.thread) + "|" + value(a.seconds)
 	if key != a.lastBuild || a.lastSequence != a.model.Last {
 		seconds, err := strconv.Atoi(value(a.seconds))
 		if err != nil || seconds < 1 || seconds > 120 {
