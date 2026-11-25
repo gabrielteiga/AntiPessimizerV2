@@ -374,3 +374,28 @@ func TestChainedLargeAllocationChecksHighSaveSlots(t *testing.T) {
 		}
 	}
 }
+
+func TestChainedFarSaveAlignsEmbeddedRuntimeRecord(t *testing.T) {
+	image, code := localSavePE()
+	local := []byte{33, 5, 3, 0, 5, 0x35, 24, 0, 0, 0, 0, 0}
+	copy(image[0x4a0:], local)
+	copy(image[0x4ac:], image[0x400:0x40c])
+	plan, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+	if err != nil || len(plan.Functions) != 4 {
+		t.Fatal("far save rejected", err)
+	}
+	info := plan.Image[plan.Functions[2].Unwind:]
+	if !bytes.Equal(info[:12], local) || binary.LittleEndian.Uint32(info[20:]) != plan.Functions[1].Unwind {
+		t.Fatal("odd unwind slots lost aligned primary record", info[:24])
+	}
+	for _, change := range []struct {
+		at int
+		b  byte
+	}{{0x4a6, 25}, {0x4a8, 1}, {0x4a5, 0x55}} {
+		bad := bytes.Clone(image)
+		bad[change.at] = change.b
+		if _, err := BuildPEFunction(bad, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7); !errors.Is(err, ErrUnsupported) {
+			t.Fatal("invalid far save accepted", change, err)
+		}
+	}
+}

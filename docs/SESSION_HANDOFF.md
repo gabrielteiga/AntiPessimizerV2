@@ -121,7 +121,7 @@ A API de inventário de self-hosted runners retornou HTTP 403 pela integração.
 Reavaliar a disponibilidade real na retomada. Não presumir que a ausência
 de atribuição de ontem continuará, nem pedir teste manual ao usuário.
 
-## Retomada após os PRs #93 e #94
+## Retomada após os PRs #93, #94 e #95
 
 - O #93 integrou MOVUPS nos saves XMM encadeados. A main `229a22d` passou
   a CI pós-merge 45630205132, inclusive pacote.
@@ -130,14 +130,19 @@ de atribuição de ontem continuará, nem pedir teste manual ao usuário.
   Aceita ALLOC_LARGE no primário com SUB único conferido e verifica slots altos
   GPR/XMM sem truncar ocupação. Fixture Windows usa frame de 552 bytes.
   CI pós-merge 45632877136 concluída com sucesso, inclusive pacote.
-- O #95 está em `feat/chained-original-cleanup`, worktree
-  `/workspace/work/AntiPessimizerV2-chain-cleanup`. Acrescenta cleanup original
-  UHANDLER-only e scopes CRT em fragmentos contíguos que herdam o frame.
-  Há fixtures de baseline/instrumentação, identidade do dispatcher e captura
-  dentro do próprio frame. O baseline Windows mostrou que o dispatcher aponta
-  para a entrada runtime do fragmento secundário e usa os dados do handler do
-  primário. O adaptador preserva essa identidade, confere a cadeia original na
-  instalação e negocia APHOOKF. Conferir o último head e seus checks antes do merge.
+- O #95 foi integrado em `d69638de1115411c95476d24f0ff248daf0d390d`, após
+  todos os checks do head `9250a94f61e17c6efa58e651c5badfeed7cd3f7f` aprovados.
+  A árvore é idêntica ao head. A CI pós-merge 45635165860 está em acompanhamento.
+  Preserva cleanup UHANDLER-only e scopes CRT em fragmentos contíguos que herdam
+  o frame. O baseline mostrou que o dispatcher aponta para a entrada runtime
+  secundária e usa os dados do handler primário. O adaptador mantém essa identidade,
+  confere a cadeia original e negocia APHOOKF. Windows exige cleanup, captura e
+  captura/finally combinados, com métricas e finalizadores exatos.
+- Próximo incremento em `feat/chained-far-saves`, worktree
+  `/workspace/work/AntiPessimizerV2-far-saves`. Acrescenta SAVE_NONVOL_FAR e
+  SAVE_XMM128_FAR com offsets sem escala, alinhamento dos códigos ímpares antes
+  do vínculo runtime, slots não sobrepostos e negociação APHOOKG. Conferir o PR
+  e o último head antes de considerar esse bloco integrado.
 - O #61 incorporou a main após #93 em `95592017084f136cae8386e82631a4272e2b711a`.
   Testes locais passaram. A execução licenciada 45631995894/job 139267375260
   está queued, sem runner atribuído. A worktree é

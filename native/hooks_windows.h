@@ -258,13 +258,17 @@ static const unsigned char *hook_local_save(APHookProcedure procedure) {
     if(!VirtualQuery(info,&memory,sizeof(memory)) || memory.AllocationBase!=hooks.image || memory.State!=MEM_COMMIT ||
        (memory.Protect&PAGE_GUARD) || (memory.Protect&0xff)==PAGE_NOACCESS ||
        (uintptr_t)info+4>(uintptr_t)memory.BaseAddress+memory.RegionSize)return NULL;
-    if(info[0]!=33 || !info[2] || info[2]%2 || info[2]>16)return NULL;
-    uint32_t length=4+info[2]*2+12;
+    if(info[0]!=33 || !info[2] || info[2]>24)return NULL;
+    uint32_t length=4+((info[2]+1)&~1)*2+12;
     if((uint64_t)last->UnwindData+length>nt->OptionalHeader.SizeOfImage ||
        (uintptr_t)info+length>(uintptr_t)memory.BaseAddress+memory.RegionSize)return NULL;
     return info;
 }
 static unsigned char hook_chain_offer(void) {
+    for(uint32_t i=0;i<hooks.count;i++){
+        const unsigned char *info=hook_local_save(hooks.selected[i]);
+        if(info)for(uint32_t at=5;at<4u+info[2]*2u;at+=4)if((info[at]&15)==5 || (info[at]&15)==9)return 'G';
+    }
     const IMAGE_NT_HEADERS64 *nt=(const IMAGE_NT_HEADERS64 *)(hooks.image+((const IMAGE_DOS_HEADER *)hooks.image)->e_lfanew);
     for(uint32_t i=0;i<hooks.count;i++){
         DWORD64 base=0;
@@ -340,12 +344,21 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
             }else if(local && role==2){
                 const unsigned char *source=hook_local_save(hooks.selected[owner]);
                 if(!source || f->BeginAddress!=primary->EndAddress || info[2]!=source[2])return FALSE;
-                uint32_t length=4+info[2]*2;
+                uint32_t length=4+((info[2]+1)&~1)*2;
                 if((uint64_t)f->UnwindData+length+12>table || (uint64_t)f->UnwindData+length+12>stride_end ||
                    !info[1] || info[1]!=info[4] || info[3] || memcmp(info,source,length) ||
                    hook_u32(info+length)!=primary->BeginAddress || hook_u32(info+length+4)!=primary->EndAddress ||
                    hook_u32(info+length+8)!=primary->UnwindData)return FALSE;
-                for(uint32_t at=5;at<length;at+=4)if((info[at]&15)!=4 && ((info[at]&15)!=8 || (chain_version!='E' && chain_version!='F')))return FALSE;
+                for(uint32_t at=4;at<4u+info[2]*2u;){
+                    uint32_t op=info[at+1]&15;
+                    BOOL far=op==5 || op==9;
+                    if(op!=4 && op!=5 && op!=8 && op!=9)return FALSE;
+                    if(far && chain_version!='G')return FALSE;
+                    if((op==8 || op==9) && chain_version!='E' && chain_version!='F' && chain_version!='G')return FALSE;
+                    uint32_t step=far?6:4;
+                    if(at+step>4u+info[2]*2u)return FALSE;
+                    at+=step;
+                }
             }else if(info[0]!=1 || info[1]!=7 || info[2]!=2 || info[3]!=0 || info[4]!=7 || info[5]!=1 || info[6]!=25 || info[7]!=0)return FALSE;
             previous=f->EndAddress;
         }
