@@ -377,15 +377,6 @@ func (p *PEImage) chainedUnwind(primaryAt int, procedureEnd uint32, frame byte) 
 		}
 		boundaries = append(boundaries, int(end-start))
 		if nextBegin != end {
-			padding, ok := p.mapped(end, nextBegin-end, true)
-			if !ok {
-				return nil, nil, nil
-			}
-			for _, b := range padding {
-				if b != 0x90 {
-					return nil, nil, nil
-				}
-			}
 			gap := chainGap{int(end - start), int(nextBegin - start)}
 			gaps = append(gaps, gap)
 			boundaries = append(boundaries, gap.end)

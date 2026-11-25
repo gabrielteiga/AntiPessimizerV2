@@ -91,7 +91,7 @@ func TestInheritedUnwindChainRejectsUnverifiedFragments(t *testing.T) {
 
 func TestChainedPaddingMustBeUnreachable(t *testing.T) {
 	image, original := chainedPE()
-	code := append(append(bytes.Clone(original[:16]), 0x90, 0x90, 0x90, 0x90), original[16:]...)
+	code := append(append(bytes.Clone(original[:16]), 0x0f, 0x1f, 0x00, 0xcc), original[16:]...)
 	copy(code[14:16], []byte{0xeb, 4})
 	put := binary.LittleEndian.PutUint32
 	put(code[24:], 0x1080-(peLeafRVA+28))
@@ -106,6 +106,8 @@ func TestChainedPaddingMustBeUnreachable(t *testing.T) {
 	}
 	if p, err := build(code); err != nil || !bytes.Equal(p.Source, code) {
 		t.Fatal("valid padded chain rejected", err)
+	} else if gap := p.Image[p.BodyRVA+19 : p.BodyRVA+23]; !bytes.Equal(gap, []byte{0x90, 0x90, 0x90, 0x90}) {
+		t.Fatal("clone did not retain verified gap length", gap)
 	}
 	for _, bad := range []struct {
 		at     int
@@ -114,7 +116,8 @@ func TestChainedPaddingMustBeUnreachable(t *testing.T) {
 	}{
 		{14, 0x75, "falls through"},
 		{15, 3, "targets padding"},
-		{17, 0xcc, "not covered"},
+		{16, 0x50, "non-padding"},
+		{19, 0x66, "splits an instruction"},
 	} {
 		changed := bytes.Clone(code)
 		changed[bad.at] = bad.b
