@@ -130,6 +130,33 @@ static uint32_t hook_clone_pc(const unsigned char *data,uint32_t map_at,uint32_t
     }
     return clone_rva+offset+shift;
 }
+static BOOL hook_inherited_extent(unsigned char *image,RUNTIME_FUNCTION *primary,uint32_t end) {
+    if(primary->EndAddress<=primary->BeginAddress || primary->EndAddress>end)return FALSE;
+    if(primary->EndAddress==end)return TRUE;
+    IMAGE_NT_HEADERS64 *nt=(IMAGE_NT_HEADERS64 *)(image+((IMAGE_DOS_HEADER *)image)->e_lfanew);
+    IMAGE_DATA_DIRECTORY directory=nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXCEPTION];
+    if((uint64_t)directory.VirtualAddress+directory.Size>nt->OptionalHeader.SizeOfImage || directory.Size%12)return FALSE;
+    RUNTIME_FUNCTION *table=(RUNTIME_FUNCTION *)(image+directory.VirtualAddress);
+    uintptr_t offset=(uintptr_t)primary-(uintptr_t)table;
+    if(offset>=directory.Size || offset%12)return FALSE;
+    uint32_t index=(uint32_t)(offset/12);
+    RUNTIME_FUNCTION *previous=primary;
+    while(previous->EndAddress<end){
+        if(++index>=directory.Size/12)return FALSE;
+        RUNTIME_FUNCTION *next=&table[index];
+        if(next->BeginAddress!=previous->EndAddress || next->EndAddress<=next->BeginAddress || next->EndAddress>end ||
+           next->UnwindData%4 || (uint64_t)next->UnwindData+16>nt->OptionalHeader.SizeOfImage)return FALSE;
+        const unsigned char *info=image+next->UnwindData;
+        MEMORY_BASIC_INFORMATION memory;
+        if(!VirtualQuery(info,&memory,sizeof(memory)) || memory.AllocationBase!=image || memory.State!=MEM_COMMIT ||
+           (memory.Protect&PAGE_GUARD) || (memory.Protect&0xff)==PAGE_NOACCESS ||
+           (uintptr_t)info+16>(uintptr_t)memory.BaseAddress+memory.RegionSize)return FALSE;
+        if(info[0]!=33 || info[1] || info[2] || info[3]!=image[primary->UnwindData+3] ||
+           (memcmp(info+4,primary,12) && memcmp(info+4,previous,12)))return FALSE;
+        previous=next;
+    }
+    return TRUE;
+}
 static BOOL hook_forward_info_at(unsigned char *image,const unsigned char *data,uint32_t available,RUNTIME_FUNCTION *body,uint32_t index,const unsigned char *copied_info,uint32_t info_bytes) {
     if(available<8)return FALSE;
     uint32_t kind=hook_u32(data+4);
@@ -142,7 +169,7 @@ static BOOL hook_forward_info_at(unsigned char *image,const unsigned char *data,
     if(rva!=hooks.selected[index].rva || size!=hooks.selected[index].size || (uint64_t)entry_rva+12>image_size || (uint64_t)info_rva+info_bytes+4>image_size || info_rva%4 || !handler_rva || handler_rva>=image_size || handler_data!=(uint64_t)info_rva+info_bytes+4 || !count || count>8193 || (uint64_t)map_at+count*4>available)return FALSE;
     RUNTIME_FUNCTION *original=(RUNTIME_FUNCTION *)(image+entry_rva);
     const unsigned char *info=image+info_rva;
-    if(original->BeginAddress!=rva || original->EndAddress!=(uint64_t)rva+size || original->UnwindData!=info_rva || (kind==1?info[0]!=17:(info[0]!=9 && info[0]!=25)) || memcmp(info+1,copied_info+1,info_bytes-1) || hook_u32(info+info_bytes)!=handler_rva)return FALSE;
+    if(original->BeginAddress!=rva || !hook_inherited_extent(image,original,rva+size) || original->UnwindData!=info_rva || (kind==1?info[0]!=17:(info[0]!=9 && info[0]!=25)) || memcmp(info+1,copied_info+1,info_bytes-1) || hook_u32(info+info_bytes)!=handler_rva)return FALSE;
     MEMORY_BASIC_INFORMATION memory;
     if(!VirtualQuery(image+handler_rva,&memory,sizeof(memory)) || memory.AllocationBase!=image || memory.State!=MEM_COMMIT || (memory.Protect&0xff)!=PAGE_EXECUTE_READ || (memory.Protect&PAGE_GUARD))return FALSE;
     uint32_t previous_source=0,previous_clone=0,delta=0,body_size=body->EndAddress-body->BeginAddress;

@@ -247,7 +247,7 @@ func (p *PEImage) readCode(rva, size uint32, collectedUnwind *functionUnwind) ([
 					return fail("partial runtime-function overlap")
 				}
 				chainBoundaries, chainGaps, localSave = p.chainedUnwind(offset, procedureEnd, info[3])
-				if len(chainBoundaries) == 0 || info[0] != 1 && len(localSave) != 0 {
+				if len(chainBoundaries) == 0 || info[0] != 1 && (len(localSave) != 0 || len(chainGaps) != 0) {
 					return fail("procedure extent is not covered by an inherited unwind chain")
 				}
 			}
