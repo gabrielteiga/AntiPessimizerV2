@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+policy="$(dirname "$0")/owner-policy"
+while read -r local_ref local_sha remote_ref remote_sha; do
+    case "$local_sha" in 0000000000000000000000000000000000000000) continue ;; esac
+    if ! head=$(git rev-parse --verify "$local_sha^{commit}" 2>/dev/null); then
+        continue
+    fi
+    for commit in $(git rev-list "$head" --not --remotes); do
+        "$policy" commit "$commit"
+    done
+done

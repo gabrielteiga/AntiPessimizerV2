@@ -1,0 +1,56 @@
+#!/bin/sh
+set -eu
+
+is_owner() {
+    case "$1" in
+        'Gabriel Teiga <gabrielteiga99@gmail.com>' | \
+        'Gabriel Palominos Teiga <gabrielteiga99@gmail.com>' | \
+        'Gabriel Teiga <116650677+gabrielteiga@users.noreply.github.com>' | \
+        'Gabriel Palominos Teiga <116650677+gabrielteiga@users.noreply.github.com>') return 0 ;;
+    esac
+    return 1
+}
+
+require_owner() {
+    if ! is_owner "$1"; then
+        printf '%s\n' 'Commit blocked: use the repository owner identity for attribution.' >&2
+        exit 1
+    fi
+}
+
+check_message() {
+    git interpret-trailers --parse | while IFS= read -r trailer; do
+        field=$(printf '%s\n' "${trailer%%:*}" | tr '[:upper:]' '[:lower:]')
+        case "$field" in
+            co-authored-by)
+                printf '%s\n' 'Commit blocked: automatic coauthor attribution is disabled.' >&2
+                exit 1 ;;
+            signed-off-by | reviewed-by | generated-by)
+                identity=${trailer#*:}
+                identity=$(printf '%s\n' "$identity" | sed 's/^[[:space:]]*//')
+                require_owner "$identity" ;;
+        esac
+    done
+}
+
+case "${1:-}" in
+    identity)
+        author=$(git var GIT_AUTHOR_IDENT | sed 's/>.*/>/')
+        committer=$(git var GIT_COMMITTER_IDENT | sed 's/>.*/>/')
+        require_owner "$author"
+        require_owner "$committer" ;;
+    message)
+        check_message < "$2" ;;
+    commit)
+        author=$(git show -s --format='%an <%ae>' "$2")
+        committer=$(git show -s --format='%cn <%ce>' "$2")
+        require_owner "$author"
+        case "$committer" in
+            'GitHub <noreply@github.com>') ;;
+            *) require_owner "$committer" ;;
+        esac
+        git show -s --format=%B "$2" | check_message ;;
+    *)
+        printf '%s\n' 'Usage: owner-policy identity | message FILE | commit SHA' >&2
+        exit 2 ;;
+esac
