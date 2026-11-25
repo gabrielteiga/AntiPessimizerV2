@@ -26,7 +26,8 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 	if _, err := io.ReadFull(conn, offer[:]); err != nil {
 		return fmt.Errorf("hook allocation offer: %w", err)
 	}
-	farSavePlans := string(offer[:8]) == "APHOOKG\x00"
+	frameSavePlans := string(offer[:8]) == "APHOOKH\x00"
+	farSavePlans := frameSavePlans || string(offer[:8]) == "APHOOKG\x00"
 	inheritedHandlers := farSavePlans || string(offer[:8]) == "APHOOKF\x00"
 	xmmSavePlans := inheritedHandlers || string(offer[:8]) == "APHOOKE\x00"
 	multipleSavePlans := xmmSavePlans || string(offer[:8]) == "APHOOKD\x00"
@@ -121,6 +122,9 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 			}
 			if len(plan.Functions) == 4 && plan.Image[plan.Functions[2].Unwind+2] > 2 && !multipleSavePlans {
 				return errors.New("update the native adapter DLL: multiple chained saves require APHOOKD")
+			}
+			if len(plan.Functions) == 4 && plan.Image[plan.Functions[2].Unwind+3] != 0 && !frameSavePlans {
+				return errors.New("update the native adapter DLL: inherited frame-register saves require APHOOKH")
 			}
 			if len(plan.Functions) == 4 && !farSavePlans {
 				info := plan.Image[plan.Functions[2].Unwind:]

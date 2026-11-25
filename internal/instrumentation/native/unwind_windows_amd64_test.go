@@ -143,10 +143,18 @@ func TestNativeProducerUnwindsFullWidthXMMMoveVariants(t *testing.T) {
 	}
 }
 
+func TestNativeProducerUnwindsLocalSavesWithBiasedFrameRegister(t *testing.T) {
+	testNativeInheritedChainedFrame(t, "APFrameBiasedLocalSaves", 0, "17")
+}
+
+func TestNativeProducerUnwindsLocalSavesWithHighFrameRegister(t *testing.T) {
+	testNativeInheritedChainedFrame(t, "APFrameR12LocalSaves", 0, "18")
+}
+
 func testNativeInheritedChainedFrame(t *testing.T, symbol string, gap uint32, mode string) {
 	t.Helper()
 	names := map[string]uint32{symbol: 1, symbol + "Cold": 2}
-	withStackProbe := mode == "3" || mode == "4" || mode == "5" || mode == "6" || mode == "7" || mode == "11" || mode == "12" || mode == "13" || mode == "14" || mode == "15" || mode == "16"
+	withStackProbe := mode == "3" || mode == "4" || mode == "5" || mode == "6" || mode == "7" || mode == "11" || mode == "12" || mode == "13" || mode == "14" || mode == "15" || mode == "16" || mode == "17" || mode == "18"
 	if withStackProbe {
 		names["APFrameStackProbe"] = 3
 	}

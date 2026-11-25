@@ -882,7 +882,7 @@ da restauração, no ADD/LEA, no POP e no JMP. Não executa nem desenrola pilha 
 ## Fragmentos v1 com unwind herdado
 
 Um procedimento pode abranger entradas adjacentes de `.pdata` quando o
-registro primário tem unwind v1 sem handler e cada secundário é v1 com
+registro primário tem unwind v1 e cada secundário é v1 com
 `UNW_FLAG_CHAININFO`. Cada secundário deve repetir o frame register e seu
 bias, ter prólogo e lista de ações vazios e apontar para a entrada primária
 ou para o fragmento anterior já conferido. A extensão do símbolo precisa
@@ -895,13 +895,12 @@ com .pdata encadeada como baseline e depois instrumentado. Em três threads,
 o alvo confere o valor de retorno e captura uma falha real no secundário.
 A captura exige duas chamadas e um unwind por thread, zero perdas e zero
 frames abertos. Há também suporte a um fragmento final contíguo com um `SAVE_NONVOL` local.
-O primário aloca o frame inteiro com `SUB RSP`. O secundário salva e recupera
+O primário estabelece o frame com prólogo e ações de unwind conferidos. O secundário salva e recupera
 um registrador num slot da alocação. A entrada no secundário sempre executa o
 save. O contrato privado `APHOOKC` mantém dois registros de unwind para o corpo
 instrumentado e confere o encadeamento com o primário relocado. O teste nativo
 confere o retorno e a recuperação do registrador após uma falha real.
-Outras ações locais, handlers, versões alternativas e lacunas com código
-continuam fora do subconjunto conferido.
+Os formatos de saves e handlers conferidos estão descritos abaixo.
 Lacunas entre fragmentos podem conter bytes NOP se o fluxo anterior termina
 antes delas e nenhum salto tem destino dentro da lacuna. O ensaio Windows
 confere retorno e uma falha no fragmento após oito bytes de padding.
@@ -918,11 +917,33 @@ registradores na ordem inversa. O adaptador negocia `APHOOKD` para essa
 variante. A fixture Windows verifica RBX e RSI após uma falha real.
 
 O fragmento final pode combinar saves de GPRs e de XMM6–XMM15.
-Os saves XMM usam slots de 16 bytes descritos por `SAVE_XMM128`.
+Os saves XMM usam slots de 16 bytes descritos por `SAVE_XMM128` ou
+`SAVE_XMM128_FAR`.
 O planejador confere os limites e a ausência de sobreposição entre todos os
-slots, e exige as instruções MOVAPS correspondentes no save e no restore.
+slots, e exige o mesmo movimento de 128 bits no save e no restore. As formas
+conferidas são MOVAPS, MOVUPS, MOVAPD, MOVUPD, MOVDQA e MOVDQU.
 O adaptador anuncia `APHOOKE` quando a seleção contém esse formato.
 A fixture Windows confere RBX e XMM6 após uma falha real no fragmento.
+
+O frame primário pode usar ALLOC_SMALL ou ALLOC_LARGE, incluindo as duas
+representações de ALLOC_LARGE conferidas contra a instrução. Saves FAR de GPRs
+(`SAVE_NONVOL_FAR`) e XMM usam offsets sem escala e vínculos runtime alinhados
+após os códigos de unwind. O adaptador negocia APHOOKG. Uma fixture com três
+slots exige também a realocação correta do vínculo em um stride posterior.
+
+O primário pode preservar registradores por PUSH antes da alocação e estabelecer
+um frame register com bias conferido. O fragmento final herda esse registro e
+repõe os saves locais antes de liberar a alocação por ADD ou LEA, desfazer os
+PUSHs na ordem inversa e retornar. O adaptador anuncia APHOOKH para saves locais
+com frame register. O ensaio Windows usa RBP com bias de 32 bytes e exige RBP,
+RBX e os 128 bits de XMM6 preservados após falha no fragmento secundário.
+
+Cadeias contíguas que herdam o frame também podem encaminhar o cleanup
+UHANDLER-only original ou traduzir scopes CRT reconhecidos, com APHOOKF. O
+handler original recebe o PC e a entrada runtime do fragmento de origem e os
+dados de handler do primário, conforme o baseline Windows. Os ensaios cobrem
+cleanup externo, captura no próprio frame e captura combinada com finally.
+
 
 ## Tabelas de salto internas verificadas
 
