@@ -272,3 +272,52 @@ func TestChainedMOVUPSSavesMatchUnwind(t *testing.T) {
 		}
 	}
 }
+
+func TestChainedLargeAllocationChecksHighSaveSlots(t *testing.T) {
+	code := []byte{
+		0x48, 0x81, 0xec, 0x28, 0x02, 0, 0, 0x90, 0xeb, 0,
+		0x48, 0x89, 0x9c, 0x24, 0x20, 0x02, 0, 0,
+		0x0f, 0x29, 0xb4, 0x24, 0x10, 0x02, 0, 0,
+		0x48, 0x8b, 0x01,
+		0x0f, 0x28, 0xb4, 0x24, 0x10, 0x02, 0, 0,
+		0x48, 0x8b, 0x9c, 0x24, 0x20, 0x02, 0, 0,
+		0x48, 0x81, 0xc4, 0x28, 0x02, 0, 0, 0xc3,
+	}
+	local := []byte{33, 16, 4, 0, 16, 0x68, 33, 0, 8, 0x34, 68, 0}
+	for _, primary := range [][]byte{
+		{1, 7, 2, 0, 7, 1, 69, 0},
+		{1, 7, 3, 0, 7, 0x11, 0x28, 2, 0, 0, 0, 0},
+	} {
+		if err := validateLocalSave(code, primary, 10, local); err != nil {
+			t.Fatal(err)
+		}
+		image := scalarImage(code)
+		put := binary.LittleEndian.PutUint32
+		put(image[0x404:], peLeafRVA+10)
+		put(image[0x40c:], peLeafRVA+10)
+		put(image[0x410:], peLeafRVA+uint32(len(code)))
+		put(image[0x414:], 0x20a0)
+		copy(image[0x480:], primary)
+		copy(image[0x4a0:], local)
+		copy(image[0x4ac:], image[0x400:0x40c])
+		plan, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+		if err != nil || len(plan.Functions) != 4 {
+			t.Fatal("large allocation chain rejected", err)
+		}
+		for _, slot := range []byte{66, 67, 69} {
+			bad := bytes.Clone(local)
+			bad[10] = slot
+			changedCode := bytes.Clone(code)
+			binary.LittleEndian.PutUint32(changedCode[14:], uint32(slot)*8)
+			binary.LittleEndian.PutUint32(changedCode[41:], uint32(slot)*8)
+			if err := validateLocalSave(changedCode, primary, 10, bad); !errors.Is(err, ErrUnsupported) {
+				t.Fatal("overlap or out-of-frame save accepted", slot, err)
+			}
+		}
+		wrongAllocation := bytes.Clone(primary)
+		wrongAllocation[6]++
+		if err := validateLocalSave(code, wrongAllocation, 10, local); !errors.Is(err, ErrUnsupported) {
+			t.Fatal("wrong allocation accepted", err)
+		}
+	}
+}

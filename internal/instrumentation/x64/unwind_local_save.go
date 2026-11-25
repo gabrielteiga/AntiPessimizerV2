@@ -13,10 +13,9 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 	fail := func() error {
 		return fmt.Errorf("%w: chained nonvolatile saves do not match verified frame and control flow", ErrUnsupported)
 	}
-	if len(primary) != 8 || primary[2] != 1 || primary[3] != 0 || primary[5]&15 != 2 || primary[4] != primary[1] {
+	if len(primary) < 8 || primary[3] != 0 || validateUnwindCodes(primary) != nil || validatePrologueActions(code, primary) != nil {
 		return fail()
 	}
-	allocation := int64(primary[5]>>4)*8 + 8
 	info := append([]byte(nil), local...)
 	info[0] = 1
 	if validateUnwindCodes(info) != nil || info[4] != info[1] {
@@ -27,7 +26,13 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 		return fail()
 	}
 
-	var registers, slots uint32
+	allocation, ok := prologue.Args[1].(x86asm.Imm)
+	if !ok || allocation <= 0 {
+		return fail()
+	}
+
+	var registers uint32
+	slots := make(map[uint32]bool)
 	for at := 4; at < len(local); at += 4 {
 		reg := uint32(local[at+1] >> 4)
 		slot := uint32(binary.LittleEndian.Uint16(local[at+2:]))
@@ -41,15 +46,19 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 		default:
 			return fail()
 		}
-		if (slot+width)*8 > uint32(allocation) {
+		if uint64(slot+width)*8 > uint64(allocation) {
 			return fail()
 		}
-		mask := uint32((1<<width)-1) << slot
-		if registers&(1<<reg) != 0 || slots&mask != 0 {
+		if registers&(1<<reg) != 0 {
 			return fail()
 		}
 		registers |= 1 << reg
-		slots |= mask
+		for occupied := slot; occupied < slot+width; occupied++ {
+			if slots[occupied] {
+				return fail()
+			}
+			slots[occupied] = true
+		}
 	}
 
 	var fragment []x86asm.Inst
