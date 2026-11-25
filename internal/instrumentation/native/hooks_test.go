@@ -455,3 +455,58 @@ func TestFarChainedSaveRequiresAlignedLinkAdapter(t *testing.T) {
 		}
 	}
 }
+
+func TestFrameRegisterChainedSavesRequireFrameAwareAdapter(t *testing.T) {
+	image := hookImage()
+	code := []byte{
+		0x55, 0x48, 0x83, 0xec, 0x30, 0x48, 0x8d, 0x6c, 0x24, 32,
+		0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+		0x48, 0x89, 0x5c, 0x24, 40, 0x0f, 0x29, 0x74, 0x24, 16, 0x48, 0x8b, 0x01,
+		0x0f, 0x28, 0x74, 0x24, 16, 0x48, 0x8b, 0x5c, 0x24, 40,
+		0x48, 0x8d, 0x65, 16, 0x5d, 0xc3,
+	}
+	copy(image[0x220:], code)
+	copy(image[0x280:], []byte{0xb8, 7, 0, 0, 0, 0xc3})
+	put := binary.LittleEndian.PutUint32
+	put(image[128+24+112+3*8:], 0x5100)
+	put(image[128+24+116+3*8:], 24)
+	for i, entry := range [][3]uint32{{0x5020, 0x5032, 0x5140}, {0x5032, 0x5020 + uint32(len(code)), 0x5160}} {
+		for j, value := range entry {
+			put(image[0x300+i*12+j*4:], value)
+		}
+	}
+	copy(image[0x340:], []byte{1, 10, 3, 0x25, 10, 3, 5, 0x52, 1, 0x50, 0, 0})
+	copy(image[0x360:], []byte{33, 10, 4, 0x25, 10, 0x68, 1, 0, 5, 0x34, 5, 0})
+	copy(image[0x36c:], image[0x300:0x30c])
+	for _, version := range []string{"APHOOKG\x00", "APHOOKH\x00"} {
+		offer := make([]byte, 65)
+		copy(offer, hookOffer()[:48])
+		copy(offer, version)
+		put(offer[24:], 2*largeHookStride+96)
+		put(offer[28:], 2)
+		binary.LittleEndian.PutUint64(offer[48:], 0x200200)
+		put(offer[56:], 6)
+		put(offer[60:], uint32(len(code)))
+		offer[64] = 1
+		stream := &hookStream{in: bytes.NewReader(offer)}
+		err := installHooks(stream, image, []Procedure{{2, 0x5080}, {1, 0x5020}})
+		if version[6] == 'G' {
+			if err == nil || !strings.Contains(err.Error(), "require APHOOKH") || stream.out.Len() != 1 {
+				t.Fatal("older DLL accepted inherited frame-register saves", err)
+			}
+		} else if err != nil {
+			t.Fatal("frame-aware adapter rejected local saves", err)
+		}
+		if err == nil {
+			packet := stream.out.Bytes()
+			table := binary.LittleEndian.Uint32(packet[17:])
+			payload := packet[25:]
+			primary := payload[table+4*12 : table+5*12]
+			secondary := payload[table+5*12:]
+			info := payload[binary.LittleEndian.Uint32(secondary[8:]):]
+			if !bytes.Equal(info[12:24], primary) {
+				t.Fatal("rebasing changed the aligned embedded primary record", info[:24], primary)
+			}
+		}
+	}
+}

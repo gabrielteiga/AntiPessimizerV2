@@ -13,21 +13,17 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 	fail := func() error {
 		return fmt.Errorf("%w: chained nonvolatile saves do not match verified frame and control flow", ErrUnsupported)
 	}
-	if len(primary) < 8 || primary[3] != 0 || validateUnwindCodes(primary) != nil || validatePrologueActions(code, primary) != nil {
+	if len(primary) < 8 || len(local) < 8 || local[3] != primary[3] || validateUnwindCodes(primary) != nil || validatePrologueActions(code, primary) != nil {
 		return fail()
 	}
 	info := append([]byte(nil), local...)
 	info[0] = 1
+	info[3] = 0 // the secondary inherits the already-established frame register
 	if validateUnwindCodes(info) != nil || info[4] != info[1] {
 		return fail()
 	}
-	prologue, err := x86asm.Decode(code[:primary[1]], 64)
-	if err != nil || prologue.Op != x86asm.SUB || prologue.Len != int(primary[1]) {
-		return fail()
-	}
-
-	allocation, ok := prologue.Args[1].(x86asm.Imm)
-	if !ok || allocation <= 0 {
+	allocation, pops, ok := stackFrameLayout(primary)
+	if !ok || allocation == 0 {
 		return fail()
 	}
 
@@ -93,10 +89,10 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 		at = next
 	}
 	count := len(saves)
-	if len(fragment) < count*2+2 {
+	if len(fragment) < count*2+len(pops)+2 {
 		return fail()
 	}
-	restore := len(fragment) - count - 2
+	restore := len(fragment) - count - len(pops) - 2
 	offset := 0
 	for i := 0; i < count; i++ {
 		// Metadata lists saves from last to first. The epilogue reloads
@@ -108,6 +104,12 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 			switch op {
 			case x86asm.MOVAPS, x86asm.MOVUPS, x86asm.MOVAPD, x86asm.MOVUPD, x86asm.MOVDQA, x86asm.MOVDQU:
 			default:
+				return fail()
+			}
+			// Win64 entry RSP includes an eight-byte return slot. The
+			// primary's allocation and pushes determine each save's alignment.
+			aligned := op == x86asm.MOVAPS || op == x86asm.MOVAPD || op == x86asm.MOVDQA
+			if aligned && (uint64(metadata.disp)+8)%16 != (allocation+uint64(len(pops))*8)%16 {
 				return fail()
 			}
 		}
@@ -128,9 +130,16 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 			return fail()
 		}
 	}
-	release, ret := fragment[len(fragment)-2], fragment[len(fragment)-1]
-	if release.Op != x86asm.ADD || release.Args[0] != x86asm.RSP || release.Args[1] != x86asm.Imm(allocation) || ret.Op != x86asm.RET {
+	releaseAt := len(fragment) - len(pops) - 2
+	release, ret := fragment[releaseAt], fragment[len(fragment)-1]
+	if !verifiedStackRelease(release, primary, allocation) || ret.Op != x86asm.RET {
 		return fail()
+	}
+	for i, reg := range pops {
+		inst := fragment[releaseAt+1+i]
+		if inst.Op != x86asm.POP || inst.Args[0] != reg {
+			return fail()
+		}
 	}
 	return nil
 }

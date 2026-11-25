@@ -50,4 +50,21 @@ if git --git-dir="$fixture/remote" show-ref --verify --quiet refs/heads/rejected
     printf '%s\n' 'The rejected commit reached the remote.' >&2
     exit 1
 fi
+missing_before=ffffffffffffffffffffffffffffffffffffffff
+git -C "$fixture/repository" commit --allow-empty -qm 'Verify owner range after a force update'
+accepted=$(git -C "$fixture/repository" rev-parse HEAD)
+(
+    cd "$fixture/repository"
+    HEAD_SHA="$accepted" BASE_SHA="$missing_before" REF_NAME=topic DEFAULT_BRANCH=main \
+        "$root/scripts/check-owner-attribution.sh"
+    HEAD_SHA="$accepted" BASE_SHA="$missing_before" REF_NAME=main DEFAULT_BRANCH=main \
+        "$root/scripts/check-owner-attribution.sh"
+    for branch in topic main; do
+        if HEAD_SHA="$rejected" BASE_SHA="$missing_before" REF_NAME="$branch" DEFAULT_BRANCH=main \
+            "$root/scripts/check-owner-attribution.sh" 2> "$fixture/range-error"; then
+            printf '%s\n' 'A missing previous SHA bypassed attribution verification.' >&2
+            exit 1
+        fi
+    done
+)
 printf '%s\n' 'Owner attribution checks passed for author, committer, coauthor and push.'
