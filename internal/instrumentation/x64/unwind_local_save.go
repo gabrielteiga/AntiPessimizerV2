@@ -131,7 +131,7 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 		}
 		matchesSlot := func(arg x86asm.Arg) bool {
 			mem, ok := arg.(x86asm.Mem)
-			return ok && mem.Base == x86asm.RSP && mem.Index == 0 && mem.Segment == 0 && mem.Disp == metadata.disp
+			return ok && savedAtOffset(mem, metadata.disp, 0, primary[3], primary[3]&15 != 0)
 		}
 		save, load := fragment[i], fragment[restore+count-1-i]
 		offset += save.Len

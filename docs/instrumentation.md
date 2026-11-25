@@ -938,6 +938,12 @@ PUSHs na ordem inversa e retornar. O adaptador anuncia APHOOKH para saves locais
 com frame register. O ensaio Windows usa RBP com bias de 32 bytes e exige RBP,
 RBX e os 128 bits de XMM6 preservados após falha no fragmento secundário.
 
+Os stores e reloads locais podem usar RSP ou o frame register herdado. O bias
+do frame register é somado ao deslocamento de memória antes de compará-lo ao
+slot do unwind. Base, índice, segmento e alinhamento continuam conferidos.
+A fixture Windows usa RBP com bias de 32 bytes, RSI em [RBP+32] e XMM6 em
+[RBP-16], exigindo retorno normal, exceção e os registradores completos.
+
 O primário também pode combinar saves GPR/XMM de memória com a alocação fixa,
 PUSHs anteriores e frame register conferidos. São aceitos SAVE_NONVOL e
 SAVE_XMM128, inclusive FAR, com ALLOC_SMALL/LARGE. Cada slot primário fica
