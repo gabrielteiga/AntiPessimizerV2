@@ -83,6 +83,16 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 	}
 	entry := entryJump(source, base)
 	body, prefix := code, 0
+	if len(metadata.chainGaps) != 0 {
+		// The verified gap is unreachable. Keep its offsets while excluding
+		// breakpoint fillers from the executable instruction whitelist.
+		body = bytes.Clone(code)
+		for _, gap := range metadata.chainGaps {
+			for at := gap.begin; at < gap.end; at++ {
+				body[at] = 0x90
+			}
+		}
+	}
 	var table *indexedJumpTable
 	restoreRDI := false
 	if metadata.handlerRVA == 0 && len(metadata.chainBoundaries) == 0 && bytes.Equal(originalInfo, []byte{1, 0, 0, 0}) {
@@ -352,6 +362,9 @@ func validateChainCode(code []byte, boundaries []int, gaps []chainGap) error {
 			}
 			next := start + inst.Len
 			if padding != nil {
+				if padding[start] && inst.Op != x86asm.NOP && !(inst.Len == 1 && code[start] == 0xcc) {
+					return fmt.Errorf("%w: unwind chain gap contains non-padding instructions", ErrUnsupported)
+				}
 				if next < len(code) && starts[next] && inst.Op != x86asm.RET && inst.Op != x86asm.JMP {
 					return fmt.Errorf("%w: unwind chain falls through into padding", ErrUnsupported)
 				}

@@ -362,30 +362,22 @@ func (p *PEImage) chainedUnwind(primaryAt int, procedureEnd uint32, frame byte) 
 			return nil, nil, nil
 		}
 		if info[2] != 0 {
-			// One contiguous final fragment can add one local nonvolatile save.
-			if frame != 0 || len(boundaries) != 0 || nextBegin != end || nextEnd != procedureEnd || info[2] != 2 {
+			// One contiguous final fragment can add local nonvolatile saves.
+			if frame != 0 || len(boundaries) != 0 || nextBegin != end || nextEnd != procedureEnd || info[2]%2 != 0 || info[2] > 16 {
 				return nil, nil, nil
 			}
-			info, ok = p.mapped(u32(entry[8:]), 20, false)
-			if !ok || info[5]&15 != 4 || !bytes.Equal(info[8:], primary) {
+			length := 4 + uint32(info[2])*2
+			info, ok = p.mapped(u32(entry[8:]), length+12, false)
+			if !ok || !bytes.Equal(info[length:], primary) {
 				return nil, nil, nil
 			}
-			return []int{int(end - start)}, nil, append([]byte(nil), info[:8]...)
+			return []int{int(end - start)}, nil, append([]byte(nil), info[:length]...)
 		}
 		if info[1] != 0 || !bytes.Equal(info[4:], primary) && !bytes.Equal(info[4:], previous) {
 			return nil, nil, nil
 		}
 		boundaries = append(boundaries, int(end-start))
 		if nextBegin != end {
-			padding, ok := p.mapped(end, nextBegin-end, true)
-			if !ok {
-				return nil, nil, nil
-			}
-			for _, b := range padding {
-				if b != 0x90 {
-					return nil, nil, nil
-				}
-			}
 			gap := chainGap{int(end - start), int(nextBegin - start)}
 			gaps = append(gaps, gap)
 			boundaries = append(boundaries, gap.end)

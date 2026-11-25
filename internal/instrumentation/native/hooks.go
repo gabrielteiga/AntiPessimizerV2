@@ -26,7 +26,9 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 	if _, err := io.ReadFull(conn, offer[:]); err != nil {
 		return fmt.Errorf("hook allocation offer: %w", err)
 	}
-	chainPlans := string(offer[:8]) == "APHOOKC\x00"
+	xmmSavePlans := string(offer[:8]) == "APHOOKE\x00"
+	multipleSavePlans := xmmSavePlans || string(offer[:8]) == "APHOOKD\x00"
+	chainPlans := multipleSavePlans || string(offer[:8]) == "APHOOKC\x00"
 	tinyPlans := chainPlans || string(offer[:8]) == "APHOOKB\x00"
 	tailPlans := tinyPlans || string(offer[:8]) == "APHOOKA\x00"
 	expandedSelection := tailPlans || string(offer[:8]) == "APHOOK9\x00"
@@ -112,6 +114,17 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 			if len(plan.Functions) == 4 && !chainPlans {
 				return errors.New("update the native adapter DLL: chained nonvolatile saves require APHOOKC")
 			}
+			if len(plan.Functions) == 4 && plan.Image[plan.Functions[2].Unwind+2] > 2 && !multipleSavePlans {
+				return errors.New("update the native adapter DLL: multiple chained saves require APHOOKD")
+			}
+			if len(plan.Functions) == 4 && !xmmSavePlans {
+				info := plan.Image[plan.Functions[2].Unwind:]
+				for at := 5; at < 4+int(info[2])*2; at += 4 {
+					if info[at]&15 == 8 {
+						return errors.New("update the native adapter DLL: chained XMM saves require APHOOKE")
+					}
+				}
+			}
 			if len(plan.Patch) == 1 && !tinyPlans {
 				return errors.New("breakpoint entries require APHOOKB and an owned target")
 			}
@@ -150,7 +163,8 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 			handler := u + 4 + ((int(payload[u+2])+1)&^1)*2
 			binary.LittleEndian.PutUint32(payload[handler:], u32(payload[handler:])+offset)
 			if len(functions) == 4 {
-				local := int(offset+functions[2].Unwind) + 8
+				local := int(offset + functions[2].Unwind)
+				local += 4 + int(payload[local+2])*2
 				for field := 0; field < 3; field++ {
 					word := payload[local+field*4:]
 					binary.LittleEndian.PutUint32(word, u32(word)+offset)

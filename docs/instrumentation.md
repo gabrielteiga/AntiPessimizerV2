@@ -906,6 +906,24 @@ Lacunas entre fragmentos podem conter bytes NOP se o fluxo anterior termina
 antes delas e nenhum salto tem destino dentro da lacuna. O ensaio Windows
 confere retorno e uma falha no fragmento após oito bytes de padding.
 
+Lacunas de alinhamento verificadas podem combinar NOPs de vários bytes
+e preenchimento INT3. O instalador confere os bytes originais e o clone usa
+NOPs com o mesmo comprimento total. O teste Windows atravessa oito bytes de
+preenchimento misto e confere o retorno e o unwind no fragmento seguinte.
+
+Um fragmento final também pode salvar vários GPRs não voláteis com
+`SAVE_NONVOL`. Os slots precisam ser distintos e caber na alocação do
+primário. O clone usa os offsets de cada save e o epílogo repõe os
+registradores na ordem inversa. O adaptador negocia `APHOOKD` para essa
+variante. A fixture Windows verifica RBX e RSI após uma falha real.
+
+O fragmento final pode combinar saves de GPRs e de XMM6–XMM15.
+Os saves XMM usam slots de 16 bytes descritos por `SAVE_XMM128`.
+O planejador confere os limites e a ausência de sobreposição entre todos os
+slots, e exige as instruções MOVAPS correspondentes no save e no restore.
+O adaptador anuncia `APHOOKE` quando a seleção contém esse formato.
+A fixture Windows confere RBX e XMM6 após uma falha real no fragmento.
+
 ## Tabelas de salto internas verificadas
 
 Um método sem frame nem handler pode usar uma tabela de 2 a 32 endereços

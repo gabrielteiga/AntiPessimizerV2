@@ -24,8 +24,8 @@ exatos agora são preservados, mantendo a rejeição dos demais overlaps.
 |---|---|---|
 | A1 · Motor e métricas | Captura nativa de chamadas, recursão, tempos inclusivos e exclusivos, unwind, Clear e perdas | Variantes de handlers, código e metadados além do subconjunto conferido. Medir custo no Delphi 10.4 |
 | A2 · Lançamento e seleção | EXE próprio, seleção de procedimentos ou unidades inteiras, filtro de símbolos, preferências salvas e histórico de diagnóstico com cópia no viewer | O launcher atual cobre o EXE próprio |
-| A3 · Símbolos | TD32/TDS, aliases de intervalos iguais, unidades por contribuição de código e arquivo/linha sob ASLR | Outros layouts e formatos precisam de amostras verificáveis. Conferir as linhas e unidades emitidas pelo compilador alvo |
-| A4 · Evidência de execução | CI Windows para ETW, GUI e captura integral em C, ensaios de rotinas e handlers da DLL Delphi fixada, uma hora por modo com carga controlada | Executar o ProfilerLab compilado com Delphi 10.4 em Windows 10/11 e medir uma carga Delphi prolongada |
+| A3 · Símbolos | TD32/TDS, aliases de intervalos iguais, unidades por faixas inequívocas de contribuição e arquivo/linha sob ASLR | Outros layouts e formatos precisam de amostras verificáveis. Conferir as linhas e unidades emitidas pelo compilador alvo |
+| A4 · Evidência de execução | CI Windows para ETW, GUI e captura integral em C, ensaios de rotinas e handlers da DLL Delphi fixada, uma hora por modo com carga controlada | Executar os ensaios do ProfilerLab compilado com Delphi 10.4 em Windows 10/11, incluindo unwind recursivo, capturas tipadas e operação prolongada |
 
 Consulte os critérios completos em [Plano de implementação](../plan.md), os
 resultados em [Retomada da sessão](../SESSION_HANDOFF.md) e o ensaio de compilador
