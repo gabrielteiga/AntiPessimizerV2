@@ -15,14 +15,8 @@ jobs:
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          if [ -n "$BASE_SHA" ] && [ "$BASE_SHA" != 0000000000000000000000000000000000000000 ]; then
-            git rev-list "$HEAD_SHA" "^$BASE_SHA" > "$RUNNER_TEMP/owner-commits"
-          else
-            git rev-list "$HEAD_SHA" --not refs/remotes/origin/main > "$RUNNER_TEMP/owner-commits"
-          fi
-          while IFS= read -r commit; do
-            .githooks/owner-policy commit "$commit"
-          done < "$RUNNER_TEMP/owner-commits"
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: scripts/check-owner-attribution.sh
       - name: Exercise local attribution and push guards
         run: scripts/test-owner-attribution.sh
