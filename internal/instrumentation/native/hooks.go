@@ -177,7 +177,7 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 			binary.LittleEndian.PutUint32(payload[handler:], u32(payload[handler:])+offset)
 			if len(functions) == 4 {
 				local := int(offset + functions[2].Unwind)
-				local += 4 + int(payload[local+2])*2
+				local += 4 + ((int(payload[local+2])+1)&^1)*2
 				for field := 0; field < 3; field++ {
 					word := payload[local+field*4:]
 					binary.LittleEndian.PutUint32(word, u32(word)+offset)

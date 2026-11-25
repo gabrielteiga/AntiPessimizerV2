@@ -411,6 +411,7 @@ func TestFarChainedSaveRequiresAlignedLinkAdapter(t *testing.T) {
 		0x48, 0x8b, 0x5c, 0x24, 24, 0x48, 0x83, 0xc4, 0x28, 0xc3,
 	}
 	copy(image[0x220:], code)
+	copy(image[0x280:], []byte{0xb8, 7, 0, 0, 0, 0xc3})
 	put := binary.LittleEndian.PutUint32
 	put(image[128+24+112+3*8:], 0x5100)
 	put(image[128+24+116+3*8:], 24)
@@ -423,21 +424,34 @@ func TestFarChainedSaveRequiresAlignedLinkAdapter(t *testing.T) {
 	copy(image[0x360:], []byte{33, 5, 3, 0, 5, 0x35, 24, 0, 0, 0, 0, 0})
 	copy(image[0x36c:], image[0x300:0x30c])
 	for _, version := range []string{"APHOOKF\x00", "APHOOKG\x00"} {
-		offer := make([]byte, 61)
+		offer := make([]byte, 65)
 		copy(offer, hookOffer()[:48])
 		copy(offer, version)
-		put(offer[24:], largeHookStride+48)
+		put(offer[24:], 2*largeHookStride+96)
+		put(offer[28:], 2)
 		binary.LittleEndian.PutUint64(offer[48:], 0x200200)
-		put(offer[56:], uint32(len(code)))
-		offer[60] = 1
+		put(offer[56:], 6)
+		put(offer[60:], uint32(len(code)))
+		offer[64] = 1
 		stream := &hookStream{in: bytes.NewReader(offer)}
-		err := installHooks(stream, image, []Procedure{{1, 0x5020}})
+		err := installHooks(stream, image, []Procedure{{2, 0x5080}, {1, 0x5020}})
 		if version[6] == 'F' {
 			if err == nil || !strings.Contains(err.Error(), "require APHOOKG") || stream.out.Len() != 1 {
 				t.Fatal("older DLL accepted far chained save", err)
 			}
 		} else if err != nil {
 			t.Fatal("aligned-link adapter rejected far save", err)
+		}
+		if err == nil {
+			packet := stream.out.Bytes()
+			table := binary.LittleEndian.Uint32(packet[17:])
+			payload := packet[25:]
+			primary := payload[table+4*12 : table+5*12]
+			secondary := payload[table+5*12:]
+			info := payload[binary.LittleEndian.Uint32(secondary[8:]):]
+			if !bytes.Equal(info[12:24], primary) {
+				t.Fatal("rebasing changed the aligned embedded primary record", info[:24], primary)
+			}
 		}
 	}
 }
