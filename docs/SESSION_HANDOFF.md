@@ -30,8 +30,8 @@ já foram resolvidos. README/plano descrevem o estado atual.
 
 ## Estado confirmado no remoto
 
-A `main` integrou o PR #86 em `6c2a9f5ccaf8c5f969208ab24e297e25a2bbb246`.
-[CI pós-merge](https://github.com/gabrielteiga/AntiPessimizerV2/actions/runs/45484127874).
+A `main` integrou o PR #90 em `b0d0329cdda8b03857641894e4e0df5033e608d1`.
+[CI pós-merge](https://github.com/gabrielteiga/AntiPessimizerV2/actions/runs/45623238055).
 
 Entregas integradas após a CI do commit exato.
 
@@ -77,6 +77,10 @@ Entregas integradas após a CI do commit exato.
   confere a restauração de RDI no unwind.
 - #86 preserva unidade Pascal nos trechos de contribuição cobertos por um único
   nome. Endereços ambíguos ficam sem associação quando o diretório é global.
+
+- #88 aceita NOPs de vários bytes e INT3 em lacunas inalcançáveis de unwind.
+  #89 cobre múltiplos saves locais de GPRs com slots distintos. #90 permite
+  ocultar colunas pelo menu da tabela e restaura a visibilidade ao reabrir.
 
 Já existiam TD32/TDS, lançamento próprio sem SDK, coletor/viewer separados,
 ETW, métricas, Clear sincronizado, perdas explícitas, replay/comparação,
