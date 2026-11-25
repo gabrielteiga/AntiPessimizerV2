@@ -911,6 +911,12 @@ e preenchimento INT3. O instalador confere os bytes originais e o clone usa
 NOPs com o mesmo comprimento total. O teste Windows atravessa oito bytes de
 preenchimento misto e confere o retorno e o unwind no fragmento seguinte.
 
+Um fragmento final também pode salvar vários GPRs não voláteis com
+`SAVE_NONVOL`. Os slots precisam ser distintos e caber na alocação do
+primário. O clone usa os offsets de cada save e o epílogo repõe os
+registradores na ordem inversa. O adaptador negocia `APHOOKD` para essa
+variante. A fixture Windows verifica RBX e RSI após uma falha real.
+
 ## Tabelas de salto internas verificadas
 
 Um método sem frame nem handler pode usar uma tabela de 2 a 32 endereços

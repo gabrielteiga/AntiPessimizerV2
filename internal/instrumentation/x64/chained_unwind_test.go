@@ -183,3 +183,37 @@ func TestChainedLocalSaveRejectsSkippedOrMismatchedSave(t *testing.T) {
 		}
 	}
 }
+
+func TestChainedLocalSavesRejectConflictingMetadata(t *testing.T) {
+	const split = 8
+	primary := []byte{1, 4, 1, 0, 4, 0x42, 0, 0}
+	code := []byte{
+		0x48, 0x83, 0xec, 0x28, 0x90, 0x90, 0xeb, 0,
+		0x48, 0x89, 0x5c, 0x24, 24, // save RBX
+		0x48, 0x89, 0x74, 0x24, 32, // save RSI
+		0x48, 0x8b, 0x01, // read caller data
+		0x48, 0x8b, 0x74, 0x24, 32, // restore RSI
+		0x48, 0x8b, 0x5c, 0x24, 24, // restore RBX
+		0x48, 0x83, 0xc4, 0x28, 0xc3,
+	}
+	valid := []byte{33, 10, 4, 0, 10, 0x64, 4, 0, 5, 0x34, 3, 0}
+	if err := validateLocalSave(code, primary, split, valid); err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []struct {
+		offset int
+		value  byte
+	}{
+		{5, 0x34}, // duplicate register
+		{6, 3},    // overlapping slot
+		{6, 5},    // outside primary frame
+		{8, 4},    // splits an instruction
+		{9, 0x35}, // wrong unwind operation
+	} {
+		metadata := bytes.Clone(valid)
+		metadata[change.offset] = change.value
+		if err := validateLocalSave(code, primary, split, metadata); !errors.Is(err, ErrUnsupported) {
+			t.Fatal("mismatched unwind metadata accepted", change, err)
+		}
+	}
+}

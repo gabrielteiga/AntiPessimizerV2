@@ -50,7 +50,7 @@ sem converter esse valor em chamadas ou duração por chamada.
    preservar a busca do handler, seu cleanup e a retomada de execução, incluindo
    exceções aninhadas/recursivas, sem falsificar métricas nem quebrar o programa.
 2. **Cobertura de código e metadados.** Ampliar somente com casos conferidos:
-   unwind encadeado com ações além de um `SAVE_NONVOL` local, handlers ou lacunas além de padding inalcançável,
+   unwind encadeado com ações além de saves locais `SAVE_NONVOL`, handlers ou lacunas além de padding inalcançável,
    outras versões de unwind, epílogos e instruções ainda recusados. Saltos diretos
    e saltos por R11 para destinos estáticos já aceitam epílogos ADD/LEA e POPs
    conferidos. Sem frame, dois LEAs e CMOV permitem escolher entre entradas
