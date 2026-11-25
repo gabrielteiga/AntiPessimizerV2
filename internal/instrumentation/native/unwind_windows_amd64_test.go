@@ -109,10 +109,14 @@ func TestNativeProducerUnwindsChainedXMMAndGeneralRegisterSaves(t *testing.T) {
 	testNativeInheritedChainedFrame(t, "APFrameMixedSaves", 0, "5")
 }
 
+func TestNativeProducerUnwindsChainedUnalignedXMMSaves(t *testing.T) {
+	testNativeInheritedChainedFrame(t, "APFrameUnalignedSaves", 0, "6")
+}
+
 func testNativeInheritedChainedFrame(t *testing.T, symbol string, gap uint32, mode string) {
 	t.Helper()
 	names := map[string]uint32{symbol: 1, symbol + "Cold": 2}
-	if mode == "3" || mode == "4" || mode == "5" {
+	if mode == "3" || mode == "4" || mode == "5" || mode == "6" {
 		names["APFrameStackProbe"] = 3
 	}
 	o := frameSelectionFixture(t, names)
@@ -134,7 +138,7 @@ func testNativeInheritedChainedFrame(t *testing.T, symbol string, gap uint32, mo
 	primary.Size += secondary.Size + gap
 	o.Procedures = append(keep, primary)
 	o.Args = []string{"--threads", "3", "--iterations", "1", "--delay-ms", "0", "--check-chain", mode}
-	if mode == "3" || mode == "4" || mode == "5" {
+	if mode == "3" || mode == "4" || mode == "5" || mode == "6" {
 		o.Args = append(o.Args, "--check-stack-probe", "1")
 	}
 
