@@ -345,7 +345,7 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
                    !info[1] || info[1]!=info[4] || info[3] || memcmp(info,source,length) ||
                    hook_u32(info+length)!=primary->BeginAddress || hook_u32(info+length+4)!=primary->EndAddress ||
                    hook_u32(info+length+8)!=primary->UnwindData)return FALSE;
-                for(uint32_t at=5;at<length;at+=4)if((info[at]&15)!=4 && ((info[at]&15)!=8 || chain_version!='E' && chain_version!='F'))return FALSE;
+                for(uint32_t at=5;at<length;at+=4)if((info[at]&15)!=4 && ((info[at]&15)!=8 || (chain_version!='E' && chain_version!='F')))return FALSE;
             }else if(info[0]!=1 || info[1]!=7 || info[2]!=2 || info[3]!=0 || info[4]!=7 || info[5]!=1 || info[6]!=25 || info[7]!=0)return FALSE;
             previous=f->EndAddress;
         }
