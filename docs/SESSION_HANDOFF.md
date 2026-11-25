@@ -140,21 +140,25 @@ de atribuição de ontem continuará, nem pedir teste manual ao usuário.
   captura/finally combinados, com métricas e finalizadores exatos.
 - O #96 foi integrado em `798e49429af76f2a540caeaaf9a4a30c50d8377a` após
   todos os checks do head `e686d9b92bd98f656e285697990cfcfc337d5c0f` aprovados.
-  A árvore é idêntica ao head. CI pós-merge 45689513139 em acompanhamento.
+  A árvore é idêntica ao head. CI pós-merge 45689513139 concluída com sucesso, inclusive pacote.
   Acrescenta SAVE_NONVOL_FAR/SAVE_XMM128_FAR com offsets sem escala, alinhamento
   dos códigos ímpares e negociação APHOOKG. A fixture ímpar encontrou e corrigiu
   a realocação do vínculo para métodos num stride posterior. O teste Go confere
   os três campos runtime após o padding com dois procedimentos na seleção.
-- Próximo incremento em `feat/chained-xmm-moves`, worktree
-  `/workspace/work/AntiPessimizerV2-xmm-moves`. Acrescenta MOVAPD, MOVUPD, MOVDQA
-  e MOVDQU aos saves locais XMM de 128 bits. As quatro fixtures são produzidas
-  pelo mesmo template e conferem RBX/XMM6 após access violation real. O teste
-  Go também exige rejeição de saves parciais MOVSD. Conferir o PR e o último SHA.
-- A leitura de `src/gui.cpp` da revisão fixada confirmou uma preferência ainda
-  aberta do bloco 5: `Cycle discount`/`FixedCycleDiscount`. Ela desconta por
-  chamada os tempos apresentados, satura em zero e persiste no arquivo de
-  configuração. Planejar o equivalente para QPC e cobrir arquivo, navegação,
-  médias e comparação antes de marcar essa preferência concluída.
+- O #97 foi integrado em `4733dcc8eebcdf148a0d11fae52536e2765936ef`, após
+  todos os checks do head `68c12d4de1f50333ebf2f8d775f0b6f388c3420d` aprovados.
+  Acrescenta MOVAPD/MOVUPD/MOVDQA/MOVDQU aos saves XMM de 128 bits, com quatro
+  fixtures Windows de baseline/unwind/registradores. CI pós-merge 45691071003
+  em acompanhamento.
+- Próximo incremento em `feat/viewer-time-discount`, worktree
+  `/workspace/work/AntiPessimizerV2-time-discount`. Implementa a preferência
+  `Cycle discount`/`FixedCycleDiscount` de `src/gui.cpp` da revisão fixada.
+  Usa desconto por chamada em ticks QPC, padrão zero e saturação em zero.
+  A apresentação recalcula médias e deltas de comparação com a frequência de
+  cada captura. A ordenação e os dados gravados preservam as medições originais.
+  Há teste portável de precisão u64, overflow, histórico/Clear, imutabilidade e
+  comparação, e smoke Win32 de edição, entrada inválida e reabertura. Conferir
+  o PR e seu último head antes do merge.
 - O MinGW local está em
   `/workspace/work/toolchains/mingw/root/usr/bin/x86_64-w64-mingw32-gcc-posix`.
 - O #61 incorporou a main após #93 em `95592017084f136cae8386e82631a4272e2b711a`.
