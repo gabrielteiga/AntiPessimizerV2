@@ -17,6 +17,7 @@ type FunctionPlan struct {
 	BodyRVA, ExitRVA               uint32
 	Functions                      []RuntimeFunction
 	OriginalHandlerRVA             uint32
+	InheritedHandler               bool
 	RelocatedHandler               bool
 	HandlerScopeStyle              uint32
 }
@@ -312,7 +313,7 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 		functions = append(functions, secondary)
 	}
 	functions = append(functions, RuntimeFunction{flow.exitRVA, flow.exitRVA + out.CodeSize, flow.exitRVA + out.UnwindRVA})
-	return FunctionPlan{TailTargets: tails, Original: append([]byte(nil), code[:flow.overwrite]...), Source: append([]byte(nil), code...), Patch: patch, Image: data, BodyRVA: 512, ExitRVA: flow.exitRVA, OriginalHandlerRVA: metadata.handlerRVA, RelocatedHandler: len(scopes) != 0, HandlerScopeStyle: metadata.scopeStyle, Functions: functions}, nil
+	return FunctionPlan{TailTargets: tails, Original: append([]byte(nil), code[:flow.overwrite]...), Source: append([]byte(nil), code...), Patch: patch, Image: data, BodyRVA: 512, ExitRVA: flow.exitRVA, OriginalHandlerRVA: metadata.handlerRVA, InheritedHandler: metadata.handlerRVA != 0 && len(metadata.chainBoundaries) != 0, RelocatedHandler: len(scopes) != 0, HandlerScopeStyle: metadata.scopeStyle, Functions: functions}, nil
 }
 
 // The pinned Delphi RTL copies four CPUID results into RCX and restores RBX

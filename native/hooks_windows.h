@@ -265,6 +265,18 @@ static const unsigned char *hook_local_save(APHookProcedure procedure) {
     return info;
 }
 static unsigned char hook_chain_offer(void) {
+    const IMAGE_NT_HEADERS64 *nt=(const IMAGE_NT_HEADERS64 *)(hooks.image+((const IMAGE_DOS_HEADER *)hooks.image)->e_lfanew);
+    for(uint32_t i=0;i<hooks.count;i++){
+        DWORD64 base=0;
+        APHookProcedure procedure=hooks.selected[i];
+        RUNTIME_FUNCTION *primary=RtlLookupFunctionEntry((uintptr_t)hooks.image+procedure.rva,&base,NULL);
+        if(primary && base==(uintptr_t)hooks.image && primary->BeginAddress==procedure.rva &&
+           primary->EndAddress<(uint64_t)procedure.rva+procedure.size &&
+           (uint64_t)primary->UnwindData+4<=nt->OptionalHeader.SizeOfImage){
+            unsigned char flags=hooks.image[primary->UnwindData];
+            if(flags==9 || flags==17 || flags==25)return 'F';
+        }
+    }
     unsigned char version=0;
     for(uint32_t i=0;i<hooks.count;i++){
         const unsigned char *info=hook_local_save(hooks.selected[i]);
@@ -333,7 +345,7 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
                    !info[1] || info[1]!=info[4] || info[3] || memcmp(info,source,length) ||
                    hook_u32(info+length)!=primary->BeginAddress || hook_u32(info+length+4)!=primary->EndAddress ||
                    hook_u32(info+length+8)!=primary->UnwindData)return FALSE;
-                for(uint32_t at=5;at<length;at+=4)if((info[at]&15)!=4 && ((info[at]&15)!=8 || chain_version!='E'))return FALSE;
+                for(uint32_t at=5;at<length;at+=4)if((info[at]&15)!=4 && ((info[at]&15)!=8 || chain_version!='E' && chain_version!='F'))return FALSE;
             }else if(info[0]!=1 || info[1]!=7 || info[2]!=2 || info[3]!=0 || info[4]!=7 || info[5]!=1 || info[6]!=25 || info[7]!=0)return FALSE;
             previous=f->EndAddress;
         }

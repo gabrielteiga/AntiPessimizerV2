@@ -279,7 +279,7 @@ func TestInheritedChainPreservesOriginalCleanupDescriptor(t *testing.T) {
 	binary.LittleEndian.PutUint32(image[0x488:], 0x1080)
 	binary.LittleEndian.PutUint32(image[0x48c:], 0x31415926)
 	plan, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
-	if err != nil || plan.OriginalHandlerRVA != 0x1080 || plan.RelocatedHandler || len(plan.Functions) != 3 {
+	if err != nil || plan.OriginalHandlerRVA != 0x1080 || !plan.InheritedHandler || plan.RelocatedHandler || len(plan.Functions) != 3 {
 		t.Fatal("original cleanup chain rejected", err, plan.OriginalHandlerRVA)
 	}
 	info := plan.Image[plan.Functions[1].Unwind:]
@@ -313,7 +313,7 @@ func TestInheritedChainRelocatesRecognizedExceptionScopes(t *testing.T) {
 		w32(image, 0x494, peLeafRVA+24)
 		w32(image, 0x49c, peLeafRVA+24)
 		plan, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
-		if err != nil || !plan.RelocatedHandler || plan.HandlerScopeStyle != 1 {
+		if err != nil || !plan.RelocatedHandler || !plan.InheritedHandler || plan.HandlerScopeStyle != 1 {
 			t.Fatal("inherited exception scopes rejected", flags, err)
 		}
 		descriptor := plan.Image[plan.Functions[1].Unwind+12:]
