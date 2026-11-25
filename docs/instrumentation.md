@@ -948,6 +948,14 @@ confere operação, largura, registrador e endereço RSP/frame register. Os ensa
 Windows exigem RBX, RSI e os 128 bits de XMM6/XMM7 no catch, retorno normal e
 contagens conhecidos, incluindo alocação grande/FAR e RBP com bias.
 
+O corpo após os saves locais também pode chamar diretamente outro procedimento.
+O planejador exige RSP alinhado a 16 bytes no CALL e mantém livres os 32 bytes
+da área de argumentos Win64: nenhum save primário ou local pode ocupá-los.
+O fluxo normal de relocação confere o destino e rejeita chamadas para o interior
+do método. O ensaio Windows usa um callee que escreve os quatro home slots e
+causa uma AV; retorno, unwind e registradores são comparados com o baseline.
+Chamadas indiretas e branches dentro desse corpo continuam recusados.
+
 Cadeias contíguas que herdam o frame também podem encaminhar o cleanup
 UHANDLER-only original ou traduzir scopes CRT reconhecidos, com APHOOKF. O
 handler original recebe o PC e a entrada runtime do fragmento de origem e os

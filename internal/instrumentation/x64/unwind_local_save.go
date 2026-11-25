@@ -141,6 +141,19 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 		}
 	}
 	for _, inst := range fragment[count:restore] {
+		if inst.Op == x86asm.CALL {
+			if _, direct := inst.Args[0].(x86asm.Rel); !direct || inst.Len != 5 || (allocation+uint64(len(pops))*8)%16 != 8 || allocation < 32 {
+				return fail()
+			}
+			// A callee owns the first four eight-byte home slots. Saves
+			// must survive a callee that writes every Win64 argument slot.
+			for slot := uint32(0); slot < 4; slot++ {
+				if slots[slot] {
+					return fail()
+				}
+			}
+			continue
+		}
 		if _, relative := inst.Args[0].(x86asm.Rel); relative || inst.Op == x86asm.RET || frameOperations[inst.Op.String()] ||
 			inst.Args[0] == x86asm.RSP || inst.Args[1] == x86asm.RSP {
 			return fail()
