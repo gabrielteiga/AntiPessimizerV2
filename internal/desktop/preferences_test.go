@@ -75,6 +75,7 @@ func TestViewerColumnPreferencesKeepWidthsAndPermutation(t *testing.T) {
 		layout.Widths[i], layout.Order[i] = width, int32(i)
 	}
 	layout.Widths[2] = 273
+	layout.Hidden = 1 << 2
 	layout.Order[1], layout.Order[2] = layout.Order[2], layout.Order[1]
 	if err := savePreferences(path, p); err != nil {
 		t.Fatal(err)
@@ -85,5 +86,19 @@ func TestViewerColumnPreferencesKeepWidthsAndPermutation(t *testing.T) {
 	layout.Order[1] = layout.Order[2]
 	if err := savePreferences(path, p); err == nil {
 		t.Fatal("duplicate column accepted")
+	}
+}
+
+func TestColumnPreferencesRejectHiddenLastColumn(t *testing.T) {
+	var layout columnLayout
+	for i, width := range defaultColumnWidths[columnSampling] {
+		layout.Widths[i], layout.Order[i] = width, int32(i)
+	}
+	columns := len(defaultColumnWidths[columnSampling])
+	for _, hidden := range []uint32{columnMask(columns), 1 << columns} {
+		layout.Hidden = hidden
+		if layout.valid(columns) {
+			t.Fatal("accepted unusable table", hidden)
+		}
 	}
 }

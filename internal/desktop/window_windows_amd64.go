@@ -168,6 +168,14 @@ var wndProc = windows.NewCallback(func(hwnd uintptr, msg uint32, w uintptr, nati
 			a.command(int(w & 0xffff))
 		}
 		return 0
+	case 0x007b: // WM_CONTEXTMENU
+		if a.table != 0 {
+			header, _, _ := send.Call(a.table, listGetHeader, 0, 0)
+			if w == a.table || w == header && header != 0 {
+				a.resultColumnMenu(header, int32(int16(l)), int32(int16(l>>16)))
+				return 0
+			}
+		}
 	case 0x0113:
 		a.tick()
 		return 0
@@ -1158,6 +1166,9 @@ func (a *window) syncColumns() {
 		if changedMode {
 			col.Mask = 7
 			col.Width = widths[i]
+			if layout.Hidden&(1<<i) != 0 {
+				col.Width = 0
+			}
 		}
 		if i >= a.tableColumns {
 			send.Call(a.table, 0x1061, uintptr(i), uintptr(unsafe.Pointer(&col)))

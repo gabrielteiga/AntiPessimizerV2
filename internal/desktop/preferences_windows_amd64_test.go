@@ -83,6 +83,10 @@ func TestNativeColumnPreferencesWindowSmoke(t *testing.T) {
 		send.Call(w.table, 0x101e, 2, width) // LVM_SETCOLUMNWIDTH
 		order := [...]int32{0, 2, 1, 3, 4, 5, 6, 7}
 		send.Call(w.table, listSetColumnOrder, uintptr(len(order)), uintptr(unsafe.Pointer(&order[0])))
+		w.toggleResultColumn(2)
+		if err := check(w, 0, 2); err != nil {
+			return err
+		}
 		w.model.Comparison = &report.Comparison{}
 		w.syncColumns() // Same size, different layout.
 		if err := check(w, uintptr(defaultColumnWidths[columnSamplingComparison][2]), 1); err != nil {
@@ -90,11 +94,15 @@ func TestNativeColumnPreferencesWindowSmoke(t *testing.T) {
 		}
 		w.model.Comparison = nil
 		w.syncColumns()
-		return check(w, width, 2)
+		return check(w, 0, 2)
 	}, path); err != nil {
 		t.Fatal(err)
 	}
 	if err := runViewerWithPreferences(`\\.\pipe\unused-columns`, "", "", true, func(w *window) error {
+		if err := check(w, 0, 2); err != nil {
+			return err
+		}
+		w.toggleResultColumn(2)
 		return check(w, width, 2)
 	}, path); err != nil {
 		t.Fatal(err)
