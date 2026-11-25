@@ -1,6 +1,6 @@
 # Retomada do AntiPessimizerV2
 
-Atualizado em 24/11/2026. Este arquivo substitui a necessidade de importar o
+Atualizado em 25/11/2026. Este arquivo substitui a necessidade de importar o
 histórico da conversa. Continue o projeto existente; não recrie sua base.
 
 ## Objetivo e instruções permanentes
@@ -9,8 +9,11 @@ histórico da conversa. Continue o projeto existente; não recrie sua base.
 - Adaptar o funcionamento principal do Hoshoyo/AntiPessimizer para Go, com
   contagens reais, tempos inclusivos/exclusivos, médias, threads e exceções.
 - Alvo: aplicações Delphi em Windows x64, Intel ou AMD. Linux valida o núcleo.
-- Continuar autonomamente em blocos funcionais completos. O usuário não quer
-  compilação ou validação manual intermediária; consultar o original e os testes.
+- Continuar autonomamente até concluir as funcionalidades mapeadas, com testes
+  automatizados e comparação de comportamento. O usuário confirmou que só fará
+  validação manual quando o projeto estiver completamente finalizado.
+- Não pedir validação, compilação ou decisões rotineiras intermediárias.
+  Usar o original fixado e as fixtures como referência de comportamento.
 - Trabalhar em branch/PR. Nunca enviar implementação diretamente à main.
   Antes do merge, exigir CI aprovado no commit exato: Linux/core/race e Windows,
   incluindo nativo, referência Delphi, ETW, janela, executáveis e pacote.
@@ -30,8 +33,8 @@ já foram resolvidos. README/plano descrevem o estado atual.
 
 ## Estado confirmado no remoto
 
-A `main` integrou o PR #90 em `b0d0329cdda8b03857641894e4e0df5033e608d1`.
-[CI pós-merge](https://github.com/gabrielteiga/AntiPessimizerV2/actions/runs/45623238055).
+A `main` integrou o PR #91 em `e1c8704dbe2eaa9814ad36f4d7cc3c1e8fc54c26`.
+[CI pós-merge](https://github.com/gabrielteiga/AntiPessimizerV2/actions/runs/45626333195).
 
 Entregas integradas após a CI do commit exato.
 
@@ -82,6 +85,13 @@ Entregas integradas após a CI do commit exato.
   #89 cobre múltiplos saves locais de GPRs com slots distintos. #90 permite
   ocultar colunas pelo menu da tabela e restaura a visibilidade ao reabrir.
 
+- #91 combina `SAVE_NONVOL` e `SAVE_XMM128` em fragmento final, com slots
+  distintos e negociação APHOOKE. O Windows confere RBX e os 128 bits de XMM6
+  no catch após falha real. O head aprovado foi
+  `c8198706366400e8a8bee6b7e8d29c6700511051`.
+  [CI do head](https://github.com/gabrielteiga/AntiPessimizerV2/actions/runs/45625363710).
+  O run de push 45625350596 e a CI da main também terminaram aprovados.
+
 Já existiam TD32/TDS, lançamento próprio sem SDK, coletor/viewer separados,
 ETW, métricas, Clear sincronizado, perdas explícitas, replay/comparação,
 preferências e empacotamento Windows. Não recomece essas partes.
@@ -96,9 +106,45 @@ preferências e empacotamento Windows. Não recomece essas partes.
   sintéticos. A suíte pública roda os alvos C e a DLL Delphi de referência.
   [PR #61](https://github.com/gabrielteiga/AntiPessimizerV2/pull/61).
 
+O head atual do #61 é `f83e63a06f50744aa043790a03f4f9affa677949`,
+branch `test/delphi104-owned`. A CI Go de push 45485190098 e de PR
+45485200761 passou. O job licenciado 138768575160, run 45485190283,
+permaneceu `queued`, sem runner atribuído, na conferência de 25/11/2026.
+Ele exige os labels `self-hosted, windows, x64, delphi-10-4`.
+[Execução licenciada](https://github.com/gabrielteiga/AntiPessimizerV2/actions/runs/45485190283).
+
+O workflow do #61 dispara em push da branch e permite workflow_dispatch.
+O push mede uma hora por modo. Há input manual de 6 a 7.200 segundos.
+A sintaxe PowerShell e os leitores de relatórios de exceções e endurance
+foram testados com dados sintéticos. Isso não comprova compilação Pascal.
+A API de inventário de self-hosted runners retornou HTTP 403 pela integração.
+Reavaliar a disponibilidade real na retomada. Não presumir que a ausência
+de atribuição de ontem continuará, nem pedir teste manual ao usuário.
+
+## Próxima ação na nova sessão
+
+1. Ler este arquivo, AGENTS.md, README.md e docs/plan.md. Conferir os commits
+   remotos, branches e alterações locais antes de editar.
+2. Conferir novamente o job Delphi e o #61. Quando houver execução real,
+   diagnosticar as falhas e corrigir a implementação, mantendo os critérios
+   de aceitação. Atualizar a branch com a main quando necessário e validar o
+   novo SHA antes do merge.
+3. Enquanto o runner estiver indisponível, avançar pelos casos concretos de
+   código, unwind, handlers e símbolos do plano usando fixtures automatizadas.
+   A lista abaixo continua aberta. Evitar aumentar a cobertura por simples
+   relaxamento do planejador.
+4. Atualizar o plano e esta retomada após blocos integrados, distinguindo testes
+   executados, elegibilidade estática e compatibilidade por compilador.
+
+A porcentagem de cerca de 85% informada anteriormente vinha da contagem
+simples dos blocos do plano com peso igual. Ela não mede esforço restante,
+cobertura de execução ou certificação Delphi. Conferir os critérios materiais
+antes de declarar o objetivo concluído.
+
 ## Lacunas materiais que continuam abertas
 
-- Unwind encadeado com outras ações locais, handlers ou fragmentos descontínuos.
+- Unwind encadeado além dos saves locais GPR/XMM conferidos, incluindo outras
+  ações, handlers ou fragmentos descontínuos.
   Outros formatos, epílogos, instruções e alvos de tail calls além do
   subconjunto conferido.
 - Outras variantes de handlers Delphi e testes de exceções aninhadas/recursivas.
@@ -122,6 +168,15 @@ Se as worktrees persistirem, use:
 - `/workspace/work/reference`: original fixado em
   `ab67a710f152a25deef7593b8b18e59fa7827979`.
 - `/workspace/work/chained-reference/AntiPessimizerDLL.dll` contém o asset original.
+
+A última implementação está em
+`/workspace/work/AntiPessimizerV2-chain-xmm`, branch
+`feat/chained-xmm-saves`, já integrada e limpa.
+O #61 tem worktree em `/workspace/work/AntiPessimizerV2-delphi104`.
+Esta atualização usa `docs/session-handoff-after-91`. Se seu PR ainda estiver
+aberto, aprová-lo somente depois dos checks do SHA exato.
+As demais worktrees guardam incrementos anteriores. Não reaplicar commits
+já presentes na main.
 
 Em ambiente novo, clone o remoto e parta da `main` confirmada. Preserve
 worktrees e alterações existentes ao retomar trabalho local.
@@ -154,3 +209,14 @@ chamada concluída e só depois solicite o merge em outra chamada. A revisão
 automática já usou estado anterior quando os checks e o merge ocorreram dentro
 da mesma chamada agregadora. Não confunda esse caso com autorização para
 contornar um gate: sempre confira novamente head, checks e estado reais.
+
+Para consultar GitHub, usar o conector quando disponível. A CLI também
+funcionou no ambiente anterior com o credential helper do gh. Um HTTP 401
+transitório foi resolvido usando o conector e a API pública para leituras,
+sem expor credenciais. Pushes posteriores funcionaram normalmente.
+Não registrar tokens ou URLs assinadas de artefatos em arquivos ou respostas.
+
+Para economizar contexto, ler trechos relevantes com rg, evitar despejar logs
+inteiros e consultar passos da CI por etapa. Aguardar até 60 segundos entre
+conferências quando não houver trabalho independente. Aguardar sempre a CI
+pós-merge da main depois de conferir a equivalência da árvore com o head.
