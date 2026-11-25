@@ -121,6 +121,19 @@ A API de inventário de self-hosted runners retornou HTTP 403 pela integração.
 Reavaliar a disponibilidade real na retomada. Não presumir que a ausência
 de atribuição de ontem continuará, nem pedir teste manual ao usuário.
 
+## Incremento em acompanhamento após a retomada
+
+- O #92 foi integrado em `2fae317dfc0f772573884e6c3560514387bdce89` após
+  todos os checks do head `f56fedb03c52e69640456d32b6f315dea096ef33` aprovados.
+- O #93 acrescenta MOVUPS aos saves XMM do fragmento final encadeado.
+  A fixture exige retorno e unwind Windows com RBX e XMM6 preservados.
+  Conferir o novo head e a CI antes do merge.
+- O job Delphi `138768575160` do #61 continua queued na conferência desta
+  retomada, sem execução licenciada.
+- Ambiente novo em `/workspace/work/AntiPessimizerV2`, sem alterações locais
+  anteriores. Go em `/workspace/work/toolchains/go/bin`, cache em
+  `/workspace/work/cache` e GOPATH em `/workspace/work/gopath`.
+
 ## Próxima ação na nova sessão
 
 1. Ler este arquivo, AGENTS.md, README.md e docs/plan.md. Conferir os commits

@@ -248,3 +248,27 @@ func TestChainedXMMAndGeneralSavesValidateDistinctSlots(t *testing.T) {
 		}
 	}
 }
+
+func TestChainedMOVUPSSavesMatchUnwind(t *testing.T) {
+	primary := []byte{1, 4, 1, 0, 4, 0x62, 0, 0}
+	code := []byte{
+		0x48, 0x83, 0xec, 0x38, 0x90, 0x90, 0xeb, 0,
+		0x48, 0x89, 0x5c, 0x24, 32,
+		0x0f, 0x11, 0x74, 0x24, 16,
+		0x48, 0x8b, 0x01,
+		0x0f, 0x10, 0x74, 0x24, 16,
+		0x48, 0x8b, 0x5c, 0x24, 32,
+		0x48, 0x83, 0xc4, 0x38, 0xc3,
+	}
+	local := []byte{33, 10, 4, 0, 10, 0x68, 1, 0, 5, 0x34, 4, 0}
+	if err := validateLocalSave(code, primary, 8, local); err != nil {
+		t.Fatal(err)
+	}
+	for _, at := range []int{17, 25} {
+		changed := bytes.Clone(code)
+		changed[at] = 32
+		if err := validateLocalSave(changed, primary, 8, local); !errors.Is(err, ErrUnsupported) {
+			t.Fatal("mismatched XMM slot accepted", at, err)
+		}
+	}
+}

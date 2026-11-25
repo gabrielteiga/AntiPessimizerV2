@@ -87,7 +87,10 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 		if local[at+1]&15 == 8 {
 			reg = x86asm.X0 + x86asm.Reg(local[at+1]>>4)
 			disp *= 2
-			op = x86asm.MOVAPS
+			op = fragment[i].Op
+			if op != x86asm.MOVAPS && op != x86asm.MOVUPS {
+				return fail()
+			}
 		}
 		matchesSlot := func(arg x86asm.Arg) bool {
 			mem, ok := arg.(x86asm.Mem)
