@@ -956,6 +956,13 @@ do método. O ensaio Windows usa um callee que escreve os quatro home slots e
 causa uma AV; retorno, unwind e registradores são comparados com o baseline.
 Chamadas indiretas e branches dentro desse corpo continuam recusados.
 
+Fragmentos com saves locais também podem encaminhar cleanup UHANDLER-only do
+primário. O adaptador APHOOKI verifica os registros da cadeia e usa o início do
+primário ao traduzir o PC do clone inteiro. O handler recebe a entrada runtime
+do fragmento original, seu PC e os dados do primário. O ensaio Windows exige
+uma chamada de cleanup por falha, dados/PC exatos e RBX/RSI/XMM6/XMM7 preservados.
+Scopes que capturam/retomam e padding com saves locais continuam recusados.
+
 Cadeias contíguas que herdam o frame também podem encaminhar o cleanup
 UHANDLER-only original ou traduzir scopes CRT reconhecidos, com APHOOKF. O
 handler original recebe o PC e a entrada runtime do fragmento de origem e os

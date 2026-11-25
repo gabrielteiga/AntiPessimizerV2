@@ -363,6 +363,43 @@ __asm__(
  ".rva .Lprimary_mixed_saves_try,.Lprimary_mixed_saves_try_end,APFrameMemoryFilter,.Lprimary_mixed_saves_catch\n .text\n .seh_endproc\n"
 );
 
+static volatile LONG local_cleanup_count,local_cleanup_bad;
+extern unsigned char APFrameLocalCleanupCold[],APFrameLocalCleanupEnd[],APFrameLocalCleanupFault[];
+EXCEPTION_DISPOSITION APFrameLocalCleanupHandler(PEXCEPTION_RECORD record,PVOID frame,PCONTEXT context,PDISPATCHER_CONTEXT dispatcher){
+ (void)frame;(void)context;
+ DWORD64 image=(DWORD64)(uintptr_t)GetModuleHandleW(NULL);
+ LONG mismatch=0;
+ if(!(record->ExceptionFlags&EXCEPTION_UNWINDING))mismatch|=1;
+ if(dispatcher->ImageBase!=image)mismatch|=2;
+ if(image+dispatcher->FunctionEntry->BeginAddress!=(DWORD64)(uintptr_t)APFrameLocalCleanupCold)mismatch|=4;
+ if(image+dispatcher->FunctionEntry->EndAddress!=(DWORD64)(uintptr_t)APFrameLocalCleanupEnd)mismatch|=8;
+ if(dispatcher->ControlPc!=(DWORD64)(uintptr_t)APFrameLocalCleanupFault)mismatch|=16;
+ if(*(uint32_t *)dispatcher->HandlerData!=0x31415926)mismatch|=32;
+ InterlockedOr(&local_cleanup_bad,mismatch);
+ InterlockedIncrement(&local_cleanup_count);
+ return ExceptionContinueSearch;
+}
+extern uint64_t APFrameLocalCleanup(const uint64_t *),APFrameLocalCleanupCatch(void);
+__asm__(
+ ".text\n .globl APFrameLocalCleanup\n .def APFrameLocalCleanup; .scl 2; .type 32; .endef\n"
+ "APFrameLocalCleanup:\n subq $88,%rsp\n movq %rbx,80(%rsp)\n movaps %xmm7,48(%rsp)\n pxor %xmm7,%xmm7\n movq %rcx,%rbx\n .fill 8,1,0x90\n"
+ ".globl APFrameLocalCleanupCold\n .def APFrameLocalCleanupCold; .scl 2; .type 32; .endef\n"
+ "APFrameLocalCleanupCold:\n movq %rsi,72(%rsp)\n movaps %xmm6,16(%rsp)\n movq %rbx,%rsi\n pxor %xmm6,%xmm6\n  .globl APFrameLocalCleanupFault\n APFrameLocalCleanupFault:\n movq (%rsi),%rax\n"
+ "movaps 16(%rsp),%xmm6\n movq 72(%rsp),%rsi\n movaps 48(%rsp),%xmm7\n movq 80(%rsp),%rbx\n addq $88,%rsp\n ret\n .Llocal_cleanup_end:\n .globl APFrameLocalCleanupEnd\n APFrameLocalCleanupEnd:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n .Llocal_cleanup_primary:\n .byte 17,21,5,0,14,0x78,3,0,9,0x34,10,0,4,0xa2,0,0\n .rva APFrameLocalCleanupHandler\n .long 0x31415926\n"
+ ".Llocal_cleanup_secondary:\n .byte 33,10,4,0,10,0x68,1,0,5,0x64,9,0\n .rva APFrameLocalCleanup,APFrameLocalCleanupCold,.Llocal_cleanup_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n .rva APFrameLocalCleanup,APFrameLocalCleanupCold,.Llocal_cleanup_primary\n"
+ ".rva APFrameLocalCleanupCold,.Llocal_cleanup_end,.Llocal_cleanup_secondary\n"
+ ".text\n .globl APFrameLocalCleanupCatch\n .def APFrameLocalCleanupCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameLocalCleanupCatch\n APFrameLocalCleanupCatch:\n pushq %rbx\n .seh_pushreg %rbx\n pushq %rsi\n .seh_pushreg %rsi\n subq $72,%rsp\n .seh_stackalloc 72\n movaps %xmm6,32(%rsp)\n .seh_savexmm %xmm6,32\n movaps %xmm7,48(%rsp)\n .seh_savexmm %xmm7,48\n .seh_endprologue\n"
+ "movl $0x42012345,%ebx\n movl $0x12345678,%esi\n movl $0x44113322,%edx\n movq %rdx,%xmm6\n movl $0x55667788,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm6\n movl $0x55331122,%edx\n movq %rdx,%xmm7\n movl $0x66778899,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm7\n .Llocal_cleanup_try:\n xorq %rcx,%rcx\n call APFrameLocalCleanup\n nop\n"
+ ".Llocal_cleanup_try_end:\n xorl %eax,%eax\n jmp .Llocal_cleanup_return\n"
+ ".Llocal_cleanup_catch:\n xorl %eax,%eax\n cmpq $0x42012345,%rbx\n sete %al\n movq %xmm6,%rdx\n cmpq $0x44113322,%rdx\n sete %cl\n andb %cl,%al\n movhlps %xmm6,%xmm0\n movq %xmm0,%rdx\n cmpq $0x55667788,%rdx\n sete %cl\n andb %cl,%al\n"
+ "movq %xmm7,%rdx\n cmpq $0x55331122,%rdx\n sete %cl\n andb %cl,%al\n movhlps %xmm7,%xmm0\n movq %xmm0,%rdx\n cmpq $0x66778899,%rdx\n sete %cl\n andb %cl,%al\n cmpq $0x12345678,%rsi\n sete %cl\n andb %cl,%al\n .Llocal_cleanup_return:\n movaps 32(%rsp),%xmm6\n movaps 48(%rsp),%xmm7\n addq $72,%rsp\n popq %rsi\n popq %rbx\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Llocal_cleanup_try,.Llocal_cleanup_try_end,APFrameMemoryFilter,.Llocal_cleanup_catch\n .text\n .seh_endproc\n"
+);
+
 extern uint64_t APFrameLocalCall(const uint64_t *),APFrameLocalCallCatch(void);
 __asm__(
  ".text\n .globl APFrameLocalCall\n .def APFrameLocalCall; .scl 2; .type 32; .endef\n"
@@ -847,6 +884,8 @@ static DWORD WINAPI worker(void *unused){
   const uint64_t value=UINT64_C(0x1122334455667788);
   if(check_chain==3){
    if(APFrameLocalSave(&value)!=value || APFrameLocalSaveCatch()!=1)return 12;
+  }else if(check_chain==24){
+   if(APFrameLocalCleanup(&value)!=value || APFrameLocalCleanupCatch()!=1)return 12;
   }else if(check_chain==23){
    if(APFrameLocalCall(&value)!=value || APFrameLocalCallCatch()!=1)return 12;
   }else if(check_chain==22){
@@ -932,6 +971,7 @@ int wmain(int argc,wchar_t **argv){
  }
  }
  CloseHandle(barrier);
+ if(check_chain==24 && (local_cleanup_bad || local_cleanup_count!=(LONG)(threads*rounds)))fprintf(stderr,"local cleanup mismatch=%ld count=%ld expected=%lu\n",local_cleanup_bad,local_cleanup_count,(unsigned long)(threads*rounds));
  if(check_chain==8 && (chain_cleanup_bad || chain_cleanup_count!=(LONG)(threads*rounds)))fprintf(stderr,"chain cleanup mismatch=%ld count=%ld expected=%lu\n",chain_cleanup_bad,chain_cleanup_count,(unsigned long)(threads*rounds));
  if(unselected_id){
   HMODULE adapter=GetModuleHandleW(L"AntiPessimizerNative.dll");
@@ -947,5 +987,5 @@ int wmain(int argc,wchar_t **argv){
   int written=fprintf(file,"{\"version\":1,\"threads\":%u,\"batch_count\":%u,\"private_bytes\":%llu,\"handles\":%lu,\"frequency\":%llu,\"ticks\":%llu}\n",(unsigned)threads,(unsigned)batch_limit,(unsigned long long)memory.PrivateUsage,(unsigned long)handles,(unsigned long long)frequency.QuadPart,(unsigned long long)(finish.QuadPart-start.QuadPart));
   if(fclose(file)||written<=0)return 10;
  }
- return result||(check_chain==10&&(chain_finally_normal!=(LONG)(threads*rounds)||chain_finally_abnormal!=(LONG)(threads*rounds)))||(check_chain==8&&(chain_cleanup_bad||chain_cleanup_count!=(LONG)(threads*rounds)))||atomic128_total[0]!=(uint64_t)threads*rounds*(iterations+1)||atomic128_total[1]!=~atomic128_total[0]||atomic_total!=(uint64_t)threads*rounds*(iterations+1)||cleanup_count!=(LONG)(threads*rounds*2)||collision_seen<(LONG)(threads*rounds*(!!cleanup_throws+!!normal_cleanup_throws))?5:0;
+ return result||(check_chain==24&&(local_cleanup_bad||local_cleanup_count!=(LONG)(threads*rounds)))||(check_chain==10&&(chain_finally_normal!=(LONG)(threads*rounds)||chain_finally_abnormal!=(LONG)(threads*rounds)))||(check_chain==8&&(chain_cleanup_bad||chain_cleanup_count!=(LONG)(threads*rounds)))||atomic128_total[0]!=(uint64_t)threads*rounds*(iterations+1)||atomic128_total[1]!=~atomic128_total[0]||atomic_total!=(uint64_t)threads*rounds*(iterations+1)||cleanup_count!=(LONG)(threads*rounds*2)||collision_seen<(LONG)(threads*rounds*(!!cleanup_throws+!!normal_cleanup_throws))?5:0;
 }
