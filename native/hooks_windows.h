@@ -225,20 +225,30 @@ static const unsigned char *hook_local_save(APHookProcedure procedure) {
     RUNTIME_FUNCTION *last=RtlLookupFunctionEntry((uintptr_t)hooks.image+procedure.rva+procedure.size-1,&base,NULL);
     if(!last || base!=(uintptr_t)hooks.image || last->BeginAddress<=procedure.rva || last->EndAddress!=procedure.rva+procedure.size)return NULL;
     const IMAGE_NT_HEADERS64 *nt=(const IMAGE_NT_HEADERS64 *)(hooks.image+((const IMAGE_DOS_HEADER *)hooks.image)->e_lfanew);
-    if(last->UnwindData%4 || (uint64_t)last->UnwindData+20>nt->OptionalHeader.SizeOfImage)return NULL;
+    if(last->UnwindData%4 || (uint64_t)last->UnwindData+4>nt->OptionalHeader.SizeOfImage)return NULL;
     const unsigned char *info=hooks.image+last->UnwindData;
     MEMORY_BASIC_INFORMATION memory;
     if(!VirtualQuery(info,&memory,sizeof(memory)) || memory.AllocationBase!=hooks.image || memory.State!=MEM_COMMIT ||
        (memory.Protect&PAGE_GUARD) || (memory.Protect&0xff)==PAGE_NOACCESS ||
-       (uintptr_t)info+20>(uintptr_t)memory.BaseAddress+memory.RegionSize)return NULL;
-    return info[0]==33 && info[2]==2?info:NULL;
+       (uintptr_t)info+4>(uintptr_t)memory.BaseAddress+memory.RegionSize)return NULL;
+    if(info[0]!=33 || !info[2] || info[2]%2 || info[2]>16)return NULL;
+    uint32_t length=4+info[2]*2+12;
+    if((uint64_t)last->UnwindData+length>nt->OptionalHeader.SizeOfImage ||
+       (uintptr_t)info+length>(uintptr_t)memory.BaseAddress+memory.RegionSize)return NULL;
+    return info;
 }
-static BOOL hook_has_local_save(void) {
-    for(uint32_t i=0;i<hooks.count;i++)if(hook_local_save(hooks.selected[i]))return TRUE;
-    return FALSE;
+static unsigned char hook_chain_offer(void) {
+    unsigned char version=0;
+    for(uint32_t i=0;i<hooks.count;i++){
+        const unsigned char *info=hook_local_save(hooks.selected[i]);
+        if(info && info[2]>2)return 'D';
+        if(info)version='C';
+    }
+    return version;
 }
 static BOOL hook_exchange(HANDLE pipe,BOOL general) {
-    BOOL chains=general && hook_has_local_save();
+    unsigned char chain_version=general?hook_chain_offer():0;
+    BOOL chains=chain_version!=0;
     if(!hook_allocate(general,chains)) return FALSE;
     unsigned char offer[56]={'A','P','H','O','O','K','1',0};
     hook_put64(offer+8,(uintptr_t)GetModuleHandleW(NULL));
@@ -252,7 +262,7 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
         if(!general)return FALSE;
         offer[6]='B';
     }
-    if(chains)offer[6]='C';
+    if(chains)offer[6]=chain_version;
     if(!hook_io(pipe,offer,general?56:48,TRUE)) return FALSE;
     for(uint32_t i=0;i<hooks.count;i++) {
         unsigned char extent[4]; hook_put32(extent,hooks.selected[i].size);
@@ -287,9 +297,13 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
                 if(!hook_forward_info_at(hooks.image,hooks.memory+data_at,table-data_at,f,owner,info,extra) || (info[0]==25)!=(hook_u32(hooks.memory+data_at+4)==2) || (local && hook_u32(hooks.memory+data_at+4)))return FALSE;
             }else if(local && role==2){
                 const unsigned char *source=hook_local_save(hooks.selected[owner]);
-                if(!source || f->BeginAddress!=primary->EndAddress || (uint64_t)f->UnwindData+20>table || (uint64_t)f->UnwindData+20>stride_end ||
-                   info[0]!=33 || !info[1] || info[1]!=info[4] || info[2]!=2 || info[3] || (info[5]&15)!=4 || memcmp(info,source,8) ||
-                   hook_u32(info+8)!=primary->BeginAddress || hook_u32(info+12)!=primary->EndAddress || hook_u32(info+16)!=primary->UnwindData)return FALSE;
+                if(!source || f->BeginAddress!=primary->EndAddress || info[2]!=source[2])return FALSE;
+                uint32_t length=4+info[2]*2;
+                if((uint64_t)f->UnwindData+length+12>table || (uint64_t)f->UnwindData+length+12>stride_end ||
+                   !info[1] || info[1]!=info[4] || info[3] || memcmp(info,source,length) ||
+                   hook_u32(info+length)!=primary->BeginAddress || hook_u32(info+length+4)!=primary->EndAddress ||
+                   hook_u32(info+length+8)!=primary->UnwindData)return FALSE;
+                for(uint32_t at=5;at<length;at+=4)if((info[at]&15)!=4)return FALSE;
             }else if(info[0]!=1 || info[1]!=7 || info[2]!=2 || info[3]!=0 || info[4]!=7 || info[5]!=1 || info[6]!=25 || info[7]!=0)return FALSE;
             previous=f->EndAddress;
         }

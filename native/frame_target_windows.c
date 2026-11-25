@@ -183,6 +183,26 @@ __asm__(
  ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
  ".rva .Llocal_save_try,.Llocal_save_try_end,APFrameMemoryFilter,.Llocal_save_catch\n .text\n .seh_endproc\n"
 );
+extern uint64_t APFrameMultipleSaves(const uint64_t *),APFrameMultipleSavesCatch(void);
+__asm__(
+ ".text\n .globl APFrameMultipleSaves\n .def APFrameMultipleSaves; .scl 2; .type 32; .endef\n"
+ "APFrameMultipleSaves:\n subq $40,%rsp\n .fill 8,1,0x90\n"
+ ".globl APFrameMultipleSavesCold\n .def APFrameMultipleSavesCold; .scl 2; .type 32; .endef\n"
+ "APFrameMultipleSavesCold:\n movq %rbx,24(%rsp)\n movq %rsi,32(%rsp)\n movq %rcx,%rbx\n movq %rcx,%rsi\n movq (%rbx),%rax\n"
+ "movq 32(%rsp),%rsi\n movq 24(%rsp),%rbx\n addq $40,%rsp\n ret\n .Lmultiple_saves_end:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n .Lmultiple_saves_primary:\n .byte 1,4,1,0,4,0x42,0,0\n"
+ ".Lmultiple_saves_secondary:\n .byte 33,10,4,0,10,0x64,4,0,5,0x34,3,0\n .rva APFrameMultipleSaves,APFrameMultipleSavesCold,.Lmultiple_saves_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n .rva APFrameMultipleSaves,APFrameMultipleSavesCold,.Lmultiple_saves_primary\n"
+ ".rva APFrameMultipleSavesCold,.Lmultiple_saves_end,.Lmultiple_saves_secondary\n"
+ ".text\n .globl APFrameMultipleSavesCatch\n .def APFrameMultipleSavesCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameMultipleSavesCatch\n APFrameMultipleSavesCatch:\n pushq %rbx\n .seh_pushreg %rbx\n pushq %rsi\n .seh_pushreg %rsi\n subq $40,%rsp\n .seh_stackalloc 40\n .seh_endprologue\n"
+ "movl $0x42012345,%ebx\n movl $0x44113322,%esi\n .Lmultiple_saves_try:\n xorq %rcx,%rcx\n call APFrameMultipleSaves\n nop\n"
+ ".Lmultiple_saves_try_end:\n xorl %eax,%eax\n jmp .Lmultiple_saves_return\n"
+ ".Lmultiple_saves_catch:\n xorl %eax,%eax\n cmpl $0x42012345,%ebx\n sete %al\n cmpl $0x44113322,%esi\n sete %cl\n andb %cl,%al\n"
+ ".Lmultiple_saves_return:\n addq $40,%rsp\n popq %rsi\n popq %rbx\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Lmultiple_saves_try,.Lmultiple_saves_try_end,APFrameMemoryFilter,.Lmultiple_saves_catch\n .text\n .seh_endproc\n"
+);
 
 
 extern uint64_t APFrameLarge(uint64_t),APFrameLargeCatch(void);
@@ -465,6 +485,8 @@ static DWORD WINAPI worker(void *unused){
   const uint64_t value=UINT64_C(0x1122334455667788);
   if(check_chain==3){
    if(APFrameLocalSave(&value)!=value || APFrameLocalSaveCatch()!=1)return 12;
+  }else if(check_chain==4){
+   if(APFrameMultipleSaves(&value)!=value || APFrameMultipleSavesCatch()!=1)return 12;
   }else if(check_chain==2){
    if(APFramePaddedChain(&value)!=value || APFramePaddedChainCatch()!=903)return 12;
   }else if(APFrameChain(&value)!=value || APFrameChainCatch()!=903)return 12;
