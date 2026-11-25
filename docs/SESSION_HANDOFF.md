@@ -129,12 +129,15 @@ de atribuição de ontem continuará, nem pedir teste manual ao usuário.
   todos os checks do head `96584d49197cefde288a4129f17c0063437951e5` aprovados.
   Aceita ALLOC_LARGE no primário com SUB único conferido e verifica slots altos
   GPR/XMM sem truncar ocupação. Fixture Windows usa frame de 552 bytes.
-  CI pós-merge 45632877136 em acompanhamento.
+  CI pós-merge 45632877136 concluída com sucesso, inclusive pacote.
 - O #95 está em `feat/chained-original-cleanup`, worktree
   `/workspace/work/AntiPessimizerV2-chain-cleanup`. Acrescenta cleanup original
   UHANDLER-only e scopes CRT em fragmentos contíguos que herdam o frame.
   Há fixtures de baseline/instrumentação, identidade do dispatcher e captura
-  dentro do próprio frame. Conferir o último head e resolver falhas antes do merge.
+  dentro do próprio frame. O baseline Windows mostrou que o dispatcher aponta
+  para a entrada runtime do fragmento secundário e usa os dados do handler do
+  primário. O adaptador preserva essa identidade, confere a cadeia original na
+  instalação e negocia APHOOKF. Conferir o último head e seus checks antes do merge.
 - O #61 incorporou a main após #93 em `95592017084f136cae8386e82631a4272e2b711a`.
   Testes locais passaram. A execução licenciada 45631995894/job 139267375260
   está queued, sem runner atribuído. A worktree é
