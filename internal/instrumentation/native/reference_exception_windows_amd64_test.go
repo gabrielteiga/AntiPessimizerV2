@@ -25,17 +25,24 @@ const referenceExceptionDLLSHA = "1c1bf9288a3bfd05303f2b9a86d29693c0a449e716f575
 const referenceExceptionFingerprint = "8ebb487813ebd0e56320833793e013dc48ea3e030dfd64f2157743835e165229"
 
 func TestReferenceDelphiExceptionHandlerPreservesCatchAndReraise(t *testing.T) {
-	referenceDelphiExceptionCase(t, false)
+	referenceDelphiExceptionCase(t, false, false)
 }
 func TestReferenceDelphiTypedHandlerCatchesWorkerReadFailure(t *testing.T) {
-	referenceDelphiExceptionCase(t, true)
+	referenceDelphiExceptionCase(t, true, false)
 }
-func referenceDelphiExceptionCase(t *testing.T, typed bool) {
+func TestReferenceDelphiNestedExceptionSearchPreservesReentrantFrames(t *testing.T) {
+	referenceDelphiExceptionCase(t, false, true)
+}
+func referenceDelphiExceptionCase(t *testing.T, typed, nested bool) {
 	rva, size, style := uint32(0xa930), uint32(155), uint32(2)
 	returns, unwinds, caught, code, typedExceptions := uint32(100), uint32(100), uint32(104), uint32(0x0eedfade), uint32(0)
 	if typed {
 		rva, size, style = 0x191700, 673, 3
 		returns, unwinds, caught, code, typedExceptions = 200, 0, 0, 0, 104
+	}
+	entries, filterDepth := uint32(200), uint32(0)
+	if nested {
+		entries, returns, unwinds, caught, filterDepth = 800, 400, 400, 416, 3
 	}
 	path := os.Getenv("AP_REFERENCE_DELPHI_DLL")
 	if path == "" {
@@ -59,6 +66,8 @@ func referenceDelphiExceptionCase(t *testing.T, typed bool) {
 	child := exec.CommandContext(ctx, filepath.Join(directory, "APReferenceException.exe"), path, filepath.Join(directory, "APReferenceAdapter.dll"), eventPath)
 	if typed {
 		child.Args = append(child.Args, "worker")
+	} else if nested {
+		child.Args = append(child.Args, "nested")
 	}
 	stdout, err := child.StdoutPipe()
 	if err != nil {
@@ -152,16 +161,63 @@ func referenceDelphiExceptionCase(t *testing.T, typed bool) {
 		Caught            uint32 `json:"caught"`
 		ExceptionCode     uint32 `json:"exception_code"`
 		TypedExceptions   uint32 `json:"typed_exceptions"`
+		NestedFilterDepth uint32 `json:"nested_filter_depth"`
 	}
 	if err := json.Unmarshal(result, &report); err != nil {
 		t.Fatal(err, string(result))
 	}
-	if report.BaselinePairs != 4 || report.InstrumentedPairs != 100 || report.Entries != 200 || report.Returns != returns || report.Caught != caught || report.Unwinds != unwinds || report.ExceptionCode != code || report.TypedExceptions != typedExceptions {
+	if report.BaselinePairs != 4 || report.InstrumentedPairs != 100 || report.Entries != entries || report.Returns != returns || report.Caught != caught || report.Unwinds != unwinds || report.ExceptionCode != code || report.TypedExceptions != typedExceptions || report.NestedFilterDepth != filterDepth {
 		t.Fatal("real Delphi exception counts", report)
 	}
 	events, err := os.ReadFile(eventPath)
 	if err != nil {
 		t.Fatal(err)
+	}
+	var outerTicks uint64
+	if nested {
+		// Compare physical recursion from the actual callbacks to the Go row. All
+		// entries have the same procedure ID: inclusive timing counts only the
+		// outermost interval, matching the original profiler's recursive semantics.
+		raw, err := NewReader(bytes.NewReader(events), uint32(child.Process.Pid))
+		if err != nil {
+			t.Fatal(err)
+		}
+		depth, maximum := 0, 0
+		var outerStart uint64
+		for {
+			e, err := raw.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch e.Type {
+			case "enter":
+				if depth == 0 {
+					outerStart = e.Tick
+				}
+				depth++
+				if depth > maximum {
+					maximum = depth
+				}
+			case "exit", "unwind_exit":
+				if depth <= 0 {
+					t.Fatal("exit without a physical recursive frame", e)
+				}
+				depth--
+				if depth == 0 {
+					outerTicks += e.Tick - outerStart
+				}
+			case "thread_end":
+				if depth != 0 {
+					t.Fatal("thread ended with recursive frames", depth)
+				}
+			}
+		}
+		if depth != 0 || maximum != 4 || outerTicks == 0 {
+			t.Fatal("real Delphi nested exception frames", depth, maximum, outerTicks)
+		}
 	}
 	readerNative, err := NewReader(bytes.NewReader(events), uint32(child.Process.Pid))
 	if err != nil {
@@ -185,12 +241,17 @@ func referenceDelphiExceptionCase(t *testing.T, typed bool) {
 		t.Fatal("original Delphi native accounting incomplete", snapshot)
 	}
 	row := snapshot.Rows[0]
-	if row.Calls != 200 || row.UnwoundCalls != uint64(unwinds) || row.InclusiveTicks != row.ExclusiveTicks || row.InclusiveTicks == 0 || row.AverageInclusiveNS != float64(row.InclusiveTicks)*1e9/float64(snapshot.Frequency)/200 {
+	if row.Calls != uint64(entries) || row.UnwoundCalls != uint64(unwinds) || row.InclusiveTicks != row.ExclusiveTicks || row.InclusiveTicks == 0 || row.AverageInclusiveNS != float64(row.InclusiveTicks)*1e9/float64(snapshot.Frequency)/float64(entries) {
 		t.Fatal("original Delphi call counts/times/means", row)
+	}
+	if nested && (row.InclusiveTicks != outerTicks || row.ExclusiveTicks != outerTicks) {
+		t.Fatal("recursive Delphi time counted more than once", row, outerTicks)
 	}
 	if output := os.Getenv("AP_REFERENCE_DELPHI_EXCEPTION_REPORT"); output != "" {
 		if typed {
 			output = filepath.Join(filepath.Dir(output), "reference-delphi-typed.json")
+		} else if nested {
+			output = filepath.Join(filepath.Dir(output), "reference-delphi-nested.json")
 		}
 		evidence := struct {
 			Version            int                      `json:"version"`
@@ -210,6 +271,8 @@ func referenceDelphiExceptionCase(t *testing.T, typed bool) {
 		name := "reference-delphi-metrics.ndjson"
 		if typed {
 			name = "reference-delphi-typed-metrics.ndjson"
+		} else if nested {
+			name = "reference-delphi-nested-metrics.ndjson"
 		}
 		if err := os.WriteFile(filepath.Join(filepath.Dir(output), name), metrics.Bytes(), 0600); err != nil {
 			t.Fatal(err)
