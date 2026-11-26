@@ -1,6 +1,6 @@
 # Retomada do AntiPessimizerV2
 
-Atualizado em 25/11/2026. Continue o repositório existente. Este arquivo reúne
+Atualizado em 26/11/2026. Continue o repositório existente. Este arquivo reúne
 as instruções e o estado necessário para retomar sem importar a conversa.
 
 ## Objetivo e regras permanentes
@@ -33,12 +33,18 @@ A auditoria de fidelidade é histórica; não reimplemente achados já resolvido
 
 ## Estado remoto confirmado
 
-A main integrou os PRs #91 a #103. Último merge:
-`c5fc24134c8d167b3dc9b7cecf9f7e6676bd9099` (#103).
-A árvore é idêntica ao head aprovado `768ada028472fb54e8d753a0cc9e45674d404e77`.
-CI pós-merge Go **45701450557** e autoria **45701450278** aprovadas.
-O #104 também integrou em `509c41bb7b1fa0fef5c37777aa675c65fa779dd5`;
-conferir árvore e acompanhar sua CI pós-merge.
+A main integrou os PRs #91 a #106. Último merge:
+`075704e0bd0cffa93e15ca978685e8171b84bc9a` (#106).
+O #105 integrou em `dc7c7bcb32b1f059456a1fe4e88364e77e65c977`, árvore idêntica
+ ao head aprovado `418b45dc8a8c1c0f472c69650f77e05f4fe9e42f`.
+Sua CI pós-merge Go **45864993399** e autoria **45864993596** passaram.
+Conferir a árvore e acompanhar o pós-merge do #106 antes de integrar #107.
+
+O pós-merge do #104 (45702197290) falhou no E2E com ERROR_BAD_LENGTH ao iniciar
+a segunda sessão ETW. O #105 corrige snapshots Toolhelp durante mudanças do
+loader: até oito tentativas somente desse erro, espera total máxima de 127 ms,
+erros contextualizados e testes determinísticos. O E2E de encerramento/reinício
+foi preservado e passou nos dois runs do head corrigido e no pós-merge da main.
 
 Entregas recentes, todas com checks do head exato aprovados:
 
@@ -64,23 +70,24 @@ README e plano detalham as entregas anteriores (#53–#91). Não recomeçar a ba
 
 ## PRs de implementação abertos
 
-- **#104** já integrado, `feat/chained-local-calls`, head
-  `53c1de05c25158596cc1ce3ad8c39cd5bd8aedb6`: CALL direto no fragmento com saves
-  locais, RSP alinhado e 32 bytes de home slots livres. Fixture modo 23 escreve
-  todos os home slots e causa AV no callee. Todos os oito checks passaram.
-  A CI pós-merge do #103 passou antes dessa integração.
-- **#105**, `feat/chained-local-cleanup`, head
-  `3deabbf94575c08a683d6888d0d36248d1f576fe`: UHANDLER-only com saves locais,
-  APHOOKI, extensão/PC map completo e tradução a partir do começo primário mesmo
-  com dispatcher secundário. Fixture modo 24 exige cleanup único com entrada
-  runtime/PC/dados originais e RBX/RSI/XMM6/XMM7 completos. Checks em andamento;
-  integração nativa Windows já passou. Aguardar #104 e todos os checks atuais.
-- **#106**, head `81f336ea61f2049f1f1b6b1c23eb50d11f1970f5`,
-  branch **feat/chained-local-branches**, baseado em #105: branches diretos
-  e loops no corpo depois dos saves, incluindo a entrada completa do epílogo.
-  O fluxo normal verifica instruções/destinos. Saltos que repetem saves, entram
-  em reloads, pulam restauração ou escapam são recusados. Fixture modo 25 cobre
-  loop, CALL normal e branch de AV. Conferir publicação/PR e CI antes do merge.
+- **#107**, `feat/chained-frame-addressed-saves`, head
+  `df99c1b8bc37ccc59964cba89b4ad405affff5f8`: saves/reloads via RSP ou frame
+  register herdado, com bias e slots conferidos. Todos os oito checks passaram.
+  Aguardar a CI pós-merge do #106, reconferir head/checks e integrar.
+- Incremento em `test/reference-tiny-routines`, worktree
+  `/workspace/work/AntiPessimizerV2-reference-tiny`, baseado em #107.
+  Permite MOV RAX,RBP/RSP de 64 bits para leitura do contexto, preservando a
+  restrição de escrita/arithmetic desses registradores. O alvo C exige o slot
+  de retorno físico original e RBP sentinela através de breakpoints reais.
+  A DLL Delphi original adiciona getters/contexto pequenos: 26 rotinas e 2.600
+  pares exigidos, sem inicialização nem patch do original. O wrapper nativo
+  prevê o slot de retorno ou estabelece RBP conhecido. Exigir execução Windows
+  e checks do SHA exato antes de declarar a nova evidência integrada.
+
+#105 integrou UHANDLER-only com saves locais, negociação APHOOKI e identidade
+original do fragmento/PC/dados. #106 integrou branches/loops limitados ao corpo
+após os saves, sem pular stores ou parte dos reloads. Os checks dos dois heads
+passaram antes do merge. Scopes CRT/Delphi com saves locais continuam recusados.
 
 Branches sucessoras já contêm os commits das predecessoras. O merge da
 predecessora só acrescenta um commit de merge na main; não exige reaplicar
@@ -113,7 +120,7 @@ necessário e exigir CI do novo SHA, incluindo o runner licenciado, antes do mer
 
 - Outros layouts de unwind/código/tails e fragmentos encadeados além dos casos
   conferidos. Scopes CRT/Delphi com saves locais continuam recusados; UHANDLER-only
-  com saves locais está no #105. Lacunas com saves locais continuam recusadas.
+  com saves locais foi integrado no #105. Lacunas com saves locais continuam recusadas.
 - Outras variantes de handlers Delphi, incluindo evidência de exceções
   aninhadas/recursivas reais. Não liberar formatos sem fixtures executáveis.
 - Compilação e execução Delphi 10.4 e custo/operação prolongada em cargas Delphi
@@ -123,9 +130,13 @@ necessário e exigir CI do novo SHA, incluindo o runner licenciado, antes do mer
   launcher de EXE. Não declarar projeto finalizado com gates materiais abertos.
 
 A DLL Delphi original fixada continua com **8.656/8.777** entradas aceitas na
-análise estática, incluindo 523 métodos com scopes Delphi. Execução cobre vinte
-rotinas/2.000 comparações, construtor e worker real com RTL inicializado. Esse
+análise estática, incluindo 523 métodos com scopes Delphi. Execução cobre vinte e seis
+rotinas/2.600 comparações, construtor e worker real com RTL inicializado. Esse
 número não é porcentagem de paridade nem certificação do compilador.
+A análise estática mantém 8.656 planos comuns e acrescenta separadamente 113
+folhas pequenas aceitas quando explicitamente selecionadas. A contagem do plano
+(29 blocos entregues e cinco abertos, cerca de 85%) tem pesos iguais e não mede
+esforço restante nem cobertura de execução.
 
 ## Ambiente persistente e comandos
 

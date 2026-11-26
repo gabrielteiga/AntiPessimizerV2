@@ -30,6 +30,12 @@ type referenceCase struct {
 // a private calling convention.
 // There is no claim about names (the release has no TDS) or compiler version.
 var referenceCases = []referenceCase{
+	{0x172760, "4889e8c3", "tiny-frame-context"},
+	{0x177c40, "4889e8c3", "tiny-frame-context"},
+	{0x177c50, "4889e0c3", "tiny-stack-context"},
+	{0xba80, "488b01c3", "tiny-field0"},
+	{0xbbd0, "8b4180c3", "tiny-negative-field32"},
+	{0x1bf00, "89c8c3", "tiny-argument32"},
 	{0x19210, "488d042560020000c3", "constant"},
 	{0x7a9e0, "488b4120c3", "field32"},
 	{0x8c460, "488b4108c3", "field8"},
@@ -149,6 +155,10 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 		}
 		return data
 	}
+	prepared, err := NewPEImage(image)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var calls uint64
 	for _, c := range referenceCases {
 		t.Run(fmt.Sprintf("RVA-%x-%s", c.RVA, c.Kind), func(t *testing.T) {
@@ -181,9 +191,12 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 					t.Error(err)
 				}
 			}()
-			plan, err := BuildPEFunction(image, c.RVA, uint32(len(code)), uint64(dll), uint64(memory), uint64(memory+8192), uint64(memory+8192), uint64(memory+8192), 17)
+			plan, err := prepared.BuildSelectedFunction(c.RVA, uint32(len(code)), uint64(dll), uint64(memory), uint64(memory+8192), uint64(memory+8192), uint64(memory+8192), 17, []uint32{c.RVA})
 			if err != nil {
 				t.Fatal(err)
+			}
+			if len(code) < NearJumpSize && (len(plan.Patch) != 1 || plan.Patch[0] != 0xcc) {
+				t.Fatal("tiny selection lost breakpoint entry")
 			}
 			if !bytes.Equal(plan.Source, expectedSource) || len(plan.Image) >= 8192 {
 				t.Fatal("source extent or clone layout differs")
@@ -213,6 +226,26 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 				write(memory+8320, []byte{0x0f, 0xae, 0x19, 0xc3}) // STMXCSR [RCX]; RET
 			}
 			functions := append(plan.Functions[:], RuntimeFunction{8192, 8192 + uint32(len(helper)), 8300})
+			contextGetter := c.Kind == "tiny-frame-context" || c.Kind == "tiny-stack-context"
+			if contextGetter {
+				// Own RBP and predict the callee's return slot inside native code. This
+				// avoids assumptions about Go's stack or scheduling between comparisons.
+				wrapper := []byte{0x55, 0x48, 0x83, 0xec, 32, 0x48, 0x89, 0xc8, 0x48, 0xbd}
+				var sentinel [8]byte
+				binary.LittleEndian.PutUint64(sentinel[:], 0x123456789abcdef0)
+				wrapper = append(wrapper, sentinel[:]...)
+				if c.Kind == "tiny-stack-context" {
+					wrapper = append(wrapper, 0x4c, 0x8d, 0x54, 0x24, 0xf8)
+				}
+				wrapper = append(wrapper, 0xff, 0xd0) // CALL target passed in RCX
+				if c.Kind == "tiny-stack-context" {
+					wrapper = append(wrapper, 0x4c, 0x39, 0xd0, 0x0f, 0x94, 0xc0, 0x0f, 0xb6, 0xc0)
+				}
+				wrapper = append(wrapper, 0x48, 0x83, 0xc4, 32, 0x5d, 0xc3)
+				write(memory+8500, wrapper)
+				write(memory+8576, []byte{1, 5, 2, 0, 5, 0x32, 1, 0x50})
+				functions = append(functions, RuntimeFunction{8500, 8500 + uint32(len(wrapper)), 8576})
+			}
 			var table bytes.Buffer
 			for _, function := range functions {
 				if err := binary.Write(&table, binary.LittleEndian, function); err != nil {
@@ -284,6 +317,19 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 				}
 			}
 			for trial := uint64(0); trial < 100; trial++ {
+				if contextGetter {
+					want := uintptr(0x123456789abcdef0)
+					if c.Kind == "tiny-stack-context" {
+						want = 1
+					}
+					original, _, _ := syscall.SyscallN(memory+8500, uintptr(dll)+uintptr(c.RVA))
+					cloned, _, _ := syscall.SyscallN(memory+8500, memory)
+					if original != want || cloned != want {
+						t.Fatalf("caller context changed: original=%#x clone=%#x want=%#x", original, cloned, want)
+					}
+					calls++
+					continue
+				}
 				if c.Kind == "indexed-fill" {
 					var limit [8]byte
 					maximum := uint64(1<<63 - 1)
@@ -390,6 +436,14 @@ func TestReferenceDelphiReviewedRoutinesPreserveNativeResults(t *testing.T) {
 					want = uint64(stackBase)
 				case "constant":
 					want = 0x260
+				case "tiny-field0":
+					want = 0x123456789abcd000 + trial
+				case "tiny-negative-field32":
+					arguments[0] = rw + 256
+					want = (0x123456789abcd000 + trial) & 0xffffffff
+				case "tiny-argument32":
+					arguments[0] = uintptr(0x12345678abcd0000 + trial)
+					want = 0xabcd0000 + trial
 				case "field32":
 					want = 0xfedcba9876543200 + trial
 				case "field8":
