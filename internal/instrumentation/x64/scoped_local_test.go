@@ -102,17 +102,20 @@ func TestScopedLocalShadowKeepsOddFARSlotsWithoutPadding(t *testing.T) {
 }
 
 func scopedPaddedLocalPE() ([]byte, []byte) {
+	return scopedPaddedLocalPEWithGap([]byte{0xcc, 0x90, 0x90, 0xcc, 0xcc, 0x90, 0x90, 0xcc})
+}
+func scopedPaddedLocalPEWithGap(gap []byte) ([]byte, []byte) {
 	image, original := scopedLocalPE()
-	code := append(bytes.Clone(original[:20]), 0xeb, 8)
-	code = append(code, 0xcc, 0x90, 0x90, 0xcc, 0xcc, 0x90, 0x90, 0xcc)
+	code := append(bytes.Clone(original[:20]), 0xeb, byte(len(gap)))
+	code = append(code, gap...)
 	code = append(code, original[20:]...)
 	copy(image[0x220:], code)
 	w32(image, 0x404, peLeafRVA+22)
-	w32(image, 0x40c, peLeafRVA+30)
+	w32(image, 0x40c, peLeafRVA+22+uint32(len(gap)))
 	w32(image, 0x410, peLeafRVA+uint32(len(code)))
 	copy(image[0x4dc:], image[0x400:0x40c])
 	for _, at := range []int{0x494, 0x498, 0x4a0} {
-		w32(image, at, binary.LittleEndian.Uint32(image[at:])+10)
+		w32(image, at, binary.LittleEndian.Uint32(image[at:])+2+uint32(len(gap)))
 	}
 	return image, code
 }
@@ -146,5 +149,19 @@ func TestScopedLocalSavesPreservePaddingAndShadowOffsets(t *testing.T) {
 				t.Fatal("invalid scoped gap accepted", err)
 			}
 		})
+	}
+}
+
+func TestScopedChainPaddingLengthAndEncodingAreBounded(t *testing.T) {
+	for _, n := range []int{16, 17} {
+		image, code := scopedPaddedLocalPEWithGap(bytes.Repeat([]byte{0x90}, n))
+		_, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+		if n == 16 && err != nil || n == 17 && !errors.Is(err, ErrUnsupported) {
+			t.Fatal("wrong CRT padding limit", n, err)
+		}
+	}
+	image, code := scopedPaddedLocalPEWithGap([]byte{0x66, 0x90})
+	if _, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7); !errors.Is(err, ErrUnsupported) {
+		t.Fatal("multi-byte CRT padding accepted", err)
 	}
 }
