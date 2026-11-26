@@ -81,7 +81,8 @@ Continuam quatro gates materiais:
 1. Outras variantes de handlers Delphi e execução de exceções tipadas
    aninhadas/recursivas reais. Não liberar fingerprints desconhecidos.
 2. Outros layouts de código/unwind/tails além dos casos conferidos. Scopes
-   CRT/Delphi combinados com saves locais continuam recusados. Padding com
+   Delphi combinados com saves locais continuam recusados; CRT com saves locais
+   é o próximo incremento descrito abaixo. Padding com
    saves locais sem handler já foi integrado no #110; handler com gap permanece
    recusado. Destinos de tail calls dinâmicos não comprovados continuam fora.
 3. Compilação e execução do EXE próprio no Delphi 10.4, com símbolos reais.
@@ -172,3 +173,17 @@ dos checks numa chamada concluída e solicitar merge em outra; a revisão
 automática já usou estado antigo em uma chamada agregadora. Consultar jobs por
 etapa e evitar logs inteiros. Esperar até 60 segundos entre consultas e manter
 atualizações concisas ao usuário durante trabalho prolongado.
+
+## Scopes CRT e saves locais
+
+Incremento `feat/scoped-chained-local-saves`, worktree
+`/workspace/work/AntiPessimizerV2-scoped-local-saves`, baseado no #111.
+APHOOKJ exige adaptador com shadow CFI composta: ações primárias e locais com
+CodeOffsets locais ajustados à posição do secundário no clone. Somente CRT
+conferido, prologue shadow até 255 bytes e slots combinados até 255. Scopes e
+landings devem ficar no corpo após saves e antes da restauração. O módulo
+original é derivado do começo primário mesmo com dispatcher secundário.
+Fixtures modos 28/29/30 exigem catch-all, filtro AV, frame RBP com bias e finally
+normal/excepcional, com RBX/RSI/XMM6/XMM7 completos. Outro método precede a
+seleção para exercitar o segundo stride. Não anunciar suporte até a comparação
+Windows passar. Handlers Delphi e scopes com gaps continuam recusados.

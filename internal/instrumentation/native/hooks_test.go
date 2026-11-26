@@ -566,3 +566,73 @@ func TestLocalSaveCleanupRequiresPrimaryAwareAdapter(t *testing.T) {
 		}
 	}
 }
+
+func TestScopedLocalSavesRequireCompositeShadowAdapter(t *testing.T) {
+	image := append(hookImage(), make([]byte, 0x400)...)
+	put := binary.LittleEndian.PutUint32
+	put(image[128+24+240+8:], 0x600)
+	put(image[128+24+240+16:], 0x600)
+	code := []byte{0x48, 0x83, 0xec, 40, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+		0x48, 0x89, 0x5c, 0x24, 24, 0x48, 0x89, 0xcb, 0x48, 0x8b, 3, 0xeb, 5, 0xb8, 0x8b, 3, 0, 0,
+		0x48, 0x8b, 0x5c, 0x24, 24, 0x48, 0x83, 0xc4, 40, 0xc3}
+	copy(image[0x220:], code)
+	copy(image[0x2a0:], []byte{0xb8, 7, 0, 0, 0, 0xc3})
+	put(image[128+24+112+3*8:], 0x5100)
+	put(image[128+24+116+3*8:], 24)
+	for i, entry := range [][3]uint32{{0x5020, 0x502c, 0x5140}, {0x502c, 0x5020 + uint32(len(code)), 0x5180}} {
+		for j, value := range entry {
+			put(image[0x300+i*12+j*4:], value)
+		}
+	}
+	copy(image[0x340:], []byte{9, 4, 1, 0, 4, 0x42, 0, 0})
+	put(image[0x348:], 0x5080)
+	put(image[0x34c:], 1)
+	put(image[0x350:], 0x5034)
+	put(image[0x354:], 0x5037)
+	put(image[0x358:], 1)
+	put(image[0x35c:], 0x5039)
+	copy(image[0x380:], []byte{33, 5, 2, 0, 5, 0x34, 3, 0})
+	copy(image[0x388:], image[0x300:0x30c])
+	copy(image[0x280:], []byte{0xff, 0x25, 0xca, 1, 0, 0})
+	put(image[128+24+120:], 0x5200)
+	put(image[128+24+124:], 40)
+	put(image[0x400:], 0x5240)
+	put(image[0x40c:], 0x5280)
+	put(image[0x410:], 0x5250)
+	binary.LittleEndian.PutUint64(image[0x440:], 0x5260)
+	copy(image[0x462:], "__C_specific_handler\x00")
+	copy(image[0x480:], "msvcrt.dll\x00")
+	for _, version := range []string{"APHOOKI\x00", "APHOOKJ\x00"} {
+		offer := make([]byte, 65)
+		copy(offer, hookOffer()[:48])
+		copy(offer, version)
+		put(offer[24:], 2*largeHookStride+96)
+		put(offer[28:], 2)
+		binary.LittleEndian.PutUint64(offer[48:], 0x200200)
+		put(offer[56:], 6)
+		put(offer[60:], uint32(len(code)))
+		offer[64] = 1
+		stream := &hookStream{in: bytes.NewReader(offer)}
+		err := installHooks(stream, image, []Procedure{{2, 0x50a0}, {1, 0x5020}})
+		if version[6] == 'I' {
+			if err == nil || !strings.Contains(err.Error(), "require APHOOKJ") || stream.out.Len() != 1 {
+				t.Fatal("older adapter received scoped local plan", err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal("composite-shadow adapter rejected scoped locals", err)
+		}
+		packet := stream.out.Bytes()
+		table := binary.LittleEndian.Uint32(packet[17:])
+		payload := packet[25:]
+		primary := payload[table+4*12:]
+		info := payload[binary.LittleEndian.Uint32(primary[8:]):]
+		descriptor := info[12:]
+		shadow := descriptor[binary.LittleEndian.Uint32(descriptor[48:]):]
+		alias := payload[binary.LittleEndian.Uint32(shadow[8:])-0x10000:]
+		if !bytes.Equal(alias[:12], []byte{25, 17, 3, 0, 17, 0x34, 3, 0, 4, 0x42, 0, 0}) {
+			t.Fatal("secondary stride lost combined shadow actions", alias[:12])
+		}
+	}
+}

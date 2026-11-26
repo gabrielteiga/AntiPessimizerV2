@@ -26,7 +26,8 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 	if _, err := io.ReadFull(conn, offer[:]); err != nil {
 		return fmt.Errorf("hook allocation offer: %w", err)
 	}
-	localHandlers := string(offer[:8]) == "APHOOKI\x00"
+	scopedLocals := string(offer[:8]) == "APHOOKJ\x00"
+	localHandlers := scopedLocals || string(offer[:8]) == "APHOOKI\x00"
 	frameSavePlans := localHandlers || string(offer[:8]) == "APHOOKH\x00"
 	farSavePlans := frameSavePlans || string(offer[:8]) == "APHOOKG\x00"
 	inheritedHandlers := farSavePlans || string(offer[:8]) == "APHOOKF\x00"
@@ -114,6 +115,9 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 			plan, err := prepared.BuildSelectedFunction(proc.RVA, size, loaded, allocation+uint64(offset), enter, exit, cleanup, proc.ID, targets)
 			if err != nil {
 				return fmt.Errorf("procedure %d frame plan: %w", proc.ID, err)
+			}
+			if plan.RelocatedHandler && len(plan.Functions) == 4 && !scopedLocals {
+				return errors.New("update the native adapter DLL: scoped local saves require APHOOKJ")
 			}
 			if plan.InheritedHandler && len(plan.Functions) == 4 && !localHandlers {
 				return errors.New("update the native adapter DLL: local-save cleanup handlers require APHOOKI")
