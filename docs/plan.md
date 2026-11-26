@@ -59,7 +59,7 @@ incluindo a execução Delphi 10.4 e suas medições de custo/operação prolong
    com cleanup UHANDLER-only, preservando os metadados originais e a tradução de
    endereços. A infraestrutura de captura/retomada já traduz scopes CRT reconhecidos (EHANDLER e EH/UH), mantendo a identidade física dos frames. O handler Delphi da revisão v0.3 tem fingerprint conferido e scopes catch-all/finally e capturas tipadas traduzidos; outras variantes continuam rejeitadas. É necessário
    preservar a busca do handler, seu cleanup e a retomada de execução, incluindo
-   exceções aninhadas/recursivas, sem falsificar métricas nem quebrar o programa.
+   exceções aninhadas/recursivas, sem falsificar métricas nem quebrar o programa. O #113 já exige quatro frames reentrantes do construtor Delphi fixado durante a busca da exceção, com 800 chamadas/400 unwinds e ticks conferidos por eventos brutos; a reentrada é conduzida por C e não certifica recursão Pascal.
 2. **Cobertura de código e metadados.** Ampliar somente com casos conferidos:
    unwind encadeado com ações além de saves locais `SAVE_NONVOL`, `SAVE_NONVOL_FAR`, `SAVE_XMM128` e `SAVE_XMM128_FAR` (MOVAPS/MOVUPS/MOVAPD/MOVUPD/MOVDQA/MOVDQU, com alocação primária ALLOC_SMALL/ALLOC_LARGE, saves primários GPR/XMM e pushes/frame register conferidos; CALL direto com área Win64 livre e branches limitados ao corpo depois dos saves), handlers além do cleanup UHANDLER-only e dos scopes CRT conferidos (inclusive com saves locais e CFI shadow limitada a unwind v1) em fragmentos que herdam o frame, ou lacunas além de padding inalcançável (inclusive antes de saves locais sem handler),
    outras versões de unwind, epílogos e instruções ainda recusados. Saltos diretos
