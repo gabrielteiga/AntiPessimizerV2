@@ -292,8 +292,13 @@ func TestInheritedChainPreservesOriginalCleanupDescriptor(t *testing.T) {
 	image, code = localSavePE()
 	image[0x480] = 17
 	binary.LittleEndian.PutUint32(image[0x488:], 0x1080)
-	if _, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7); !errors.Is(err, ErrUnsupported) {
-		t.Fatal("unverified combination of local saves and cleanup accepted", err)
+	plan, err = BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+	if err != nil || !plan.InheritedHandler || plan.RelocatedHandler || len(plan.Functions) != 4 {
+		t.Fatal("local saves with original cleanup rejected", err)
+	}
+	info = plan.Image[plan.Functions[1].Unwind:]
+	if binary.LittleEndian.Uint32(info[12+8*4:]) == 0 {
+		t.Fatal("cleanup lost its full-body PC map")
 	}
 }
 

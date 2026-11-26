@@ -328,3 +328,15 @@ pós-merge da main depois de conferir a equivalência da árvore com o head.
   verificando os registradores do frame, contagens e unwind contra o baseline.
   Testes portáveis rejeitam slots de saves na área do callee e CALL desalinhado.
   Exigir todos os checks do head e pós-merge dos predecessores antes do merge.
+
+## Cleanup combinado com saves locais
+
+- Próximo incremento em `feat/chained-local-cleanup`, worktree
+  `/workspace/work/AntiPessimizerV2-local-cleanup`, baseado em #104.
+  Aceita UHANDLER-only no primário com saves locais no secundário.
+  APHOOKI impede enviar o formato a adaptadores anteriores. A validação nativa
+  confere a extensão completa, a cadeia e o mapa PC; o encaminhamento usa o
+  começo primário mesmo quando o dispatcher aponta para o secundário.
+  Fixture modo 24 exige cleanup único, entrada runtime/PC/dados originais e
+  registradores completos preservados. CRT/Delphi scopes com saves locais
+  continuam rejeitados. Exigir checks do SHA exato antes de integrar.

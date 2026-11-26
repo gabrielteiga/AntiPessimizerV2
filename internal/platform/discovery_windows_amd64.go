@@ -2,6 +2,7 @@ package platform
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"time"
 	"unsafe"
@@ -28,7 +29,7 @@ func Inspect(pid uint32) (Process, error) {
 	return Process{pid, filepath.Base(windows.UTF16ToString(name[:n])), fileTime(created)}, nil
 }
 func Processes() ([]Process, error) {
-	h, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	h, err := createToolhelpSnapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +47,7 @@ func Processes() ([]Process, error) {
 	return result, nil
 }
 func initial(pid uint32) (map[uint32]time.Time, []Module, error) {
-	h, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPTHREAD, 0)
+	h, err := createToolhelpSnapshot(windows.TH32CS_SNAPTHREAD, 0)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -75,7 +76,7 @@ func initial(pid uint32) (map[uint32]time.Time, []Module, error) {
 	if !errors.Is(err, windows.ERROR_NO_MORE_FILES) {
 		return nil, nil, err
 	}
-	mh, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPMODULE|windows.TH32CS_SNAPMODULE32, pid)
+	mh, err := createToolhelpSnapshot(windows.TH32CS_SNAPMODULE|windows.TH32CS_SNAPMODULE32, pid)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -89,4 +90,26 @@ func initial(pid uint32) (map[uint32]time.Time, []Module, error) {
 		return nil, nil, err
 	}
 	return threads, modules, nil
+}
+
+// Windows documents ERROR_BAD_LENGTH while the loader changes the module list.
+// Retry snapshot creation, never enumeration against a partially valid handle.
+// Bound the wait so continuous loader churn cannot stall capture startup.
+func createToolhelpSnapshot(flags, pid uint32) (windows.Handle, error) {
+	return snapshotWithRetry(flags, pid, windows.CreateToolhelp32Snapshot, time.Sleep)
+}
+
+func snapshotWithRetry(flags, pid uint32, create func(uint32, uint32) (windows.Handle, error), pause func(time.Duration)) (windows.Handle, error) {
+	const attempts = 8
+	for attempt := 0; attempt < attempts; attempt++ {
+		handle, err := create(flags, pid)
+		if err == nil {
+			return handle, nil
+		}
+		if !errors.Is(err, windows.ERROR_BAD_LENGTH) || attempt == attempts-1 {
+			return windows.InvalidHandle, fmt.Errorf("CreateToolhelp32Snapshot(flags=%#x, pid=%d): %w", flags, pid, err)
+		}
+		pause(time.Millisecond << attempt)
+	}
+	panic("unreachable snapshot retry")
 }
