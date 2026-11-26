@@ -190,7 +190,7 @@ func TestNativeProducerCatchesScopesWithChainedLocalSaves(t *testing.T) {
 func testNativeInheritedChainedFrame(t *testing.T, symbol string, gap uint32, mode string) {
 	t.Helper()
 	names := map[string]uint32{symbol: 1, symbol + "Cold": 2}
-	withStackProbe := mode == "3" || mode == "4" || mode == "5" || mode == "6" || mode == "7" || mode == "11" || mode == "12" || mode == "13" || mode == "14" || mode == "15" || mode == "16" || mode == "17" || mode == "18" || mode == "19" || mode == "20" || mode == "21" || mode == "22" || mode == "23" || mode == "24" || mode == "25" || mode == "26" || mode == "27" || mode == "28" || mode == "29" || mode == "30" || mode == "31" || mode == "32" || mode == "33"
+	withStackProbe := mode == "3" || mode == "4" || mode == "5" || mode == "6" || mode == "7" || mode == "11" || mode == "12" || mode == "13" || mode == "14" || mode == "15" || mode == "16" || mode == "17" || mode == "18" || mode == "19" || mode == "20" || mode == "21" || mode == "22" || mode == "23" || mode == "24" || mode == "25" || mode == "26" || mode == "27" || mode == "28" || mode == "29" || mode == "30" || mode == "31" || mode == "32" || mode == "33" || mode == "34"
 	if withStackProbe {
 		names["APFrameStackProbe"] = 3
 	}
@@ -279,4 +279,8 @@ func TestNativeProducerCatchesInheritedScopesAfterPadding(t *testing.T) {
 
 func TestNativeProducerForwardsOriginalCleanupAfterPadding(t *testing.T) {
 	testNativeInheritedChainedFrame(t, "APFramePaddedCleanup", 8, "33")
+}
+
+func TestNativeProducerForwardsInheritedCleanupAfterPadding(t *testing.T) {
+	testNativeInheritedChainedFrame(t, "APFramePaddedCleanupChain", 8, "34")
 }

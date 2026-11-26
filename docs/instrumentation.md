@@ -1138,3 +1138,6 @@ PC exato da falha e o sentinela original de HandlerData. O retorno normal não
 executa cleanup; a exceção precisa executá-lo uma vez, preservar RBX/RSI e
 XMM6/XMM7 completos e fechar o frame por unwind. APHOOKK já contém a validação
 nativa necessária; o incremento habilita o mesmo formato no planejador Go.
+
+O modo 34 confere o mesmo encaminhamento com gap e apenas CFI herdada,
+sem saves locais; o handler exige também PC, runtime entry e HandlerData originais.

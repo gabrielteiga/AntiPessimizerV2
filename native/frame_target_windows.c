@@ -166,6 +166,48 @@ __asm__(
  ".rva .Lcleanup_chain_try,.Lcleanup_chain_try_end,APFrameMemoryFilter,.Lcleanup_chain_catch\n .text\n .seh_endproc\n"
 );
 
+static volatile LONG padded_inherited_cleanup_count,padded_inherited_cleanup_bad;
+extern uint64_t APFramePaddedCleanupChain(const uint64_t *);
+extern unsigned char APFramePaddedCleanupChainCold[],APFramePaddedCleanupChainEnd[];
+EXCEPTION_DISPOSITION APFramePaddedChainCleanupHandler(PEXCEPTION_RECORD record,PVOID frame,PCONTEXT context,PDISPATCHER_CONTEXT dispatcher){
+ (void)frame;(void)context;
+ DWORD64 image=(DWORD64)(uintptr_t)GetModuleHandleW(NULL);
+ LONG mismatch=0;
+ if(!(record->ExceptionFlags&EXCEPTION_UNWINDING))mismatch|=1;
+ if(dispatcher->ImageBase!=image)mismatch|=2;
+ if(image+dispatcher->FunctionEntry->BeginAddress!=(DWORD64)(uintptr_t)APFramePaddedCleanupChainCold)mismatch|=4;
+ if(image+dispatcher->FunctionEntry->EndAddress!=(DWORD64)(uintptr_t)APFramePaddedCleanupChainEnd)mismatch|=8;
+ if(dispatcher->ControlPc!=(DWORD64)(uintptr_t)APFramePaddedCleanupChainCold)mismatch|=16;
+ if(*(uint32_t *)dispatcher->HandlerData!=0x31415926)mismatch|=32;
+ InterlockedOr(&padded_inherited_cleanup_bad,mismatch);
+ InterlockedIncrement(&padded_inherited_cleanup_count);
+ return ExceptionContinueSearch;
+}
+extern uint64_t APFramePaddedCleanupChain(const uint64_t *),APFramePaddedCleanupChainCatch(void);
+
+/* GAS has no chain-info directive. Emit both ordinary .pdata entries and the
+ * embedded primary entry for an empty secondary using image-relative fixups. */
+__asm__(
+ ".text\n .globl APFramePaddedCleanupChain\n .def APFramePaddedCleanupChain; .scl 2; .type 32; .endef\n"
+ "APFramePaddedCleanupChain:\n pushq %rbx\n subq $32,%rsp\n movq %rcx,%rbx\n .fill 8,1,0x90\n jmp APFramePaddedCleanupChainCold\n .Lpadded_cleanup_chain_primary_end:\n .byte 0xcc,0x90,0xcc,0x90,0x90,0xcc,0x90,0xcc\n"
+ ".globl APFramePaddedCleanupChainCold\n .def APFramePaddedCleanupChainCold; .scl 2; .type 32; .endef\n"
+ "APFramePaddedCleanupChainCold:\n movq (%rbx),%rax\n addq $32,%rsp\n popq %rbx\n ret\n"
+ ".Lpadded_cleanup_chain_end:\n .globl APFramePaddedCleanupChainEnd\n APFramePaddedCleanupChainEnd:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n"
+ ".Lpadded_cleanup_chain_primary:\n .byte 17,5,2,0,5,0x32,1,0x30\n .rva APFramePaddedChainCleanupHandler\n .long 0x31415926\n"
+ ".Lpadded_cleanup_chain_secondary:\n .byte 33,0,0,0\n .rva APFramePaddedCleanupChain,.Lpadded_cleanup_chain_primary_end,.Lpadded_cleanup_chain_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n"
+ ".rva APFramePaddedCleanupChain,.Lpadded_cleanup_chain_primary_end,.Lpadded_cleanup_chain_primary\n"
+ ".rva APFramePaddedCleanupChainCold,.Lpadded_cleanup_chain_end,.Lpadded_cleanup_chain_secondary\n"
+ ".text\n .globl APFramePaddedCleanupChainCatch\n .def APFramePaddedCleanupChainCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFramePaddedCleanupChainCatch\n APFramePaddedCleanupChainCatch:\n subq $40,%rsp\n .seh_stackalloc 40\n .seh_endprologue\n"
+ ".Lpadded_cleanup_chain_try:\n xorq %rcx,%rcx\n call APFramePaddedCleanupChain\n nop\n"
+ ".Lpadded_cleanup_chain_try_end:\n xorl %eax,%eax\n addq $40,%rsp\n ret\n"
+ ".Lpadded_cleanup_chain_catch:\n movl $903,%eax\n addq $40,%rsp\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Lpadded_cleanup_chain_try,.Lpadded_cleanup_chain_try_end,APFrameMemoryFilter,.Lpadded_cleanup_chain_catch\n .text\n .seh_endproc\n"
+);
+
 extern uint64_t APFramePaddedChain(const uint64_t *),APFramePaddedChainCatch(void);
 __asm__(
  ".text\n .globl APFramePaddedChain\n .def APFramePaddedChain; .scl 2; .type 32; .endef\n"
@@ -1083,6 +1125,8 @@ static DWORD WINAPI worker(void *unused){
   const uint64_t value=UINT64_C(0x1122334455667788);
   if(check_chain==3){
    if(APFrameLocalSave(&value)!=value || APFrameLocalSaveCatch()!=1)return 12;
+  }else if(check_chain==34){
+   if(APFramePaddedCleanupChain(&value)!=value || APFramePaddedCleanupChainCatch()!=903)return 12;
   }else if(check_chain==33){
    if(APFramePaddedCleanup(&value)!=value || APFramePaddedCleanupCatch()!=1)return 12;
   }else if(check_chain==32){
@@ -1189,6 +1233,7 @@ int wmain(int argc,wchar_t **argv){
  }
  CloseHandle(barrier);
  if((check_chain==30||check_chain==31) && (scoped_finally_normal!=(LONG)(threads*rounds)||scoped_finally_abnormal!=(LONG)(threads*rounds)))fprintf(stderr,"scoped finally normal=%ld abnormal=%ld expected=%lu\n",scoped_finally_normal,scoped_finally_abnormal,(unsigned long)(threads*rounds));
+ if(check_chain==34 && (padded_inherited_cleanup_bad || padded_inherited_cleanup_count!=(LONG)(threads*rounds)))fprintf(stderr,"padded inherited cleanup mismatch=%ld count=%ld expected=%lu\n",padded_inherited_cleanup_bad,padded_inherited_cleanup_count,(unsigned long)(threads*rounds));
  if(check_chain==33 && (padded_cleanup_bad || padded_cleanup_count!=(LONG)(threads*rounds)))fprintf(stderr,"padded cleanup mismatch=%ld count=%ld expected=%lu\n",padded_cleanup_bad,padded_cleanup_count,(unsigned long)(threads*rounds));
  if(check_chain==24 && (local_cleanup_bad || local_cleanup_count!=(LONG)(threads*rounds)))fprintf(stderr,"local cleanup mismatch=%ld count=%ld expected=%lu\n",local_cleanup_bad,local_cleanup_count,(unsigned long)(threads*rounds));
  if(check_chain==8 && (chain_cleanup_bad || chain_cleanup_count!=(LONG)(threads*rounds)))fprintf(stderr,"chain cleanup mismatch=%ld count=%ld expected=%lu\n",chain_cleanup_bad,chain_cleanup_count,(unsigned long)(threads*rounds));
@@ -1206,5 +1251,5 @@ int wmain(int argc,wchar_t **argv){
   int written=fprintf(file,"{\"version\":1,\"threads\":%u,\"batch_count\":%u,\"private_bytes\":%llu,\"handles\":%lu,\"frequency\":%llu,\"ticks\":%llu}\n",(unsigned)threads,(unsigned)batch_limit,(unsigned long long)memory.PrivateUsage,(unsigned long)handles,(unsigned long long)frequency.QuadPart,(unsigned long long)(finish.QuadPart-start.QuadPart));
   if(fclose(file)||written<=0)return 10;
  }
- return result||(check_chain==33&&(padded_cleanup_bad||padded_cleanup_count!=(LONG)(threads*rounds)))||((check_chain==30||check_chain==31)&&(scoped_finally_normal!=(LONG)(threads*rounds)||scoped_finally_abnormal!=(LONG)(threads*rounds)))||(check_chain==24&&(local_cleanup_bad||local_cleanup_count!=(LONG)(threads*rounds)))||((check_chain==10||check_chain==32)&&(chain_finally_normal!=(LONG)(threads*rounds)||chain_finally_abnormal!=(LONG)(threads*rounds)))||(check_chain==8&&(chain_cleanup_bad||chain_cleanup_count!=(LONG)(threads*rounds)))||atomic128_total[0]!=(uint64_t)threads*rounds*(iterations+1)||atomic128_total[1]!=~atomic128_total[0]||atomic_total!=(uint64_t)threads*rounds*(iterations+1)||cleanup_count!=(LONG)(threads*rounds*2)||collision_seen<(LONG)(threads*rounds*(!!cleanup_throws+!!normal_cleanup_throws))?5:0;
+ return result||(check_chain==34&&(padded_inherited_cleanup_bad||padded_inherited_cleanup_count!=(LONG)(threads*rounds)))||(check_chain==33&&(padded_cleanup_bad||padded_cleanup_count!=(LONG)(threads*rounds)))||((check_chain==30||check_chain==31)&&(scoped_finally_normal!=(LONG)(threads*rounds)||scoped_finally_abnormal!=(LONG)(threads*rounds)))||(check_chain==24&&(local_cleanup_bad||local_cleanup_count!=(LONG)(threads*rounds)))||((check_chain==10||check_chain==32)&&(chain_finally_normal!=(LONG)(threads*rounds)||chain_finally_abnormal!=(LONG)(threads*rounds)))||(check_chain==8&&(chain_cleanup_bad||chain_cleanup_count!=(LONG)(threads*rounds)))||atomic128_total[0]!=(uint64_t)threads*rounds*(iterations+1)||atomic128_total[1]!=~atomic128_total[0]||atomic_total!=(uint64_t)threads*rounds*(iterations+1)||cleanup_count!=(LONG)(threads*rounds*2)||collision_seen<(LONG)(threads*rounds*(!!cleanup_throws+!!normal_cleanup_throws))?5:0;
 }
