@@ -61,7 +61,7 @@ incluindo a execução Delphi 10.4 e suas medições de custo/operação prolong
    preservar a busca do handler, seu cleanup e a retomada de execução, incluindo
    exceções aninhadas/recursivas, sem falsificar métricas nem quebrar o programa.
 2. **Cobertura de código e metadados.** Ampliar somente com casos conferidos:
-   unwind encadeado com ações além de saves locais `SAVE_NONVOL`, `SAVE_NONVOL_FAR`, `SAVE_XMM128` e `SAVE_XMM128_FAR` (MOVAPS/MOVUPS/MOVAPD/MOVUPD/MOVDQA/MOVDQU, com alocação primária ALLOC_SMALL/ALLOC_LARGE, saves primários GPR/XMM e pushes/frame register conferidos; CALL direto com área Win64 livre e branches limitados ao corpo depois dos saves), handlers além do cleanup UHANDLER-only (inclusive com saves locais) e dos scopes CRT conferidos em fragmentos que herdam o frame, ou lacunas além de padding inalcançável,
+   unwind encadeado com ações além de saves locais `SAVE_NONVOL`, `SAVE_NONVOL_FAR`, `SAVE_XMM128` e `SAVE_XMM128_FAR` (MOVAPS/MOVUPS/MOVAPD/MOVUPD/MOVDQA/MOVDQU, com alocação primária ALLOC_SMALL/ALLOC_LARGE, saves primários GPR/XMM e pushes/frame register conferidos; CALL direto com área Win64 livre e branches limitados ao corpo depois dos saves), handlers além do cleanup UHANDLER-only (inclusive com saves locais) e dos scopes CRT conferidos em fragmentos que herdam o frame, ou lacunas além de padding inalcançável (inclusive antes de saves locais sem handler),
    outras versões de unwind, epílogos e instruções ainda recusados. Saltos diretos
    e saltos por R11 para destinos estáticos já aceitam epílogos ADD/LEA e POPs
    conferidos. Sem frame, dois LEAs e CMOV permitem escolher entre entradas

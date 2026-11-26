@@ -120,7 +120,7 @@ necessário e exigir CI do novo SHA, incluindo o runner licenciado, antes do mer
 
 - Outros layouts de unwind/código/tails e fragmentos encadeados além dos casos
   conferidos. Scopes CRT/Delphi com saves locais continuam recusados; UHANDLER-only
-  com saves locais foi integrado no #105. Lacunas com saves locais continuam recusadas.
+  com saves locais foi integrado no #105. Padding inacessível antes de saves locais sem handler é o próximo incremento.
 - Outras variantes de handlers Delphi, incluindo evidência de exceções
   aninhadas/recursivas reais. Não liberar formatos sem fixtures executáveis.
 - Compilação e execução Delphi 10.4 e custo/operação prolongada em cargas Delphi
@@ -197,3 +197,16 @@ fechamento/reabertura e preservação dos dois estados. Exigir a execução Wind
 antes de integrar. A auditoria `docs/phase0/preferences-parity.md` encerra o bloco
 5 do fluxo principal quando esse PR estiver aprovado: 30 blocos entregues e
 quatro abertos, aproximadamente 88% com pesos iguais; não é paridade medida.
+
+## Padding antes de saves locais
+
+Incremento `feat/chained-local-padding`, worktree
+`/workspace/work/AntiPessimizerV2-local-padding`, baseado no #109.
+Aceita um fragmento final com saves locais depois de padding NOP/INT3 comprovado
+inacessível. Usa o começo real do secundário (depois da lacuna) para validar os
+stores e registrar a CFI local. O corpo do clone normaliza apenas o padding já
+verificado; Source continua idêntico ao arquivo original. A fixture Windows
+modo 27 usa oito bytes mistos de padding, RBP com bias e saves primários/locais
+GPR/XMM. Testes portáveis rejeitam gap alcançável, byte fora do padrão, branch
+para a lacuna/parte do save e handler com lacuna. Exigir todos os checks e a
+comparação Windows real antes de integrar.

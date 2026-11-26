@@ -365,8 +365,9 @@ func (p *PEImage) chainedUnwind(primaryAt int, procedureEnd uint32, frame byte) 
 			return nil, nil, nil
 		}
 		if info[2] != 0 {
-			// One contiguous final fragment can add local nonvolatile saves.
-			if len(boundaries) != 0 || nextBegin != end || nextEnd != procedureEnd || info[2] > 24 {
+			// One final fragment can add local saves. Any gap must pass the
+			// same unreachable-padding validation as inherited empty chains.
+			if len(boundaries) != 0 || nextEnd != procedureEnd || info[2] > 24 {
 				return nil, nil, nil
 			}
 			length := 4 + ((uint32(info[2])+1)&^1)*2
@@ -374,7 +375,13 @@ func (p *PEImage) chainedUnwind(primaryAt int, procedureEnd uint32, frame byte) 
 			if !ok || !bytes.Equal(info[length:], primary) {
 				return nil, nil, nil
 			}
-			return []int{int(end - start)}, nil, append([]byte(nil), info[:length]...)
+			boundaries = []int{int(end - start)}
+			if nextBegin != end {
+				gap := chainGap{int(end - start), int(nextBegin - start)}
+				gaps = append(gaps, gap)
+				boundaries = append(boundaries, gap.end)
+			}
+			return boundaries, gaps, append([]byte(nil), info[:length]...)
 		}
 		if info[1] != 0 || !bytes.Equal(info[4:], primary) && !bytes.Equal(info[4:], previous) {
 			return nil, nil, nil
