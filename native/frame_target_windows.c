@@ -420,6 +420,26 @@ __asm__(
  ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
  ".rva .Llocal_call_try,.Llocal_call_try_end,APFrameMemoryFilter,.Llocal_call_catch\n .text\n .seh_endproc\n"
 );
+extern uint64_t APFrameLocalBranches(const uint64_t *),APFrameLocalBranchesCatch(void);
+__asm__(
+ ".text\n .globl APFrameLocalBranches\n .def APFrameLocalBranches; .scl 2; .type 32; .endef\n"
+ "APFrameLocalBranches:\n subq $88,%rsp\n movq %rbx,80(%rsp)\n movaps %xmm7,48(%rsp)\n pxor %xmm7,%xmm7\n movq %rcx,%rbx\n .fill 8,1,0x90\n"
+ ".globl APFrameLocalBranchesCold\n .def APFrameLocalBranchesCold; .scl 2; .type 32; .endef\n"
+ "APFrameLocalBranchesCold:\n movq %rsi,72(%rsp)\n movaps %xmm6,32(%rsp)\n movq %rbx,%rsi\n pxor %xmm6,%xmm6\n movl $3,%edx\n .Llocal_branches_loop:\n decl %edx\n jnz .Llocal_branches_loop\n testq %rsi,%rsi\n jz .Llocal_branches_fault\n movq %rsi,%rcx\n call APFrameChainedCallee\n nop\n jmp .Llocal_branches_restore\n .Llocal_branches_fault:\n movq (%rsi),%rax\n .Llocal_branches_restore:\n"
+ "movaps 32(%rsp),%xmm6\n movq 72(%rsp),%rsi\n movaps 48(%rsp),%xmm7\n movq 80(%rsp),%rbx\n addq $88,%rsp\n ret\n .Llocal_branches_end:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n .Llocal_branches_primary:\n .byte 1,21,5,0,14,0x78,3,0,9,0x34,10,0,4,0xa2,0,0\n"
+ ".Llocal_branches_secondary:\n .byte 33,10,4,0,10,0x68,2,0,5,0x64,9,0\n .rva APFrameLocalBranches,APFrameLocalBranchesCold,.Llocal_branches_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n .rva APFrameLocalBranches,APFrameLocalBranchesCold,.Llocal_branches_primary\n"
+ ".rva APFrameLocalBranchesCold,.Llocal_branches_end,.Llocal_branches_secondary\n"
+ ".text\n .globl APFrameLocalBranchesCatch\n .def APFrameLocalBranchesCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameLocalBranchesCatch\n APFrameLocalBranchesCatch:\n pushq %rbx\n .seh_pushreg %rbx\n pushq %rsi\n .seh_pushreg %rsi\n subq $72,%rsp\n .seh_stackalloc 72\n movaps %xmm6,32(%rsp)\n .seh_savexmm %xmm6,32\n movaps %xmm7,48(%rsp)\n .seh_savexmm %xmm7,48\n .seh_endprologue\n"
+ "movl $0x42012345,%ebx\n movl $0x12345678,%esi\n movl $0x44113322,%edx\n movq %rdx,%xmm6\n movl $0x55667788,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm6\n movl $0x55331122,%edx\n movq %rdx,%xmm7\n movl $0x66778899,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm7\n .Llocal_branches_try:\n xorq %rcx,%rcx\n call APFrameLocalBranches\n nop\n"
+ ".Llocal_branches_try_end:\n xorl %eax,%eax\n jmp .Llocal_branches_return\n"
+ ".Llocal_branches_catch:\n xorl %eax,%eax\n cmpq $0x42012345,%rbx\n sete %al\n movq %xmm6,%rdx\n cmpq $0x44113322,%rdx\n sete %cl\n andb %cl,%al\n movhlps %xmm6,%xmm0\n movq %xmm0,%rdx\n cmpq $0x55667788,%rdx\n sete %cl\n andb %cl,%al\n"
+ "movq %xmm7,%rdx\n cmpq $0x55331122,%rdx\n sete %cl\n andb %cl,%al\n movhlps %xmm7,%xmm0\n movq %xmm0,%rdx\n cmpq $0x66778899,%rdx\n sete %cl\n andb %cl,%al\n cmpq $0x12345678,%rsi\n sete %cl\n andb %cl,%al\n .Llocal_branches_return:\n movaps 32(%rsp),%xmm6\n movaps 48(%rsp),%xmm7\n addq $72,%rsp\n popq %rsi\n popq %rbx\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Llocal_branches_try,.Llocal_branches_try_end,APFrameMemoryFilter,.Llocal_branches_catch\n .text\n .seh_endproc\n"
+);
 
 extern uint64_t APFrameChainedCallee(const uint64_t *);
 __asm__(
@@ -884,6 +904,8 @@ static DWORD WINAPI worker(void *unused){
   const uint64_t value=UINT64_C(0x1122334455667788);
   if(check_chain==3){
    if(APFrameLocalSave(&value)!=value || APFrameLocalSaveCatch()!=1)return 12;
+  }else if(check_chain==25){
+   if(APFrameLocalBranches(&value)!=value || APFrameLocalBranchesCatch()!=1)return 12;
   }else if(check_chain==24){
    if(APFrameLocalCleanup(&value)!=value || APFrameLocalCleanupCatch()!=1)return 12;
   }else if(check_chain==23){

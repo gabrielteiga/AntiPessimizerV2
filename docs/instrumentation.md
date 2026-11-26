@@ -954,7 +954,12 @@ da área de argumentos Win64: nenhum save primário ou local pode ocupá-los.
 O fluxo normal de relocação confere o destino e rejeita chamadas para o interior
 do método. O ensaio Windows usa um callee que escreve os quatro home slots e
 causa uma AV; retorno, unwind e registradores são comparados com o baseline.
-Chamadas indiretas e branches dentro desse corpo continuam recusados.
+O corpo também aceita branches diretos e loops limitados às instruções depois
+dos saves, incluindo a entrada completa do epílogo. O planejador normal confere
+os limites das instruções; nenhum salto pode repetir saves, entrar no meio de
+um reload ou pular parte da restauração. Chamadas/saltos indiretos continuam
+recusados nesse corpo. O ensaio Windows percorre loop, branch normal com CALL
+e branch de falha, exigindo os mesmos resultados e registradores do baseline.
 
 Fragmentos com saves locais também podem encaminhar cleanup UHANDLER-only do
 primário. O adaptador APHOOKI verifica os registros da cadeia e usa o início do
