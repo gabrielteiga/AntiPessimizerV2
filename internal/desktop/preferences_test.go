@@ -102,3 +102,60 @@ func TestColumnPreferencesRejectHiddenLastColumn(t *testing.T) {
 		}
 	}
 }
+
+func TestCatalogModeKeepsUnitSelectionSeparateAcrossSaveAndReopen(t *testing.T) {
+	p := defaultPreferences()
+	p.SymbolFilter = "Buscar.Procedimento"
+	p.UnitSelection = "Unidade.A, Unidade.B"
+	if query := p.switchCatalogMode(true, "Outro.Procedimento"); query != "Unidade.A, Unidade.B" {
+		t.Fatal("lost selected units", query)
+	}
+	if query := p.switchCatalogMode(false, "Unidade.C, Unidade.D"); query != "Outro.Procedimento" {
+		t.Fatal("lost procedure search", query)
+	}
+	path := filepath.Join(t.TempDir(), "viewer.json")
+	if err := savePreferences(path, p); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadPreferences(path)
+	if err != nil || loaded != p {
+		t.Fatal("catalog modes did not roundtrip", loaded, err)
+	}
+	if query := loaded.switchCatalogMode(true, loaded.catalogQuery()); query != "Unidade.C, Unidade.D" {
+		t.Fatal("reopening forgot selected units", query)
+	}
+}
+
+func TestLegacyUnitSelectionMigratesWithoutReplacingAnExplicitEmptySelection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "viewer.json")
+	data := []byte(`{"version":1,"whole_unit":true,"symbol_filter":"Unidade.A, Unidade.B","time_unit":"ms"}`)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := loadPreferences(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.UnitSelection != "Unidade.A, Unidade.B" || p.SymbolFilter != "" || p.catalogQuery() != p.UnitSelection {
+		t.Fatal("legacy selected units lost", p)
+	}
+	p.SymbolFilter = "Buscar.Procedimento"
+	p.UnitSelection = ""
+	if err := savePreferences(path, p); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadPreferences(path)
+	if err != nil || loaded != p || loaded.catalogQuery() != "" {
+		t.Fatal("explicit empty selection was replaced by procedure search", loaded, err)
+	}
+}
+
+func TestUnitSelectionPreferencesKeepTextLimits(t *testing.T) {
+	for _, query := range []string{strings.Repeat("x", 8193), "Unidade\x00Outra", string([]byte{0xff})} {
+		p := defaultPreferences()
+		p.UnitSelection = query
+		if err := savePreferences(filepath.Join(t.TempDir(), "viewer.json"), p); err == nil {
+			t.Fatal("invalid unit selection accepted")
+		}
+	}
+}

@@ -184,3 +184,16 @@ O mesmo resolvedor de slots do prólogo valida base/índice/segmento e deslocame
 Fixture Windows modo 26 usa RSI em [RBP+32] e XMM6 em [RBP-16], com bias 32,
 saves primários GPR/XMM, retorno e AV. Testes rejeitam base e bias incorretos.
 Conferir publicação/PR, CI do SHA exato e predecessores antes do merge.
+
+## Seleção de unidades independente da busca
+
+Incremento em `fix/independent-unit-selection-preferences`, worktree
+`/workspace/work/AntiPessimizerV2-unit-preferences`, baseado no #108.
+A referência salva UnitFilter e SelectedModules separadamente. O Go agora separa
+SymbolFilter e UnitSelection, troca o texto correto ao alternar o modo e migra
+preferências antigas em modo de unidades. Uma seleção explicitamente vazia não
+é substituída pela busca. Testes portáveis e smoke Win32 conferem alternância,
+fechamento/reabertura e preservação dos dois estados. Exigir a execução Windows
+antes de integrar. A auditoria `docs/phase0/preferences-parity.md` encerra o bloco
+5 do fluxo principal quando esse PR estiver aprovado: 30 blocos entregues e
+quatro abertos, aproximadamente 88% com pesos iguais; não é paridade medida.

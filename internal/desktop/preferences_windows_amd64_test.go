@@ -16,15 +16,26 @@ func TestNativePreferencesWindowSmoke(t *testing.T) {
 		t.Skip("native preferences smoke enabled in Windows CI")
 	}
 	path := filepath.Join(t.TempDir(), "viewer.json")
-	p := Preferences{CallDiscountTicks: 5, ExcludeRuntime: true, WholeUnit: true, Version: 1, ImagePath: `C:\Projetos\Cotação\app.exe`, ResultFilter: "Ação.Calcular", SymbolFilter: "Unidade.Ações, Unidade.Relatórios", TimeUnit: ClockTicks}
+	p := Preferences{CallDiscountTicks: 5, ExcludeRuntime: true, WholeUnit: true, Version: 1, ImagePath: `C:\Projetos\Cotação\app.exe`, ResultFilter: "Ação.Calcular", SymbolFilter: "Calcular", UnitSelection: "Unidade.Ações, Unidade.Relatórios", TimeUnit: ClockTicks}
 	if err := savePreferences(path, p); err != nil {
 		t.Fatal(err)
 	}
 	if err := runViewerWithPreferences(`\\.\pipe\unused-preferences`, "", "", true, func(w *window) error {
 		unit, _, _ := send.Call(w.metricUnits, 0x147, 0, 0)
 		whole, _, _ := send.Call(w.wholeUnit, 0xf0, 0, 0)
-		if value(w.callDiscount) != "5" || w.model.CallDiscountTicks != 5 || whole != 1 || !w.excludesRuntime() || value(w.imagePath) != p.ImagePath || value(w.filter) != p.ResultFilter || value(w.symbolSearch) != p.SymbolFilter || unit != 4 || w.catalog != nil {
+		if value(w.callDiscount) != "5" || w.model.CallDiscountTicks != 5 || whole != 1 || !w.excludesRuntime() || value(w.imagePath) != p.ImagePath || value(w.filter) != p.ResultFilter || value(w.symbolSearch) != p.UnitSelection || unit != 4 || w.catalog != nil {
 			return fmt.Errorf("preferences did not restore native controls or triggered a catalog load")
+		}
+		send.Call(w.wholeUnit, 0xf1, 0, 0)
+		w.command(26)
+		if value(w.symbolSearch) != p.SymbolFilter {
+			return fmt.Errorf("unit mode overwrote procedure search")
+		}
+		text(w.symbolSearch, "Novo.Calcular")
+		send.Call(w.wholeUnit, 0xf1, 1, 0)
+		w.command(26)
+		if value(w.symbolSearch) != p.UnitSelection {
+			return fmt.Errorf("procedure search overwrote selected units")
 		}
 		if err := w.model.ReplaceMetrics(metricRecords(t)); err != nil {
 			return err
@@ -56,13 +67,14 @@ func TestNativePreferencesWindowSmoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.ResultFilter, p.TimeUnit, p.CallDiscountTicks = "Unidade.Outra", Microseconds, 16
+	p.SymbolFilter = "Novo.Calcular"
 	got, err := loadPreferences(path)
 	if err != nil || got != p {
 		t.Fatal("native close did not save preferences", got, err)
 	}
 	if err := runViewerWithPreferences(`\\.\pipe\unused-preferences`, "", "", true, func(w *window) error {
 		unit, _, _ := send.Call(w.metricUnits, 0x147, 0, 0)
-		if value(w.callDiscount) != "16" || w.model.CallDiscountTicks != 16 || !w.excludesRuntime() || value(w.filter) != p.ResultFilter || value(w.symbolSearch) != p.SymbolFilter || unit != 1 {
+		if value(w.callDiscount) != "16" || w.model.CallDiscountTicks != 16 || !w.excludesRuntime() || value(w.filter) != p.ResultFilter || value(w.symbolSearch) != p.UnitSelection || unit != 1 {
 			return fmt.Errorf("reopening lost saved preferences")
 		}
 		return nil
