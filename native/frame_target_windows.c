@@ -300,6 +300,20 @@ __asm__(
  ".rva APFrameFinallyChainCold,.Lfinally_chain_end,.Lfinally_chain_secondary\n .text\n"
 );
 
+extern uint64_t APFramePaddedFinallyChain(const uint64_t *);
+__asm__(
+ ".text\n .globl APFramePaddedFinallyChain\n .def APFramePaddedFinallyChain; .scl 2; .type 32; .endef\n"
+ "APFramePaddedFinallyChain:\n subq $40,%rsp\n .fill 8,1,0x90\n jmp APFramePaddedFinallyChainCold\n .Lpadded_finally_chain_primary_end:\n .byte 0xcc,0x90,0xcc,0x90,0x90,0xcc,0x90,0xcc\n"
+ ".globl APFramePaddedFinallyChainCold\n .def APFramePaddedFinallyChainCold; .scl 2; .type 32; .endef\n"
+ "APFramePaddedFinallyChainCold:\n movq (%rcx),%rax\n  .Lpadded_finally_chain_try_end:\n movq %rax,32(%rsp)\n xorq %rcx,%rcx\n movq %rsp,%rdx\n call APFrameChainFinally\n movq 32(%rsp),%rax\n addq $40,%rsp\n ret\n"
+ ".Lpadded_finally_chain_catch:\n movl $914,%eax\n addq $40,%rsp\n ret\n .Lpadded_finally_chain_end:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n .Lpadded_finally_chain_primary:\n .byte 25,4,1,0,4,0x42,0,0\n"
+ ".rva __C_specific_handler\n .long 2\n .rva APFramePaddedFinallyChainCold,.Lpadded_finally_chain_try_end,APFrameChainFinally\n .long 0\n .rva APFramePaddedFinallyChainCold,.Lpadded_finally_chain_try_end,APFrameMemoryFilter,.Lpadded_finally_chain_catch\n"
+ ".Lpadded_finally_chain_secondary:\n .byte 33,0,0,0\n .rva APFramePaddedFinallyChain,.Lpadded_finally_chain_primary_end,.Lpadded_finally_chain_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n .rva APFramePaddedFinallyChain,.Lpadded_finally_chain_primary_end,.Lpadded_finally_chain_primary\n"
+ ".rva APFramePaddedFinallyChainCold,.Lpadded_finally_chain_end,.Lpadded_finally_chain_secondary\n .text\n"
+);
+
 extern uint64_t APFrameMixedSaves(const uint64_t *),APFrameMixedSavesCatch(void);
 __asm__(
  ".text\n .globl APFrameMixedSaves\n .def APFrameMixedSaves; .scl 2; .type 32; .endef\n"
@@ -1032,6 +1046,8 @@ static DWORD WINAPI worker(void *unused){
   const uint64_t value=UINT64_C(0x1122334455667788);
   if(check_chain==3){
    if(APFrameLocalSave(&value)!=value || APFrameLocalSaveCatch()!=1)return 12;
+  }else if(check_chain==32){
+   if(APFramePaddedFinallyChain(&value)!=value || APFramePaddedFinallyChain(NULL)!=914)return 12;
   }else if(check_chain==31){
    if(APFramePaddedScopedSaves(&value)!=value || APFramePaddedScopedSavesCatch()!=1)return 12;
   }else if(check_chain==30){
@@ -1150,5 +1166,5 @@ int wmain(int argc,wchar_t **argv){
   int written=fprintf(file,"{\"version\":1,\"threads\":%u,\"batch_count\":%u,\"private_bytes\":%llu,\"handles\":%lu,\"frequency\":%llu,\"ticks\":%llu}\n",(unsigned)threads,(unsigned)batch_limit,(unsigned long long)memory.PrivateUsage,(unsigned long)handles,(unsigned long long)frequency.QuadPart,(unsigned long long)(finish.QuadPart-start.QuadPart));
   if(fclose(file)||written<=0)return 10;
  }
- return result||((check_chain==30||check_chain==31)&&(scoped_finally_normal!=(LONG)(threads*rounds)||scoped_finally_abnormal!=(LONG)(threads*rounds)))||(check_chain==24&&(local_cleanup_bad||local_cleanup_count!=(LONG)(threads*rounds)))||(check_chain==10&&(chain_finally_normal!=(LONG)(threads*rounds)||chain_finally_abnormal!=(LONG)(threads*rounds)))||(check_chain==8&&(chain_cleanup_bad||chain_cleanup_count!=(LONG)(threads*rounds)))||atomic128_total[0]!=(uint64_t)threads*rounds*(iterations+1)||atomic128_total[1]!=~atomic128_total[0]||atomic_total!=(uint64_t)threads*rounds*(iterations+1)||cleanup_count!=(LONG)(threads*rounds*2)||collision_seen<(LONG)(threads*rounds*(!!cleanup_throws+!!normal_cleanup_throws))?5:0;
+ return result||((check_chain==30||check_chain==31)&&(scoped_finally_normal!=(LONG)(threads*rounds)||scoped_finally_abnormal!=(LONG)(threads*rounds)))||(check_chain==24&&(local_cleanup_bad||local_cleanup_count!=(LONG)(threads*rounds)))||((check_chain==10||check_chain==32)&&(chain_finally_normal!=(LONG)(threads*rounds)||chain_finally_abnormal!=(LONG)(threads*rounds)))||(check_chain==8&&(chain_cleanup_bad||chain_cleanup_count!=(LONG)(threads*rounds)))||atomic128_total[0]!=(uint64_t)threads*rounds*(iterations+1)||atomic128_total[1]!=~atomic128_total[0]||atomic_total!=(uint64_t)threads*rounds*(iterations+1)||cleanup_count!=(LONG)(threads*rounds*2)||collision_seen<(LONG)(threads*rounds*(!!cleanup_throws+!!normal_cleanup_throws))?5:0;
 }

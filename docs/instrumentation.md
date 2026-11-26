@@ -1128,4 +1128,5 @@ antes do payload.
 O modo 31 da fixture Windows exige retorno, catch interno e finally normal e
 excepcional, preservando RBX/RSI e os 128 bits de XMM6/XMM7. Um procedimento
 selecionado precede o alvo para exercitar o segundo stride. O teste direto
-RtlVirtualUnwind também confere o shadow composto após esse padding.
+RtlVirtualUnwind também confere o shadow composto após esse padding. O modo 32
+confere catch/finally com gap e CFI apenas herdada, sem saves locais.
