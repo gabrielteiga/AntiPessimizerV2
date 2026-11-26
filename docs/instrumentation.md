@@ -1090,3 +1090,22 @@ e excepcional, RBX/RSI e os 128 bits de XMM6/XMM7. A seleção inclui outro mét
 antes do método com scopes para conferir o segundo stride. A captura deve
 registrar os dois retornos por thread e zero frames abandonados/unwind do
 método que capturou a falha. O finally executa uma vez em cada caminho.
+
+### Exceções Delphi reentrantes no binário original
+
+O ensaio `TestReferenceDelphiNestedExceptionSearchPreservesReentrantFrames`
+reentra no construtor conferido da DLL fixada a partir do filtro CRT do chamador,
+enquanto a busca da exceção externa ainda está ativa. Três níveis de filtros
+exigem quatro frames físicos simultâneos da mesma rotina Delphi. Cada nível
+provoca outra exceção real e também confere um retorno normal do construtor.
+O código original permanece intacto, com RTL e handler reais.
+
+O baseline exige quatro pares; a cópia exige cem pares com 800 entradas,
+400 retornos e 400 saídas excepcionais. O consumidor Go precisa terminar sem
+frames abertos ou abandonados e sem perdas. Os eventos brutos devem comprovar
+profundidade quatro; os ticks inclusivos/exclusivos precisam coincidir com a
+soma independente dos intervalos externos, sem multiplicar tempo pela recursão.
+Os relatórios `reference-delphi-nested.json` e
+`reference-delphi-nested-metrics.ndjson` ficam nos artefatos Windows.
+Isso cobre reentrada durante busca de exceção na revisão fixada; a recursão é
+conduzida pelo chamador C e não certifica código Pascal compilado no Delphi 10.4.

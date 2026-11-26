@@ -15,7 +15,9 @@
 uintptr_t reference_target;
 static volatile LONG caught,bad;
 static DWORD observed_exception;
-static BOOL worker_mode;
+static BOOL worker_mode,nested_mode;
+static unsigned nested_depth,max_nested_depth;
+extern uintptr_t APReferenceCall(void *);
 static DWORD measurement_thread;
 static volatile LONG typed_exceptions;
 static HANDLE reference_server;
@@ -23,6 +25,7 @@ static HANDLE *reference_client;
 static uintptr_t reference_image;
 static uint32_t reference_pair;
 static BOOL reference_malformed;
+static BOOL (*reference_flush)(void);
 static BOOL reference_exception_class(const EXCEPTION_RECORD *record,char name[64]){
  if(record->NumberParameters!=7 || !record->ExceptionInformation[1])return FALSE;
  HANDLE self=GetCurrentProcess();
@@ -80,9 +83,20 @@ LONG APReferenceFilter(EXCEPTION_POINTERS *p,void *frame){
  if(code!=0x0eedfadeu)return EXCEPTION_CONTINUE_SEARCH;
  if(worker_mode)fprintf(stderr,"Delphi exception escaped the typed handler: pair=%u malformed=%d flags=%lx\n",reference_pair,reference_malformed,p->ExceptionRecord->ExceptionFlags);
  if(p->ExceptionRecord->NumberParameters!=7 || !p->ExceptionRecord->ExceptionInformation[1])InterlockedExchange(&bad,1);
- observed_exception=code;InterlockedIncrement(&caught);return EXCEPTION_EXECUTE_HANDLER;
+ observed_exception=code;InterlockedIncrement(&caught);
+ /* Reenter the unchanged Delphi constructor while the outer exception search
+  * and its physical frame are still active. Each level raises/catches another
+  * real Delphi exception, then also requires a normal constructor return. */
+ if(nested_mode && nested_depth<3){
+  nested_depth++;if(nested_depth>max_nested_depth)max_nested_depth=nested_depth;
+  LONG before=caught;
+  if(APReferenceCall(NULL)!=0 || caught!=before+(LONG)(4-nested_depth))InterlockedExchange(&bad,1);
+  _Alignas(16) unsigned char object[128]={0};
+  if(APReferenceCall(object)!=(uintptr_t)object || object[8]!=1 || *(uintptr_t *)(object+16))InterlockedExchange(&bad,1);
+  nested_depth--;
+ }
+ return EXCEPTION_EXECUTE_HANDLER;
 }
-extern uintptr_t APReferenceCall(void *);
 __asm__(
  ".text\n .globl APReferenceCall\n .def APReferenceCall; .scl 2; .type 32; .endef\n"
  ".seh_proc APReferenceCall\n APReferenceCall:\n subq $40,%rsp\n .seh_stackalloc 40\n .seh_endprologue\n"
@@ -133,11 +147,12 @@ static BOOL worker_call(BOOL malformed){
 }
 static BOOL pairs(uint32_t count){
  for(uint32_t i=0;i<count;i++){
+  if(reference_flush && i && i%32==0 && !reference_flush())return FALSE;
   if(worker_mode){reference_pair=i+1;if(!worker_call(FALSE)||!worker_call(TRUE))return FALSE;continue;}
   _Alignas(16) unsigned char object[128]={0};
   if(APReferenceCall(object)!=(uintptr_t)object || object[8]!=1 || *(uintptr_t *)(object+16))return FALSE;
   LONG before=caught;
-  if(APReferenceCall(NULL)!=0 || caught!=before+1)return FALSE;
+  if(APReferenceCall(NULL)!=0 || caught!=before+(nested_mode?4:1) || nested_depth)return FALSE;
  }
  return TRUE;
 }
@@ -155,7 +170,8 @@ static void *allocate_near(unsigned char *image){
 int wmain(int argc,wchar_t **argv){
  if(argc!=4 && argc!=5)return 2;
  worker_mode=argc==5 && !wcscmp(argv[4],L"worker");
- if(argc==5 && !worker_mode)return 2;
+ nested_mode=argc==5 && !wcscmp(argv[4],L"nested");
+ if(argc==5 && !worker_mode && !nested_mode)return 2;
  uint32_t source_rva=worker_mode?0x191700:0xa930,source_size=worker_mode?673:155;
  if(_setmode(_fileno(stdin),_O_BINARY)==-1)return 2;
  SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);
@@ -212,9 +228,9 @@ int wmain(int argc,wchar_t **argv){
  union {FARPROC proc;uintptr_t (*address)(void);} helper;helper.proc=GetProcAddress(adapter,"APReferenceUnwindAddress");if(!helper.proc)return 8;
  union {FARPROC proc;BOOL (*validate)(uintptr_t,uintptr_t,uint32_t,const RUNTIME_FUNCTION *,uint32_t,uint32_t);} verifier;
  verifier.proc=GetProcAddress(adapter,"APReferenceValidatePlan");if(!verifier.proc)return 8;
- union {FARPROC proc;BOOL (*start)(uintptr_t,uint32_t);} capture_start;
+ union {FARPROC proc;BOOL (*start)(uintptr_t,uint32_t,const wchar_t *);} capture_start;
  capture_start.proc=GetProcAddress(adapter,"APReferenceStartCapture");if(!capture_start.proc)return 8;
- union {FARPROC proc;BOOL (*finish)(const wchar_t *,uint32_t *,uint32_t *,uint32_t *);} capture_finish;
+ union {FARPROC proc;BOOL (*finish)(uint32_t *,uint32_t *,uint32_t *);} capture_finish;
  capture_finish.proc=GetProcAddress(adapter,"APReferenceFinishCapture");if(!capture_finish.proc)return 8;
  union {FARPROC proc;uintptr_t (*address)(void);} enter_helper,exit_helper;
  enter_helper.proc=GetProcAddress(adapter,"APReferenceEnterAddress");exit_helper.proc=GetProcAddress(adapter,"APReferenceExitAddress");if(!enter_helper.proc || !exit_helper.proc)return 8;
@@ -251,10 +267,13 @@ int wmain(int argc,wchar_t **argv){
  }
  DWORD protection=0;
  if(!VirtualProtect(memory,16384,PAGE_EXECUTE_READ,&protection)||!FlushInstructionCache(GetCurrentProcess(),memory,size)||!RtlAddFunctionTable(functions,3,(DWORD64)(uintptr_t)memory))return 11;
- if(!capture_start.start((uintptr_t)image,source_rva))return 16;
+ union {FARPROC proc;BOOL (*flush)(void);} capture_flush;
+ capture_flush.proc=GetProcAddress(adapter,"APReferenceFlushCapture");if(!capture_flush.proc)return 16;
+ if(!capture_start.start((uintptr_t)image,source_rva,argv[3]))return 16;
+ reference_flush=capture_flush.flush;
  reference_target=(uintptr_t)memory;
  fprintf(stderr,"cloned Delphi: %s\n",worker_mode?"typed Exception catch, normal return and Go metrics":"original handler, capture/resume/reraise and cleanup");
- if(!pairs(100) || bad || (worker_mode?(caught!=0 || typed_exceptions!=104):caught!=104)){fprintf(stderr,"clone failed caught=%ld code=%lx bad=%ld\n",caught,observed_exception,bad);return 12;}
+ if(!pairs(100) || bad || (worker_mode?(caught!=0 || typed_exceptions!=104):caught!=(nested_mode?416:104))){fprintf(stderr,"clone failed caught=%ld code=%lx bad=%ld\n",caught,observed_exception,bad);return 12;}
  if(sender){
   DWORD status=1;
   command_stop=TRUE;
@@ -263,10 +282,10 @@ int wmain(int argc,wchar_t **argv){
   CloseHandle(sender);CloseHandle(command_ready);CloseHandle(command_done);
  }
  uint32_t entries=0,returns=0,unwinds=0;
- if(!capture_finish.finish(argv[3],&entries,&returns,&unwinds) || entries!=200 || returns!=(worker_mode?200u:100u) || unwinds!=(worker_mode?0u:100u)){fprintf(stderr,"native capture incomplete enter=%u return=%u unwind=%u\n",entries,returns,unwinds);return 17;}
+ if(!capture_finish.finish(&entries,&returns,&unwinds) || entries!=(nested_mode?800u:200u) || returns!=(worker_mode?200u:nested_mode?400u:100u) || unwinds!=(worker_mode?0u:nested_mode?400u:100u) || (nested_mode && max_nested_depth!=3)){fprintf(stderr,"native capture incomplete enter=%u return=%u unwind=%u\n",entries,returns,unwinds);return 17;}
  if((!worker_mode && observed_exception!=0x0eedfadeu) || memcmp(original,image+source_rva,source_size))return 15;
  if(!RtlDeleteFunctionTable(functions)||!VirtualFree(memory,0,MEM_RELEASE))return 13;
- printf("{\"baseline_pairs\":4,\"instrumented_pairs\":100,\"entries\":%u,\"returns\":%u,\"unwinds\":%u,\"caught\":%ld,\"exception_code\":%lu,\"typed_exceptions\":%ld}\n",entries,returns,unwinds,caught,observed_exception,typed_exceptions);fflush(stdout);
+ printf("{\"baseline_pairs\":4,\"instrumented_pairs\":100,\"entries\":%u,\"returns\":%u,\"unwinds\":%u,\"caught\":%ld,\"exception_code\":%lu,\"typed_exceptions\":%ld,\"nested_filter_depth\":%u}\n",entries,returns,unwinds,caught,observed_exception,typed_exceptions,max_nested_depth);fflush(stdout);
  /* ExitProcess owns RTL/worker teardown; never unload a DLL underneath its worker. */
  return 0;
 }

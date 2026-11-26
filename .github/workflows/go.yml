@@ -65,6 +65,8 @@ jobs:
             ${{ runner.temp }}/ap-reference-delphi/reference-delphi-metrics.ndjson
             ${{ runner.temp }}/ap-reference-delphi/reference-delphi-typed.json
             ${{ runner.temp }}/ap-reference-delphi/reference-delphi-typed-metrics.ndjson
+            ${{ runner.temp }}/ap-reference-delphi/reference-delphi-nested.json
+            ${{ runner.temp }}/ap-reference-delphi/reference-delphi-nested-metrics.ndjson
           if-no-files-found: error
 
       - if: runner.os == 'Windows'

@@ -21,6 +21,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Reviewed original Delphi routines changed results after relocation' }
     go test -v -count=1 -timeout=45s ./internal/instrumentation/native -run '^TestReferenceDelphiExceptionHandlerPreservesCatchAndReraise$'
     if ($LASTEXITCODE -ne 0) { throw 'Original Delphi handler, native events or Go accounting changed behavior' }
+    go test -v -count=1 -timeout=45s ./internal/instrumentation/native -run '^TestReferenceDelphiNestedExceptionSearchPreservesReentrantFrames$'
+    if ($LASTEXITCODE -ne 0) { throw 'Nested Delphi exceptions changed physical frames or recursive timing' }
     go test -v -count=32 -timeout=90s ./internal/instrumentation/native -run '^TestReferenceDelphiTypedHandlerCatchesWorkerReadFailure$'
     if ($LASTEXITCODE -ne 0) { throw 'Repeated Delphi typed handler validation failed' }
 } finally {
