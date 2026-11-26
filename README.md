@@ -24,7 +24,7 @@ Revisado em 26 de novembro de 2026.
 | Tail calls indiretas | O chamador sem frame ou handler pode saltar via R11 para um destino calculado por LEA ou escolher entre dois destinos comprovados com CMOV. O teste Windows confere argumentos, contagens, tempos e unwind |
 | Métodos maiores | Até 8 KiB de código por procedimento, com alocação limitada de 32 KiB para código/metadados; integração Windows exige retornos e unwind reais |
 | Estado SSE | Probes preservam controle/status MXCSR dos callbacks; setter/getter instrumentados conferem os quatro modos de arredondamento |
-| Preferências da janela | Restaura EXE, filtro de resultados, busca de símbolos e unidade de tempo por usuário ao reabrir |
+| Preferências da janela | Restaura EXE, filtro de resultados, busca de procedimentos, unidades selecionadas independentemente e unidade de tempo por usuário ao reabrir |
 | Controle pela interface | Catálogo pesquisável, seleção de até 256 procedimentos ou uma unidade Pascal inteira, argumentos, prazo, iniciar/parar pelo coletor e métricas ao vivo na janela |
 | Pré-validação | Imagem/tabela PE preparadas uma vez por lote, seleção por intervalo e snapshot independente; catálogo identifica funções fora do subconjunto aceito; serviço e launcher recusam a seleção antes de abrir o programa |
 | Independência do viewer | Fechar a janela/desconectar observador não encerra a captura; Parar cancela explicitamente o novo processo instrumentado |
@@ -101,7 +101,9 @@ marca a captura interrompida como incompleta; fechar o viewer mantém o coletor 
 o alvo independentes. O prazo padrão é 60 segundos. **Limpar métricas** zera os resultados e reinicia o tempo das chamadas abertas
 numa nova época, sem encerrar o programa. A tabela mostra chamadas,
 totais e médias inclusivas/exclusivas, thread, unidade, unwind e frames abertos.
-Ao fechar, a janela salva caminho do EXE, filtros, unidade de tempo e layout das
+Ao alternar entre procedimentos e unidades inteiras, a janela preserva a busca e
+os nomes das unidades de forma independente. Ao fechar, salva caminho do EXE,
+filtros, seleção de unidades, unidade de tempo e layout das
 colunas em `%AppData%\AntiPessimizerV2\viewer.json`. **Diagnóstico** abre o
 histórico recente de estados e falhas da janela, com opção de copiar.
 

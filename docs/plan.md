@@ -37,6 +37,7 @@ este documento organiza as entregas e os critérios que ainda faltam.
 | Carga e limites de recursos | Baseline/instrumentado com 320 vidas de thread/32.001 chamadas; 32 capturas por bloco, dez repetições com recursos do coletor medidos e observador limitado | CI Windows exige zero DebugObjects após retirada; grava Native-stress; saturação deliberada deve falhar com perda explícita e métricas incompletas |
 | Leituras de contadores nativos | Loads lock-free com ordenação seq_cst; atualizações/barreiras Interlocked mantidas | Comparação Windows com variante RMW, ordem alternada e contagens/checksums completos |
 | Custo em carga controlada | Três pares baseline/instrumentado, ordem alternada, uma/três threads; relógio interno ao loop e artefato bruto | Checksums iguais, chamadas/finalizador exatos e captura completa; sem limite artificial de desempenho do runner |
+| Preferências e diagnóstico da referência | Chaves do config e nomes de unidades selecionadas preservados independentemente, layout e diagnóstico | [Mapa conferido](phase0/preferences-parity.md), migração, alternância e reabertura Win32 automatizadas |
 
 As métricas instrumentadas são cumulativas por época de Clear. Navegar no
 histórico nunca soma snapshots cumulativos. Sampling continua contando amostras,
@@ -44,9 +45,9 @@ sem converter esse valor em chamadas ou duração por chamada.
 
 ## Acompanhamento do progresso
 
-A tabela acima reúne 29 blocos entregues no subconjunto documentado; os cinco
-blocos abaixo ainda têm critérios abertos. A contagem simples dá 29/34, cerca
-de 85%, com peso igual por bloco. Esse índice não mede esforço restante,
+A tabela acima reúne 30 blocos entregues no subconjunto documentado; os quatro
+blocos abaixo ainda têm critérios abertos. A contagem simples dá 30/34, cerca
+de 88%, com peso igual por bloco. Esse índice não mede esforço restante,
 cobertura de execução, compatibilidade de compilador nem porcentagem de
 paridade com o original. Novos casos de código podem ampliar um bloco sem
 encerrar seu critério de aceitação. A conclusão exige fechar os gates materiais,
@@ -92,11 +93,10 @@ incluindo a execução Delphi 10.4 e suas medições de custo/operação prolong
    e instrumentação mantêm metodologias próprias. Limites atuais de seleção e
    buffer só aumentam junto dessas medições.
    [PR #61](https://github.com/gabrielteiga/AntiPessimizerV2/pull/61).
-5. **Complementos do fluxo principal.** Demais preferências/diagnósticos do
-   original, conforme a auditoria de fidelidade. O desconto por chamada na apresentação usa ticks QPC,
-   saturação em zero, médias e comparação recalculadas e preferência persistida,
-   conforme `Cycle discount`/`FixedCycleDiscount` da revisão fixada. Attach a processo arbitrário e
-   DLLs/BPLs não são apresentados como implementados pelo lançamento do EXE.
+O bloco de preferências/diagnósticos do fluxo principal foi reconciliado com o
+config e a seleção de unidades da referência e está entregue. O mapa e os testes
+estão em [Preferências da referência](phase0/preferences-parity.md). Attach a
+processo arbitrário e DLLs/BPLs continuam fora do launcher de EXE acordado.
 
 Não há paridade completa enquanto esses gates materiais estiverem abertos.
 

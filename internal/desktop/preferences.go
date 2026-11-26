@@ -25,6 +25,7 @@ type Preferences struct {
 	ImagePath         string            `json:"image_path"`
 	ResultFilter      string            `json:"result_filter"`
 	SymbolFilter      string            `json:"symbol_filter"`
+	UnitSelection     string            `json:"unit_selection"`
 	TimeUnit          MetricTimeUnit    `json:"time_unit"`
 }
 
@@ -52,7 +53,7 @@ func (p Preferences) validate() error {
 	for _, field := range []struct {
 		name, value string
 		limit       int
-	}{{"image_path", p.ImagePath, 32768}, {"result_filter", p.ResultFilter, 8192}, {"symbol_filter", p.SymbolFilter, 8192}} {
+	}{{"image_path", p.ImagePath, 32768}, {"result_filter", p.ResultFilter, 8192}, {"symbol_filter", p.SymbolFilter, 8192}, {"unit_selection", p.UnitSelection, 8192}} {
 		if len(field.value) > field.limit || !utf8.ValidString(field.value) {
 			return fmt.Errorf("invalid viewer preference %s", field.name)
 		}
@@ -90,6 +91,15 @@ func loadPreferences(path string) (Preferences, error) {
 	var extra any
 	if err := d.Decode(&extra); err != io.EOF {
 		return Preferences{}, errors.New("expected one viewer preferences object")
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return Preferences{}, err
+	}
+	if _, present := fields["unit_selection"]; !present && p.WholeUnit {
+		// Older viewers persisted both modes in symbol_filter. Preserve the
+		// saved unit names without turning them into a procedure query.
+		p.UnitSelection, p.SymbolFilter = p.SymbolFilter, ""
 	}
 	if err := p.validate(); err != nil {
 		return Preferences{}, err
@@ -133,4 +143,25 @@ func savePreferences(path string, p Preferences) error {
 		return err
 	}
 	return os.Rename(name, path)
+}
+
+func (p Preferences) catalogQuery() string {
+	if p.WholeUnit {
+		return p.UnitSelection
+	}
+	return p.SymbolFilter
+}
+
+func (p *Preferences) setCatalogQuery(query string) {
+	if p.WholeUnit {
+		p.UnitSelection = query
+	} else {
+		p.SymbolFilter = query
+	}
+}
+
+func (p *Preferences) switchCatalogMode(whole bool, query string) string {
+	p.setCatalogQuery(query)
+	p.WholeUnit = whole
+	return p.catalogQuery()
 }
