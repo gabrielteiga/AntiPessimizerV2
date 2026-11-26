@@ -10,8 +10,13 @@ import (
 // The primary allocates the entire frame. The final fragment saves registers
 // consecutively before other work and restores them before releasing the frame.
 func validateLocalSave(code, primary []byte, start int, local []byte) error {
-	fail := func() error {
-		return fmt.Errorf("%w: chained nonvolatile saves do not match verified frame and control flow", ErrUnsupported)
+	_, _, err := verifiedLocalSaveBody(code, primary, start, local)
+	return err
+}
+
+func verifiedLocalSaveBody(code, primary []byte, start int, local []byte) (int, int, error) {
+	fail := func() (int, int, error) {
+		return 0, 0, fmt.Errorf("%w: chained nonvolatile saves do not match verified frame and control flow", ErrUnsupported)
 	}
 	if len(primary) < 8 || len(local) < 8 || local[3] != primary[3] || validateUnwindCodes(primary) != nil || validatePrologueActions(code, primary) != nil {
 		return fail()
@@ -194,7 +199,7 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 			return fail()
 		}
 	}
-	return nil
+	return bodyStart, bodyEnd, nil
 }
 
 // Memory saves are removed only for stack-layout calculation. The original
@@ -257,4 +262,42 @@ func primarySaveLayout(code, info []byte) ([]byte, []chainedSavedRegister, bool)
 		stack = append(stack, 0, 0)
 	}
 	return stack, saves, true
+}
+
+// The handler's full-body shadow needs every save even though the registered
+// clone retains separate chained ranges. Version-1 code offsets are one byte.
+func combineScopedUnwind(primary, local []byte, localStart uint32) ([]byte, error) {
+	fail := func() ([]byte, error) {
+		return nil, fmt.Errorf("%w: scoped local saves exceed the verified shadow unwind layout", ErrUnsupported)
+	}
+	if validateUnwindCodes(primary) != nil || len(local) < 4 || local[0] != 33 || local[3] != primary[3] || local[2] == 0 || localStart < uint32(primary[1]) || localStart > 255 || localStart+uint32(local[1]) > 255 || int(primary[2])+int(local[2]) > 255 {
+		return fail()
+	}
+	localInfo := append([]byte(nil), local...)
+	localInfo[0], localInfo[3] = 1, 0
+	if validateUnwindCodes(localInfo) != nil {
+		return fail()
+	}
+	count := int(primary[2]) + int(local[2])
+	result := make([]byte, 4+((count+1)&^1)*2)
+	copy(result, primary[:4])
+	result[1], result[2] = byte(localStart+uint32(local[1])), byte(count)
+	copy(result[4:], local[4:4+int(local[2])*2])
+	for at := 4; at < 4+int(local[2])*2; {
+		op := result[at+1] & 15
+		if op != 4 && op != 5 && op != 8 && op != 9 {
+			return fail()
+		}
+		result[at] += byte(localStart)
+		if op == 5 || op == 9 {
+			at += 6
+		} else {
+			at += 4
+		}
+	}
+	copy(result[4+int(local[2])*2:], primary[4:4+int(primary[2])*2])
+	if validateUnwindCodes(result) != nil {
+		return fail()
+	}
+	return result, nil
 }

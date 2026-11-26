@@ -16,7 +16,7 @@ AP_API BOOL APReferenceValidatePlan(uintptr_t image,uintptr_t memory,uint32_t by
     hooks.selected[0]=(APHookProcedure){17,source_rva,source_size};hooks.count=1;
     hooks.memory=(unsigned char *)memory;hooks.bytes=16384;
     uint32_t at=body.UnwindData+info_bytes+4;
-    BOOL valid=hook_forward_info_at((unsigned char *)image,(void *)(memory+at),bytes-at,&body,0,info,info_bytes);
+    BOOL valid=hook_forward_info_at((unsigned char *)image,(void *)(memory+at),bytes-at,&body,0,info,info_bytes,NULL,0);
     ZeroMemory(&hooks,sizeof(hooks));
     return valid;
 }

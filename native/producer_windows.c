@@ -438,7 +438,7 @@ static EXCEPTION_DISPOSITION WINAPI function_unwind(PEXCEPTION_RECORD exception,
     if(hook_u32(data+4)==2) {
         if((exception->ExceptionFlags&EXCEPTION_UNWINDING) && !(hook_u32(data+44)&16))return ExceptionContinueSearch;
         DISPATCHER_CONTEXT saved=*dispatcher;
-        DWORD64 image=dispatcher->ImageBase+dispatcher->FunctionEntry->BeginAddress-hook_u32(data+hook_u32(data+48));
+        DWORD64 image=dispatcher->ImageBase+function_unwind_entry(dispatcher)->BeginAddress-hook_u32(data+hook_u32(data+48));
         union {uintptr_t address;PEXCEPTION_ROUTINE routine;} handler;
         handler.address=(uintptr_t)(image+hook_u32(data+24));
         dispatcher->ImageBase=image;
