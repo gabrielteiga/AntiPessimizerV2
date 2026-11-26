@@ -568,12 +568,15 @@ func TestLocalSaveCleanupRequiresPrimaryAwareAdapter(t *testing.T) {
 }
 
 func TestScopedLocalSavesRequireCompositeShadowAdapter(t *testing.T) {
-	testScopedLocalAdapter(t, false)
+	testScopedLocalAdapter(t, false, false)
 }
 func TestScopedPaddingRequiresVerifiedPaddingAdapter(t *testing.T) {
-	testScopedLocalAdapter(t, true)
+	testScopedLocalAdapter(t, true, false)
 }
-func testScopedLocalAdapter(t *testing.T, padded bool) {
+func TestPaddedCleanupRequiresPaddingAdapter(t *testing.T) {
+	testScopedLocalAdapter(t, true, true)
+}
+func testScopedLocalAdapter(t *testing.T, padded, cleanup bool) {
 	image := append(hookImage(), make([]byte, 0x400)...)
 	put := binary.LittleEndian.PutUint32
 	put(image[128+24+240+8:], 0x600)
@@ -622,6 +625,9 @@ func testScopedLocalAdapter(t *testing.T, padded bool) {
 			put(image[at:], binary.LittleEndian.Uint32(image[at:])+10)
 		}
 	}
+	if cleanup {
+		image[0x340] = 17
+	}
 	for _, version := range []string{"APHOOKI\x00", "APHOOKJ\x00", "APHOOKK\x00"} {
 		offer := make([]byte, 65)
 		copy(offer, hookOffer()[:48])
@@ -655,6 +661,12 @@ func testScopedLocalAdapter(t *testing.T, padded bool) {
 		primary := payload[table+4*12:]
 		info := payload[binary.LittleEndian.Uint32(primary[8:]):]
 		descriptor := info[12:]
+		if cleanup {
+			if info[0] != 17 || binary.LittleEndian.Uint32(descriptor[4:]) != 1 {
+				t.Fatal("cleanup descriptor changed", info[:24])
+			}
+			continue
+		}
 		shadow := descriptor[binary.LittleEndian.Uint32(descriptor[48:]):]
 		alias := payload[binary.LittleEndian.Uint32(shadow[8:])-0x10000:]
 		localEnd := byte(17)

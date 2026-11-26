@@ -118,7 +118,7 @@ func installHooks(conn io.ReadWriter, image []byte, procedures []Procedure) erro
 				return fmt.Errorf("procedure %d frame plan: %w", proc.ID, err)
 			}
 			if plan.PaddedHandler && !paddedHandlers {
-				return errors.New("update the native adapter DLL: CRT chain padding requires APHOOKK")
+				return errors.New("update the native adapter DLL: chained handler padding requires APHOOKK")
 			}
 			if plan.RelocatedHandler && len(plan.Functions) == 4 && !scopedLocals {
 				return errors.New("update the native adapter DLL: scoped local saves require APHOOKJ")

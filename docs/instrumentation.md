@@ -1116,7 +1116,8 @@ APHOOKK acrescenta gaps de até 16 bytes de NOP/INT3 de um byte entre fragmentos
 que herdam o mesmo frame com scopes CRT reconhecidos. A validação de fluxo
 exige salto ou retorno antes do gap e rejeita branches, começos/fins de scopes
 e landings dentro dele. Um scope pode terminar exatamente no começo do gap.
-Delphi e cleanup UHANDLER-only com gaps continuam recusados.
+Scopes Delphi com gaps continuam recusados. O cleanup UHANDLER-only é
+encaminhado com os metadados e PCs da origem, também exigindo APHOOKK.
 
 A imagem de origem conserva os fillers; o clone mantém os offsets com NOPs.
 Com saves locais, a CFI secundária e os CodeOffsets do shadow começam no
@@ -1130,3 +1131,10 @@ excepcional, preservando RBX/RSI e os 128 bits de XMM6/XMM7. Um procedimento
 selecionado precede o alvo para exercitar o segundo stride. O teste direto
 RtlVirtualUnwind também confere o shadow composto após esse padding. O modo 32
 confere catch/finally com gap e CFI apenas herdada, sem saves locais.
+
+O modo 33 compara cleanup UHANDLER-only após o gap com saves locais GPR/XMM.
+O handler exige flags de unwind, módulo, entrada runtime do secundário,
+PC exato da falha e o sentinela original de HandlerData. O retorno normal não
+executa cleanup; a exceção precisa executá-lo uma vez, preservar RBX/RSI e
+XMM6/XMM7 completos e fechar o frame por unwind. APHOOKK já contém a validação
+nativa necessária; o incremento habilita o mesmo formato no planejador Go.
