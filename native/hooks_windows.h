@@ -167,7 +167,7 @@ static BOOL hook_inherited_extent(unsigned char *image,RUNTIME_FUNCTION *primary
     }
     return TRUE;
 }
-static BOOL hook_forward_info_at(unsigned char *image,const unsigned char *data,uint32_t available,RUNTIME_FUNCTION *body,uint32_t index,const unsigned char *copied_info,uint32_t info_bytes) {
+static BOOL hook_forward_info_at(unsigned char *image,const unsigned char *data,uint32_t available,RUNTIME_FUNCTION *body,uint32_t index,const unsigned char *copied_info,uint32_t info_bytes,const unsigned char *local_info,uint32_t local_start) {
     if(available<8)return FALSE;
     uint32_t kind=hook_u32(data+4);
     if(!kind)return TRUE;
@@ -227,12 +227,26 @@ static BOOL hook_forward_info_at(unsigned char *image,const unsigned char *data,
         if(at!=shadow_at)return FALSE;
     }
     const unsigned char *shadow=data+shadow_at,*alias=shadow+12;
+    uint32_t local_slots=local_info?local_info[2]:0,slots=copied_info[2]+local_slots;
+    uint32_t alias_bytes=4+((slots+1)&~1)*2;
+    if(slots>255 || (uint64_t)shadow_at+12+alias_bytes+20>available)return FALSE;
+    if(local_info){
+        if(style!=1 || local_start<copied_info[1] || local_start+local_info[1]>255 || alias[0]!=copied_info[0] || alias[1]!=local_start+local_info[1] || alias[2]!=slots || alias[3]!=copied_info[3] ||
+           memcmp(alias+4+local_slots*2,copied_info+4,copied_info[2]*2))return FALSE;
+        for(uint32_t at=4;at<4+local_slots*2;){
+            uint32_t op=local_info[at+1]&15,step=(op==5||op==9)?6:4;
+            if((op!=4&&op!=5&&op!=8&&op!=9)||at+step>4+local_slots*2 || alias[at]!=local_start+local_info[at] || memcmp(alias+at+1,local_info+at+1,step-1))return FALSE;
+            at+=step;
+        }
+        for(uint32_t at=4+slots*2;at<alias_bytes;at++)if(alias[at])return FALSE;
+    }else if(alias_bytes!=info_bytes || memcmp(alias,copied_info,info_bytes))return FALSE;
     uint32_t info_at=(uint32_t)(alias-hooks.memory),thunk=hook_u32(copied_info+info_bytes);
-    if(hook_u32(shadow)!=difference+body->BeginAddress || hook_u32(shadow+4)!=difference+body->EndAddress || hook_u32(shadow+8)!=difference+info_at || memcmp(alias,copied_info,info_bytes) || hook_u32(alias+info_bytes)!=difference+thunk || hook_u32(alias+info_bytes+4)!=hooks.selected[index].id || hook_u32(alias+info_bytes+8)!=3 || hook_u64(alias+info_bytes+12)!=(uintptr_t)data)return FALSE;
+    if(hook_u32(shadow)!=difference+body->BeginAddress || hook_u32(shadow+4)!=difference+body->EndAddress || hook_u32(shadow+8)!=difference+info_at || hook_u32(alias+alias_bytes)!=difference+thunk || hook_u32(alias+alias_bytes+4)!=hooks.selected[index].id || hook_u32(alias+alias_bytes+8)!=3 || hook_u64(alias+alias_bytes+12)!=(uintptr_t)data)return FALSE;
     for(uint32_t i=0;i<scopes;i++) {
         const unsigned char *a=original_scope+4+i*16,*b=scope+4+i*16;
         uint32_t begin=hook_u32(a),end=hook_u32(a+4),filter=hook_u32(a+8),target=hook_u32(a+12);
         if((uint64_t)begin<(uint64_t)rva+info[1] || begin>=end || (uint64_t)end>(uint64_t)rva+size )return FALSE;
+        if(local_info && (begin<(uint64_t)original->EndAddress+local_info[1] || (target && target<(uint64_t)original->EndAddress+local_info[1])))return FALSE;
         BOOL cleanup=style==1?!target:filter==0;
         uint32_t callback=style>=2?(cleanup?target:0):filter;
         BOOL typed=style==3 && filter>2;
@@ -275,6 +289,14 @@ static const unsigned char *hook_local_save(APHookProcedure procedure) {
     return info;
 }
 static unsigned char hook_chain_offer(void) {
+    for(uint32_t i=0;i<hooks.count;i++){
+        const unsigned char *local=hook_local_save(hooks.selected[i]);
+        if(local){
+            uint32_t length=4+((local[2]+1)&~1)*2,rva=hook_u32(local+length+8);
+            const IMAGE_NT_HEADERS64 *nt=(const IMAGE_NT_HEADERS64 *)(hooks.image+((const IMAGE_DOS_HEADER *)hooks.image)->e_lfanew);
+            if((uint64_t)rva+4<=nt->OptionalHeader.SizeOfImage && (hooks.image[rva]==9 || hooks.image[rva]==25))return 'J';
+        }
+    }
     for(uint32_t i=0;i<hooks.count;i++){
         const unsigned char *local=hook_local_save(hooks.selected[i]);
         if(local){
@@ -369,7 +391,7 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
                     if(secondary->BeginAddress!=f->EndAddress || secondary->EndAddress<=secondary->BeginAddress || secondary->EndAddress>stride_end || secondary->EndAddress>table)return FALSE;
                     forward_body.EndAddress=secondary->EndAddress;
                 }
-                if(!hook_forward_info_at(hooks.image,hooks.memory+data_at,table-data_at,&forward_body,owner,info,extra) || (info[0]==25)!=(hook_u32(hooks.memory+data_at+4)==2) || (local && hook_u32(hooks.memory+data_at+4) && (chain_version!='I' || hook_u32(hooks.memory+data_at+4)!=1)))return FALSE;
+                if(!hook_forward_info_at(hooks.image,hooks.memory+data_at,table-data_at,&forward_body,owner,info,extra,local?hook_local_save(hooks.selected[owner]):NULL,local?hooks.table[index+1].BeginAddress-f->BeginAddress:0) || (info[0]==25)!=(hook_u32(hooks.memory+data_at+4)==2) || (local && hook_u32(hooks.memory+data_at+4) && !((hook_u32(hooks.memory+data_at+4)==1 && (chain_version=='I'||chain_version=='J')) || (hook_u32(hooks.memory+data_at+4)==2 && chain_version=='J'))))return FALSE;
             }else if(local && role==2){
                 const unsigned char *source=hook_local_save(hooks.selected[owner]);
                 if(!source || f->BeginAddress!=primary->EndAddress || info[2]!=source[2])return FALSE;
@@ -382,8 +404,8 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
                     uint32_t op=info[at+1]&15;
                     BOOL far_offset=op==5 || op==9;
                     if(op!=4 && op!=5 && op!=8 && op!=9)return FALSE;
-                    if(far_offset && chain_version!='G' && chain_version!='H' && chain_version!='I')return FALSE;
-                    if((op==8 || op==9) && chain_version!='E' && chain_version!='F' && chain_version!='G' && chain_version!='H' && chain_version!='I')return FALSE;
+                    if(far_offset && chain_version!='G' && chain_version!='H' && chain_version!='I' && chain_version!='J')return FALSE;
+                    if((op==8 || op==9) && chain_version!='E' && chain_version!='F' && chain_version!='G' && chain_version!='H' && chain_version!='I' && chain_version!='J')return FALSE;
                     uint32_t step=far_offset?6:4;
                     if(at+step>4u+info[2]*2u)return FALSE;
                     at+=step;

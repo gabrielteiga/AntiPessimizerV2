@@ -131,8 +131,15 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 		entry = []byte{0xcc}
 	}
 	if len(metadata.localSave) != 0 {
-		if err := validateLocalSave(body, originalInfo, metadata.chainBoundaries[len(metadata.chainBoundaries)-1], metadata.localSave); err != nil {
+		begin, end, err := verifiedLocalSaveBody(body, originalInfo, metadata.chainBoundaries[len(metadata.chainBoundaries)-1], metadata.localSave)
+		if err != nil {
 			return FunctionPlan{}, err
+		}
+		for at := 4; at < len(metadata.scopes); at += 16 {
+			scopeBegin, scopeEnd, target := binary.LittleEndian.Uint32(metadata.scopes[at:]), binary.LittleEndian.Uint32(metadata.scopes[at+4:]), binary.LittleEndian.Uint32(metadata.scopes[at+12:])
+			if scopeBegin < rva+uint32(begin) || scopeEnd > rva+uint32(end) || target != 0 && (target < rva+uint32(begin) || target > rva+uint32(end)) {
+				return fail("scoped local saves require scopes and landings inside the saved body")
+			}
 		}
 	}
 	if metadata.handlerRVA != 0 || len(metadata.localSave) != 0 {
@@ -182,6 +189,7 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 		dataSize = 36 + len(flow.pcMap)*4
 	}
 	var scopes, typeBlocks []byte
+	shadowInfo := append([]byte(nil), originalInfo...)
 	if len(metadata.scopes) != 0 {
 		// The aliased dispatcher keeps the source ImageBase so external filters
 		// and cleanup callbacks retain their original RVAs. Clone code, scopes,
@@ -206,7 +214,21 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 				}
 			}
 		}
-		dataSize = scopeDescriptorSize + len(flow.pcMap)*4 + len(scopes) + 12 + len(originalInfo) + 4 + 16 + len(typeBlocks)
+		if len(metadata.localSave) != 0 {
+			translate, err := scopePCMap(code, flow, rva, 512)
+			if err != nil {
+				return FunctionPlan{}, err
+			}
+			localStart, ok := translate(rva + uint32(metadata.chainBoundaries[len(metadata.chainBoundaries)-1]))
+			if !ok || localStart < 512 {
+				return fail("invalid local scope boundary")
+			}
+			shadowInfo, err = combineScopedUnwind(originalInfo, metadata.localSave, localStart-512)
+			if err != nil {
+				return FunctionPlan{}, err
+			}
+		}
+		dataSize = scopeDescriptorSize + len(flow.pcMap)*4 + len(scopes) + 12 + len(shadowInfo) + 4 + 16 + len(typeBlocks)
 	}
 	total := int(infoRVA) + len(originalInfo) + 4 + dataSize
 	var localInfoRVA uint32
@@ -268,9 +290,10 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 			binary.LittleEndian.PutUint32(descriptor[shadowAt:], difference+512)
 			binary.LittleEndian.PutUint32(descriptor[shadowAt+4:], difference+512+uint32(len(flow.code)))
 			binary.LittleEndian.PutUint32(descriptor[shadowAt+8:], difference+descriptorRVA+uint32(aliasAt))
-			copy(descriptor[aliasAt:], info)
-			binary.LittleEndian.PutUint32(descriptor[aliasAt+len(info):], difference+thunkRVA)
-			alias := descriptor[aliasAt+len(info)+4:]
+			shadowInfo[0] = info[0]
+			copy(descriptor[aliasAt:], shadowInfo)
+			binary.LittleEndian.PutUint32(descriptor[aliasAt+len(shadowInfo):], difference+thunkRVA)
+			alias := descriptor[aliasAt+len(shadowInfo)+4:]
 			binary.LittleEndian.PutUint32(alias, id)
 			binary.LittleEndian.PutUint32(alias[4:], 3) // canonical descriptor alias
 			binary.LittleEndian.PutUint64(alias[8:], base+uint64(descriptorRVA))

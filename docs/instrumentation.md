@@ -981,7 +981,7 @@ primário. O adaptador APHOOKI verifica os registros da cadeia e usa o início d
 primário ao traduzir o PC do clone inteiro. O handler recebe a entrada runtime
 do fragmento original, seu PC e os dados do primário. O ensaio Windows exige
 uma chamada de cleanup por falha, dados/PC exatos e RBX/RSI/XMM6/XMM7 preservados.
-Scopes que capturam/retomam e padding com saves locais continuam recusados.
+Scopes Delphi com saves locais e handlers combinados com padding continuam recusados.
 
 Cadeias contíguas que herdam o frame também podem encaminhar o cleanup
 UHANDLER-only original ou traduzir scopes CRT reconhecidos, com APHOOKF. O
@@ -1073,3 +1073,20 @@ nem outras operações com esses registradores. Três getters reais da DLL origi
 executam mais cem pares cada. Um wrapper nativo estabelece RBP conhecido ou
 confere o retorno com o endereço previsto do slot de retorno. O alvo C confere
 os mesmos invariantes com a entrega real dos breakpoints pelo debugger.
+
+### Scopes CRT com saves locais encadeados
+
+Com APHOOKJ, scopes CRT reconhecidos podem capturar/retomar e executar finally
+em um fragmento com saves locais. O registro shadow do handler combina as ações
+primárias e locais, com os offsets locais ajustados ao começo real do fragmento
+no clone. A cadeia registrada continua separada. A CFI do shadow precisa caber
+em unwind v1: último save até o offset 255 e até 255 slots combinados. O
+planejador recusa scopes que incluam stores/reloads parciais ou landings que
+pulem a restauração. Handlers Delphi e gaps com scopes/saves locais permanecem
+fora desse incremento.
+
+Os alvos Windows conferem catch-all, filtro de AV, RBP com bias, finally normal
+e excepcional, RBX/RSI e os 128 bits de XMM6/XMM7. A seleção inclui outro método
+antes do método com scopes para conferir o segundo stride. A captura deve
+registrar os dois retornos por thread e zero frames abandonados/unwind do
+método que capturou a falha. O finally executa uma vez em cada caminho.
