@@ -35,13 +35,14 @@ base atual: não reimplementar achados já resolvidos.
 
 ## Main e qualidade confirmadas
 
-A main integrou **#113**, em
-`d0bda6fa905e1aa231ba2ded3ffc6a1a327bf4f8`.
+A main integrou **#114**, em
+`523d3955dcbc906a10a2b2c06033bbd4b3525f7a`.
 A árvore é idêntica ao head aprovado
-`570889b15080167db8868f59629fd915ca6f6031`.
-CI pós-merge Go **45876106655**: consultar o resultado atual.
-Autoria pós-merge **45876106596** aprovada.
-Todos os oito checks do head #113 passaram antes do merge.
+`bb88e3dc16a716de0d4d67ee0497ad83af2bca7d`.
+CI pós-merge Go **45876946974**: consultar o resultado atual.
+Autoria pós-merge **45876947064** aprovada.
+Todos os oito checks dos heads #113/#114 passaram antes de seus merges.
+CI pós-merge Go #113 **45876106655** e autoria **45876106596** aprovadas.
 
 Todos os oito checks dos heads abaixo passaram antes do merge. As árvores
 foram comparadas com os heads aprovados. Pós-merge dos #105–#112 aprovado:
@@ -56,7 +57,7 @@ foram comparadas com os heads aprovados. Pós-merge dos #105–#112 aprovado:
 | #110 | Padding inacessível NOP/INT3 antes de saves locais, CFI no começo real do secundário | 45868907025 |
 | #111 | Retomada e configuração explícita da autoria | 45871218857 |
 | #112 | Scopes CRT com saves locais, shadow CFI composta e oráculo RtlVirtualUnwind | 45874518041 |
-| #113 | Reentrada durante busca de exceção no construtor Delphi original e tempos recursivos | 45876106655 (consultar) |
+| #113 | Reentrada durante busca de exceção no construtor Delphi original e tempos recursivos | 45876106655 |
 
 O pós-merge do #104 (45702197290) falhou com ERROR_BAD_LENGTH no E2E de reinício
 ETW. O #105 corrigiu snapshots durante alterações do loader: oito tentativas
@@ -87,8 +88,8 @@ Continuam quatro gates materiais:
 2. Outros layouts de código/unwind/tails além dos casos conferidos. Scopes
    Delphi combinados com saves locais continuam recusados; CRT com saves locais
    foi integrado no #112, com CFI shadow composta e teste direto de RtlVirtualUnwind. Padding com
-   saves locais sem handler já foi integrado no #110; handler com gap permanece
-   recusado. Destinos de tail calls dinâmicos não comprovados continuam fora.
+   saves locais sem handler já foi integrado no #110; CRT com gap curto de NOP/INT3 está no incremento pendente descrito abaixo;
+   outras combinações de handler/gap permanecem recusadas. Destinos de tail calls dinâmicos não comprovados continuam fora.
 3. Compilação e execução do EXE próprio no Delphi 10.4, com símbolos reais.
 4. Custo/operação prolongada em cargas Delphi representativas. C não certifica
    esse ambiente. Não anunciar conclusão enquanto esses gates estiverem abertos.
@@ -218,3 +219,20 @@ O primeiro SHA falhou porque o adaptador de teste síncrono acumulava mais de
 começa em StartCapture e termina com o marcador final conferido. Não repetir o
 CI antigo nem aumentar buffers para esconder a perda. Relatórios separados
 `reference-delphi-nested.json` e `reference-delphi-nested-metrics.ndjson`.
+
+## Incremento de padding com scopes CRT
+
+Worktree `/workspace/work/AntiPessimizerV2-scoped-padding`, branch
+`feat/scoped-chain-padding`, baseada na main #114.
+APHOOKK estende o shadow composto a gaps inacessíveis de até 16 bytes de
+NOP/INT3 de um byte. O fluxo não pode cair/saltar no gap; endpoints/landings de
+scopes também não podem apontar para ele. A origem mantém os fillers; o clone
+mantém os offsets com NOPs. A CFI local e seu shadow começam no secundário real.
+O adaptador verifica a região carregada e a entrada runtime local, sem supor
+adjacência com o primário. O protocolo recusa DLL antiga antes do payload.
+Modo 31 exige retorno, catch interno, finally normal/excepcional e os saves
+completos de RBX/RSI/XMM6/XMM7, em um stride posterior ao método auxiliar.
+Oráculo RtlVirtualUnwind repetido com gap. Testes portáveis/cross-build locais
+passaram; exigir comparação Windows e todos os checks do head antes de integrar.
+Handler Delphi e UHANDLER-only com gap continuam recusados. Não reaplicar
+#112/#113/#114; estes já estão integrados.

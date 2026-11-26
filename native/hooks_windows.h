@@ -144,8 +144,18 @@ static BOOL hook_inherited_extent(unsigned char *image,RUNTIME_FUNCTION *primary
     while(previous->EndAddress<end){
         if(++index>=directory.Size/12)return FALSE;
         RUNTIME_FUNCTION *next=&table[index];
-        if(next->BeginAddress!=previous->EndAddress || next->EndAddress<=next->BeginAddress || next->EndAddress>end ||
+        if(next->BeginAddress<previous->EndAddress || next->EndAddress<=next->BeginAddress || next->EndAddress>end ||
            next->UnwindData%4 || (uint64_t)next->UnwindData+16>nt->OptionalHeader.SizeOfImage)return FALSE;
+        if(next->BeginAddress>previous->EndAddress){
+            uint32_t gap=next->BeginAddress-previous->EndAddress;
+            if(gap>16)return FALSE;
+            MEMORY_BASIC_INFORMATION padding;
+            const unsigned char *bytes=image+previous->EndAddress;
+            if(!VirtualQuery(bytes,&padding,sizeof(padding)) || padding.AllocationBase!=image || padding.State!=MEM_COMMIT ||
+               (padding.Protect&0xff)!=PAGE_EXECUTE_READ || (padding.Protect&PAGE_GUARD) ||
+               (uintptr_t)bytes+gap>(uintptr_t)padding.BaseAddress+padding.RegionSize)return FALSE;
+            for(uint32_t i=0;i<gap;i++)if(bytes[i]!=0x90 && bytes[i]!=0xcc)return FALSE;
+        }
         const unsigned char *info=image+next->UnwindData;
         MEMORY_BASIC_INFORMATION memory;
         if(!VirtualQuery(info,&memory,sizeof(memory)) || memory.AllocationBase!=image || memory.State!=MEM_COMMIT ||
@@ -194,6 +204,13 @@ static BOOL hook_forward_info_at(unsigned char *image,const unsigned char *data,
     uint32_t scope_bytes=hook_u32(data+40),shadow_at=hook_u32(data+48),scope_at=hook_u32(data+52);
     uint32_t style=hook_u32(data+36);
     if((style!=1 && style!=2 && style!=3) || (style>=2 && info[0]!=25) || hook_u32(data+44)!=info[0] || scope_at!=map_at+count*4 || scope_bytes<20 || scope_bytes>4+64*16 || (scope_bytes-4)%16 || (uint64_t)scope_at+scope_bytes+12+info_bytes+20>available || (style!=3 && shadow_at!=scope_at+scope_bytes) || (uint64_t)shadow_at+12+info_bytes+20>available || (uint64_t)handler_data+scope_bytes>image_size)return FALSE;
+    uint32_t source_local_start=original->EndAddress;
+    if(local_info){
+        DWORD64 source_base=0;
+        RUNTIME_FUNCTION *last=RtlLookupFunctionEntry((uintptr_t)image+rva+size-1,&source_base,NULL);
+        if(!last || source_base!=(uintptr_t)image || last->BeginAddress<original->EndAddress || last->EndAddress!=rva+size)return FALSE;
+        source_local_start=last->BeginAddress;
+    }
     const unsigned char *scope=data+scope_at,*original_scope=image+handler_data;
     uint32_t scopes=hook_u32(scope);
     if(scopes!=(scope_bytes-4)/16 || scopes!=hook_u32(original_scope))return FALSE;
@@ -246,7 +263,7 @@ static BOOL hook_forward_info_at(unsigned char *image,const unsigned char *data,
         const unsigned char *a=original_scope+4+i*16,*b=scope+4+i*16;
         uint32_t begin=hook_u32(a),end=hook_u32(a+4),filter=hook_u32(a+8),target=hook_u32(a+12);
         if((uint64_t)begin<(uint64_t)rva+info[1] || begin>=end || (uint64_t)end>(uint64_t)rva+size )return FALSE;
-        if(local_info && (begin<(uint64_t)original->EndAddress+local_info[1] || (target && target<(uint64_t)original->EndAddress+local_info[1])))return FALSE;
+        if(local_info && (begin<(uint64_t)source_local_start+local_info[1] || (target && target<(uint64_t)source_local_start+local_info[1])))return FALSE;
         BOOL cleanup=style==1?!target:filter==0;
         uint32_t callback=style>=2?(cleanup?target:0):filter;
         BOOL typed=style==3 && filter>2;
@@ -289,6 +306,16 @@ static const unsigned char *hook_local_save(APHookProcedure procedure) {
     return info;
 }
 static unsigned char hook_chain_offer(void) {
+    for(uint32_t i=0;i<hooks.count;i++){
+        DWORD64 base=0;
+        APHookProcedure p=hooks.selected[i];
+        RUNTIME_FUNCTION *primary=RtlLookupFunctionEntry((uintptr_t)hooks.image+p.rva,&base,NULL);
+        const IMAGE_NT_HEADERS64 *nt=(const IMAGE_NT_HEADERS64 *)(hooks.image+((const IMAGE_DOS_HEADER *)hooks.image)->e_lfanew);
+        if(primary && base==(uintptr_t)hooks.image && primary->BeginAddress==p.rva && primary->EndAddress<(uint64_t)p.rva+p.size &&
+           (uint64_t)primary->UnwindData+4<=nt->OptionalHeader.SizeOfImage &&
+           (hooks.image[primary->UnwindData]==9 || hooks.image[primary->UnwindData]==17 || hooks.image[primary->UnwindData]==25))return 'K';
+    }
+
     for(uint32_t i=0;i<hooks.count;i++){
         const unsigned char *local=hook_local_save(hooks.selected[i]);
         if(local){
@@ -391,7 +418,7 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
                     if(secondary->BeginAddress!=f->EndAddress || secondary->EndAddress<=secondary->BeginAddress || secondary->EndAddress>stride_end || secondary->EndAddress>table)return FALSE;
                     forward_body.EndAddress=secondary->EndAddress;
                 }
-                if(!hook_forward_info_at(hooks.image,hooks.memory+data_at,table-data_at,&forward_body,owner,info,extra,local?hook_local_save(hooks.selected[owner]):NULL,local?hooks.table[index+1].BeginAddress-f->BeginAddress:0) || (info[0]==25)!=(hook_u32(hooks.memory+data_at+4)==2) || (local && hook_u32(hooks.memory+data_at+4) && !((hook_u32(hooks.memory+data_at+4)==1 && (chain_version=='I'||chain_version=='J')) || (hook_u32(hooks.memory+data_at+4)==2 && chain_version=='J'))))return FALSE;
+                if(!hook_forward_info_at(hooks.image,hooks.memory+data_at,table-data_at,&forward_body,owner,info,extra,local?hook_local_save(hooks.selected[owner]):NULL,local?hooks.table[index+1].BeginAddress-f->BeginAddress:0) || (info[0]==25)!=(hook_u32(hooks.memory+data_at+4)==2) || (local && hook_u32(hooks.memory+data_at+4) && !((hook_u32(hooks.memory+data_at+4)==1 && (chain_version=='I'||chain_version=='J'||chain_version=='K')) || (hook_u32(hooks.memory+data_at+4)==2 && (chain_version=='J'||chain_version=='K')))))return FALSE;
             }else if(local && role==2){
                 const unsigned char *source=hook_local_save(hooks.selected[owner]);
                 if(!source || f->BeginAddress!=primary->EndAddress || info[2]!=source[2])return FALSE;
@@ -404,8 +431,8 @@ static BOOL hook_exchange(HANDLE pipe,BOOL general) {
                     uint32_t op=info[at+1]&15;
                     BOOL far_offset=op==5 || op==9;
                     if(op!=4 && op!=5 && op!=8 && op!=9)return FALSE;
-                    if(far_offset && chain_version!='G' && chain_version!='H' && chain_version!='I' && chain_version!='J')return FALSE;
-                    if((op==8 || op==9) && chain_version!='E' && chain_version!='F' && chain_version!='G' && chain_version!='H' && chain_version!='I' && chain_version!='J')return FALSE;
+                    if(far_offset && chain_version!='G' && chain_version!='H' && chain_version!='I' && chain_version!='J' && chain_version!='K')return FALSE;
+                    if((op==8 || op==9) && chain_version!='E' && chain_version!='F' && chain_version!='G' && chain_version!='H' && chain_version!='I' && chain_version!='J' && chain_version!='K')return FALSE;
                     uint32_t step=far_offset?6:4;
                     if(at+step>4u+info[2]*2u)return FALSE;
                     at+=step;

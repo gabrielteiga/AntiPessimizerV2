@@ -568,6 +568,12 @@ func TestLocalSaveCleanupRequiresPrimaryAwareAdapter(t *testing.T) {
 }
 
 func TestScopedLocalSavesRequireCompositeShadowAdapter(t *testing.T) {
+	testScopedLocalAdapter(t, false)
+}
+func TestScopedPaddingRequiresVerifiedPaddingAdapter(t *testing.T) {
+	testScopedLocalAdapter(t, true)
+}
+func testScopedLocalAdapter(t *testing.T, padded bool) {
 	image := append(hookImage(), make([]byte, 0x400)...)
 	put := binary.LittleEndian.PutUint32
 	put(image[128+24+240+8:], 0x600)
@@ -602,7 +608,21 @@ func TestScopedLocalSavesRequireCompositeShadowAdapter(t *testing.T) {
 	binary.LittleEndian.PutUint64(image[0x440:], 0x5260)
 	copy(image[0x462:], "__C_specific_handler\x00")
 	copy(image[0x480:], "msvcrt.dll\x00")
-	for _, version := range []string{"APHOOKI\x00", "APHOOKJ\x00"} {
+	if padded {
+		original := code
+		code = append(bytes.Clone(original[:12]), 0xeb, 8)
+		code = append(code, 0xcc, 0x90, 0xcc, 0x90, 0x90, 0xcc, 0x90, 0xcc)
+		code = append(code, original[12:]...)
+		copy(image[0x220:], code)
+		put(image[0x304:], 0x502e)
+		put(image[0x30c:], 0x5036)
+		put(image[0x310:], 0x5020+uint32(len(code)))
+		copy(image[0x388:], image[0x300:0x30c])
+		for _, at := range []int{0x350, 0x354, 0x35c} {
+			put(image[at:], binary.LittleEndian.Uint32(image[at:])+10)
+		}
+	}
+	for _, version := range []string{"APHOOKI\x00", "APHOOKJ\x00", "APHOOKK\x00"} {
 		offer := make([]byte, 65)
 		copy(offer, hookOffer()[:48])
 		copy(offer, version)
@@ -614,6 +634,12 @@ func TestScopedLocalSavesRequireCompositeShadowAdapter(t *testing.T) {
 		offer[64] = 1
 		stream := &hookStream{in: bytes.NewReader(offer)}
 		err := installHooks(stream, image, []Procedure{{2, 0x50a0}, {1, 0x5020}})
+		if padded && version[6] != 'K' {
+			if err == nil || !strings.Contains(err.Error(), "requires APHOOKK") || stream.out.Len() != 1 {
+				t.Fatal("older adapter received scoped padding", err)
+			}
+			continue
+		}
 		if version[6] == 'I' {
 			if err == nil || !strings.Contains(err.Error(), "require APHOOKJ") || stream.out.Len() != 1 {
 				t.Fatal("older adapter received scoped local plan", err)
@@ -631,7 +657,11 @@ func TestScopedLocalSavesRequireCompositeShadowAdapter(t *testing.T) {
 		descriptor := info[12:]
 		shadow := descriptor[binary.LittleEndian.Uint32(descriptor[48:]):]
 		alias := payload[binary.LittleEndian.Uint32(shadow[8:])-0x10000:]
-		if !bytes.Equal(alias[:12], []byte{25, 17, 3, 0, 17, 0x34, 3, 0, 4, 0x42, 0, 0}) {
+		localEnd := byte(17)
+		if padded {
+			localEnd = 30
+		}
+		if !bytes.Equal(alias[:12], []byte{25, localEnd, 3, 0, localEnd, 0x34, 3, 0, 4, 0x42, 0, 0}) {
 			t.Fatal("secondary stride lost combined shadow actions", alias[:12])
 		}
 	}

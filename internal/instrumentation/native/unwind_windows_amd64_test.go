@@ -190,7 +190,7 @@ func TestNativeProducerCatchesScopesWithChainedLocalSaves(t *testing.T) {
 func testNativeInheritedChainedFrame(t *testing.T, symbol string, gap uint32, mode string) {
 	t.Helper()
 	names := map[string]uint32{symbol: 1, symbol + "Cold": 2}
-	withStackProbe := mode == "3" || mode == "4" || mode == "5" || mode == "6" || mode == "7" || mode == "11" || mode == "12" || mode == "13" || mode == "14" || mode == "15" || mode == "16" || mode == "17" || mode == "18" || mode == "19" || mode == "20" || mode == "21" || mode == "22" || mode == "23" || mode == "24" || mode == "25" || mode == "26" || mode == "27" || mode == "28" || mode == "29" || mode == "30"
+	withStackProbe := mode == "3" || mode == "4" || mode == "5" || mode == "6" || mode == "7" || mode == "11" || mode == "12" || mode == "13" || mode == "14" || mode == "15" || mode == "16" || mode == "17" || mode == "18" || mode == "19" || mode == "20" || mode == "21" || mode == "22" || mode == "23" || mode == "24" || mode == "25" || mode == "26" || mode == "27" || mode == "28" || mode == "29" || mode == "30" || mode == "31" || mode == "32"
 	if withStackProbe {
 		names["APFrameStackProbe"] = 3
 	}
@@ -232,7 +232,7 @@ func testNativeInheritedChainedFrame(t *testing.T, symbol string, gap uint32, mo
 		t.Fatal("chained unwind left incomplete or missing frames", s)
 	}
 	wantUnwound := uint64(1)
-	if mode == "9" || mode == "10" || mode == "28" || mode == "29" || mode == "30" {
+	if mode == "9" || mode == "10" || mode == "28" || mode == "29" || mode == "30" || mode == "31" || mode == "32" {
 		wantUnwound = 0
 	}
 	for _, row := range s.Rows {
@@ -267,4 +267,12 @@ func TestNativeProducerIndexedJumpTablePreservesCasesFlagsAndUnwind(t *testing.T
 			t.Fatal("index paths did not record five returns and one unwind per thread", row)
 		}
 	}
+}
+
+func TestNativeProducerCatchesScopesAfterUnreachablePadding(t *testing.T) {
+	testNativeInheritedChainedFrame(t, "APFramePaddedScopedSaves", 8, "31")
+}
+
+func TestNativeProducerCatchesInheritedScopesAfterPadding(t *testing.T) {
+	testNativeInheritedChainedFrame(t, "APFramePaddedFinallyChain", 8, "32")
 }

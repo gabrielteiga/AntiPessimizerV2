@@ -100,3 +100,68 @@ func TestScopedLocalShadowKeepsOddFARSlotsWithoutPadding(t *testing.T) {
 		t.Fatal("FAR action or odd padding changed", alias, err)
 	}
 }
+
+func scopedPaddedLocalPE() ([]byte, []byte) {
+	return scopedPaddedLocalPEWithGap([]byte{0xcc, 0x90, 0x90, 0xcc, 0xcc, 0x90, 0x90, 0xcc})
+}
+func scopedPaddedLocalPEWithGap(gap []byte) ([]byte, []byte) {
+	image, original := scopedLocalPE()
+	code := append(bytes.Clone(original[:20]), 0xeb, byte(len(gap)))
+	code = append(code, gap...)
+	code = append(code, original[20:]...)
+	copy(image[0x220:], code)
+	w32(image, 0x404, peLeafRVA+22)
+	w32(image, 0x40c, peLeafRVA+22+uint32(len(gap)))
+	w32(image, 0x410, peLeafRVA+uint32(len(code)))
+	copy(image[0x4dc:], image[0x400:0x40c])
+	for _, at := range []int{0x494, 0x498, 0x4a0} {
+		w32(image, at, binary.LittleEndian.Uint32(image[at:])+2+uint32(len(gap)))
+	}
+	return image, code
+}
+func TestScopedLocalSavesPreservePaddingAndShadowOffsets(t *testing.T) {
+	image, code := scopedPaddedLocalPE()
+	plan, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+	if err != nil || !plan.PaddedHandler || len(plan.Functions) != 4 {
+		t.Fatal("CRT padding rejected", err)
+	}
+	if !bytes.Equal(plan.Source, code) || plan.Functions[2].Begin != plan.BodyRVA+33 {
+		t.Fatal("padding changed source/local CFI", plan.Functions)
+	}
+	info := plan.Image[plan.Functions[1].Unwind:]
+	descriptor := info[16:]
+	shadow := descriptor[binary.LittleEndian.Uint32(descriptor[48:]):]
+	alias := plan.Image[binary.LittleEndian.Uint32(shadow[8:])-0x80000:]
+	if alias[1] != 43 || alias[4] != 43 || alias[8] != 38 {
+		t.Fatal("shadow used gap instead of local stores", alias[:20])
+	}
+	for name, change := range map[string]func([]byte){
+		"fallthrough":         func(b []byte) { b[0x234] = 0x90; b[0x235] = 0x90 },
+		"branch into padding": func(b []byte) { b[0x235] = 4 },
+		"nonpadding":          func(b []byte) { b[0x236] = 0xc3 },
+		"scope begins in gap": func(b []byte) { w32(b, 0x494, peLeafRVA+22) },
+		"landing in gap":      func(b []byte) { w32(b, 0x4a0, peLeafRVA+23) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			bad := bytes.Clone(image)
+			change(bad)
+			if _, err := BuildPEFunction(bad, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7); !errors.Is(err, ErrUnsupported) {
+				t.Fatal("invalid scoped gap accepted", err)
+			}
+		})
+	}
+}
+
+func TestScopedChainPaddingLengthAndEncodingAreBounded(t *testing.T) {
+	for _, n := range []int{16, 17} {
+		image, code := scopedPaddedLocalPEWithGap(bytes.Repeat([]byte{0x90}, n))
+		_, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+		if n == 16 && err != nil || n == 17 && !errors.Is(err, ErrUnsupported) {
+			t.Fatal("wrong CRT padding limit", n, err)
+		}
+	}
+	image, code := scopedPaddedLocalPEWithGap([]byte{0x66, 0x90})
+	if _, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7); !errors.Is(err, ErrUnsupported) {
+		t.Fatal("multi-byte CRT padding accepted", err)
+	}
+}

@@ -1109,3 +1109,24 @@ Os relatórios `reference-delphi-nested.json` e
 `reference-delphi-nested-metrics.ndjson` ficam nos artefatos Windows.
 Isso cobre reentrada durante busca de exceção na revisão fixada; a recursão é
 conduzida pelo chamador C e não certifica código Pascal compilado no Delphi 10.4.
+
+### Padding inacessível com scopes CRT
+
+APHOOKK acrescenta gaps de até 16 bytes de NOP/INT3 de um byte entre fragmentos
+que herdam o mesmo frame com scopes CRT reconhecidos. A validação de fluxo
+exige salto ou retorno antes do gap e rejeita branches, começos/fins de scopes
+e landings dentro dele. Um scope pode terminar exatamente no começo do gap.
+Delphi e cleanup UHANDLER-only com gaps continuam recusados.
+
+A imagem de origem conserva os fillers; o clone mantém os offsets com NOPs.
+Com saves locais, a CFI secundária e os CodeOffsets do shadow começam no
+secundário real, após o gap e o alargamento do salto. O adaptador verifica os
+bytes do gap no EXE carregado e deriva a posição dos stores da entrada runtime
+secundária, sem supor adjacência com o primário. DLL anterior recusa o plano
+antes do payload.
+
+O modo 31 da fixture Windows exige retorno, catch interno e finally normal e
+excepcional, preservando RBX/RSI e os 128 bits de XMM6/XMM7. Um procedimento
+selecionado precede o alvo para exercitar o segundo stride. O teste direto
+RtlVirtualUnwind também confere o shadow composto após esse padding. O modo 32
+confere catch/finally com gap e CFI apenas herdada, sem saves locais.
