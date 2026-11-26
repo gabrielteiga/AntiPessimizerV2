@@ -7,6 +7,12 @@ import (
 )
 
 func TestScopedLocalShadowRestoresCallerThroughWindowsVirtualUnwind(t *testing.T) {
+	testScopedLocalShadowUnwind(t, false)
+}
+func TestPaddedScopedLocalShadowRestoresCallerThroughWindowsVirtualUnwind(t *testing.T) {
+	testScopedLocalShadowUnwind(t, true)
+}
+func testScopedLocalShadowUnwind(t *testing.T, padded bool) {
 	memory, err := windows.VirtualAlloc(0, 16384, windows.MEM_COMMIT|windows.MEM_RESERVE, windows.PAGE_READWRITE)
 	if err != nil {
 		t.Fatal(err)
@@ -34,6 +40,9 @@ func TestScopedLocalShadowRestoresCallerThroughWindowsVirtualUnwind(t *testing.T
 		return data
 	}
 	image, code := scopedLocalPE()
+	if padded {
+		image, code = scopedPaddedLocalPE()
+	}
 	loaded := uint64(memory) - 0x8000
 	plan, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), loaded, uint64(memory), uint64(memory+8192), uint64(memory+8200), uint64(memory+8300), 7)
 	if err != nil {

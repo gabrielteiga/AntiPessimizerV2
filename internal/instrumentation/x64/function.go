@@ -18,6 +18,7 @@ type FunctionPlan struct {
 	Functions                      []RuntimeFunction
 	OriginalHandlerRVA             uint32
 	InheritedHandler               bool
+	PaddedHandler                  bool
 	RelocatedHandler               bool
 	HandlerScopeStyle              uint32
 }
@@ -81,6 +82,20 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 	}
 	if err := validateChainCode(code, metadata.chainBoundaries, metadata.chainGaps); err != nil {
 		return FunctionPlan{}, err
+	}
+	for at := 4; at < len(metadata.scopes); at += 16 {
+		for _, gap := range metadata.chainGaps {
+			for _, field := range []int{0, 4, 12} {
+				pc := binary.LittleEndian.Uint32(metadata.scopes[at+field:])
+				if field == 12 && pc == 0 {
+					continue
+				}
+				// A scope can end exactly at the gap; a begin/landing cannot enter it.
+				if pc >= rva+uint32(gap.begin) && pc < rva+uint32(gap.end) && (field != 4 || pc != rva+uint32(gap.begin)) {
+					return fail("exception scope endpoint targets unreachable chain padding")
+				}
+			}
+		}
 	}
 	entry := entryJump(source, base)
 	body, prefix := code, 0
@@ -336,7 +351,7 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 		functions = append(functions, secondary)
 	}
 	functions = append(functions, RuntimeFunction{flow.exitRVA, flow.exitRVA + out.CodeSize, flow.exitRVA + out.UnwindRVA})
-	return FunctionPlan{TailTargets: tails, Original: append([]byte(nil), code[:flow.overwrite]...), Source: append([]byte(nil), code...), Patch: patch, Image: data, BodyRVA: 512, ExitRVA: flow.exitRVA, OriginalHandlerRVA: metadata.handlerRVA, InheritedHandler: metadata.handlerRVA != 0 && len(metadata.chainBoundaries) != 0, RelocatedHandler: len(scopes) != 0, HandlerScopeStyle: metadata.scopeStyle, Functions: functions}, nil
+	return FunctionPlan{TailTargets: tails, Original: append([]byte(nil), code[:flow.overwrite]...), Source: append([]byte(nil), code...), Patch: patch, Image: data, BodyRVA: 512, ExitRVA: flow.exitRVA, OriginalHandlerRVA: metadata.handlerRVA, InheritedHandler: metadata.handlerRVA != 0 && len(metadata.chainBoundaries) != 0, PaddedHandler: metadata.handlerRVA != 0 && len(metadata.chainGaps) != 0, RelocatedHandler: len(scopes) != 0, HandlerScopeStyle: metadata.scopeStyle, Functions: functions}, nil
 }
 
 // The pinned Delphi RTL copies four CPUID results into RCX and restores RBX

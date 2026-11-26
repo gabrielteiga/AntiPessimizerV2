@@ -100,3 +100,51 @@ func TestScopedLocalShadowKeepsOddFARSlotsWithoutPadding(t *testing.T) {
 		t.Fatal("FAR action or odd padding changed", alias, err)
 	}
 }
+
+func scopedPaddedLocalPE() ([]byte, []byte) {
+	image, original := scopedLocalPE()
+	code := append(bytes.Clone(original[:20]), 0xeb, 8)
+	code = append(code, 0xcc, 0x90, 0x90, 0xcc, 0xcc, 0x90, 0x90, 0xcc)
+	code = append(code, original[20:]...)
+	copy(image[0x220:], code)
+	w32(image, 0x404, peLeafRVA+22)
+	w32(image, 0x40c, peLeafRVA+30)
+	w32(image, 0x410, peLeafRVA+uint32(len(code)))
+	copy(image[0x4dc:], image[0x400:0x40c])
+	for _, at := range []int{0x494, 0x498, 0x4a0} {
+		w32(image, at, binary.LittleEndian.Uint32(image[at:])+10)
+	}
+	return image, code
+}
+func TestScopedLocalSavesPreservePaddingAndShadowOffsets(t *testing.T) {
+	image, code := scopedPaddedLocalPE()
+	plan, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+	if err != nil || !plan.PaddedHandler || len(plan.Functions) != 4 {
+		t.Fatal("CRT padding rejected", err)
+	}
+	if !bytes.Equal(plan.Source, code) || plan.Functions[2].Begin != plan.BodyRVA+33 {
+		t.Fatal("padding changed source/local CFI", plan.Functions)
+	}
+	info := plan.Image[plan.Functions[1].Unwind:]
+	descriptor := info[16:]
+	shadow := descriptor[binary.LittleEndian.Uint32(descriptor[48:]):]
+	alias := plan.Image[binary.LittleEndian.Uint32(shadow[8:])-0x80000:]
+	if alias[1] != 43 || alias[4] != 43 || alias[8] != 38 {
+		t.Fatal("shadow used gap instead of local stores", alias[:20])
+	}
+	for name, change := range map[string]func([]byte){
+		"fallthrough":         func(b []byte) { b[0x234] = 0x90; b[0x235] = 0x90 },
+		"branch into padding": func(b []byte) { b[0x235] = 4 },
+		"nonpadding":          func(b []byte) { b[0x236] = 0xc3 },
+		"scope begins in gap": func(b []byte) { w32(b, 0x494, peLeafRVA+22) },
+		"landing in gap":      func(b []byte) { w32(b, 0x4a0, peLeafRVA+23) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			bad := bytes.Clone(image)
+			change(bad)
+			if _, err := BuildPEFunction(bad, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7); !errors.Is(err, ErrUnsupported) {
+				t.Fatal("invalid scoped gap accepted", err)
+			}
+		})
+	}
+}
