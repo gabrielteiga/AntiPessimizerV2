@@ -25,6 +25,7 @@ static HANDLE *reference_client;
 static uintptr_t reference_image;
 static uint32_t reference_pair;
 static BOOL reference_malformed;
+static BOOL (*reference_flush)(void);
 static BOOL reference_exception_class(const EXCEPTION_RECORD *record,char name[64]){
  if(record->NumberParameters!=7 || !record->ExceptionInformation[1])return FALSE;
  HANDLE self=GetCurrentProcess();
@@ -146,6 +147,7 @@ static BOOL worker_call(BOOL malformed){
 }
 static BOOL pairs(uint32_t count){
  for(uint32_t i=0;i<count;i++){
+  if(reference_flush && i && i%32==0 && !reference_flush())return FALSE;
   if(worker_mode){reference_pair=i+1;if(!worker_call(FALSE)||!worker_call(TRUE))return FALSE;continue;}
   _Alignas(16) unsigned char object[128]={0};
   if(APReferenceCall(object)!=(uintptr_t)object || object[8]!=1 || *(uintptr_t *)(object+16))return FALSE;
@@ -226,9 +228,9 @@ int wmain(int argc,wchar_t **argv){
  union {FARPROC proc;uintptr_t (*address)(void);} helper;helper.proc=GetProcAddress(adapter,"APReferenceUnwindAddress");if(!helper.proc)return 8;
  union {FARPROC proc;BOOL (*validate)(uintptr_t,uintptr_t,uint32_t,const RUNTIME_FUNCTION *,uint32_t,uint32_t);} verifier;
  verifier.proc=GetProcAddress(adapter,"APReferenceValidatePlan");if(!verifier.proc)return 8;
- union {FARPROC proc;BOOL (*start)(uintptr_t,uint32_t);} capture_start;
+ union {FARPROC proc;BOOL (*start)(uintptr_t,uint32_t,const wchar_t *);} capture_start;
  capture_start.proc=GetProcAddress(adapter,"APReferenceStartCapture");if(!capture_start.proc)return 8;
- union {FARPROC proc;BOOL (*finish)(const wchar_t *,uint32_t *,uint32_t *,uint32_t *);} capture_finish;
+ union {FARPROC proc;BOOL (*finish)(uint32_t *,uint32_t *,uint32_t *);} capture_finish;
  capture_finish.proc=GetProcAddress(adapter,"APReferenceFinishCapture");if(!capture_finish.proc)return 8;
  union {FARPROC proc;uintptr_t (*address)(void);} enter_helper,exit_helper;
  enter_helper.proc=GetProcAddress(adapter,"APReferenceEnterAddress");exit_helper.proc=GetProcAddress(adapter,"APReferenceExitAddress");if(!enter_helper.proc || !exit_helper.proc)return 8;
@@ -265,7 +267,10 @@ int wmain(int argc,wchar_t **argv){
  }
  DWORD protection=0;
  if(!VirtualProtect(memory,16384,PAGE_EXECUTE_READ,&protection)||!FlushInstructionCache(GetCurrentProcess(),memory,size)||!RtlAddFunctionTable(functions,3,(DWORD64)(uintptr_t)memory))return 11;
- if(!capture_start.start((uintptr_t)image,source_rva))return 16;
+ union {FARPROC proc;BOOL (*flush)(void);} capture_flush;
+ capture_flush.proc=GetProcAddress(adapter,"APReferenceFlushCapture");if(!capture_flush.proc)return 16;
+ if(!capture_start.start((uintptr_t)image,source_rva,argv[3]))return 16;
+ reference_flush=capture_flush.flush;
  reference_target=(uintptr_t)memory;
  fprintf(stderr,"cloned Delphi: %s\n",worker_mode?"typed Exception catch, normal return and Go metrics":"original handler, capture/resume/reraise and cleanup");
  if(!pairs(100) || bad || (worker_mode?(caught!=0 || typed_exceptions!=104):caught!=(nested_mode?416:104))){fprintf(stderr,"clone failed caught=%ld code=%lx bad=%ld\n",caught,observed_exception,bad);return 12;}
@@ -277,7 +282,7 @@ int wmain(int argc,wchar_t **argv){
   CloseHandle(sender);CloseHandle(command_ready);CloseHandle(command_done);
  }
  uint32_t entries=0,returns=0,unwinds=0;
- if(!capture_finish.finish(argv[3],&entries,&returns,&unwinds) || entries!=(nested_mode?800u:200u) || returns!=(worker_mode?200u:nested_mode?400u:100u) || unwinds!=(worker_mode?0u:nested_mode?400u:100u) || (nested_mode && max_nested_depth!=3)){fprintf(stderr,"native capture incomplete enter=%u return=%u unwind=%u\n",entries,returns,unwinds);return 17;}
+ if(!capture_finish.finish(&entries,&returns,&unwinds) || entries!=(nested_mode?800u:200u) || returns!=(worker_mode?200u:nested_mode?400u:100u) || unwinds!=(worker_mode?0u:nested_mode?400u:100u) || (nested_mode && max_nested_depth!=3)){fprintf(stderr,"native capture incomplete enter=%u return=%u unwind=%u\n",entries,returns,unwinds);return 17;}
  if((!worker_mode && observed_exception!=0x0eedfadeu) || memcmp(original,image+source_rva,source_size))return 15;
  if(!RtlDeleteFunctionTable(functions)||!VirtualFree(memory,0,MEM_RELEASE))return 13;
  printf("{\"baseline_pairs\":4,\"instrumented_pairs\":100,\"entries\":%u,\"returns\":%u,\"unwinds\":%u,\"caught\":%ld,\"exception_code\":%lu,\"typed_exceptions\":%ld,\"nested_filter_depth\":%u}\n",entries,returns,unwinds,caught,observed_exception,typed_exceptions,max_nested_depth);fflush(stdout);
