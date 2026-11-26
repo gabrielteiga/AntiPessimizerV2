@@ -96,8 +96,9 @@ corpos relocados, mais construtor/worker com RTL inicializado. Os novos getters
 conferem RBP conhecido e slot de retorno previsto em wrapper nativo. A entrega
 real de breakpoints é testada no alvo C separado; o original não é modificado.
 A análise estática mantém **8.656/8.777** planos comuns e informa separadamente
-**113** folhas pequenas aceitas quando explicitamente selecionadas, incluindo
-523 métodos com scopes Delphi. Não somar isso como percentual de paridade.
+**113** folhas pequenas aceitas quando explicitamente selecionadas. Os planos
+comuns incluem 523 métodos com scopes Delphi. Não somar essas contagens como
+percentual de paridade.
 
 ## Delphi 10.4: PR #61
 
