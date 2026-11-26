@@ -1,254 +1,156 @@
 # Retomada do AntiPessimizerV2
 
-Atualizado em 25/11/2026. Este arquivo substitui a necessidade de importar o
-histórico da conversa. Continue o projeto existente; não recrie sua base.
+Atualizado em 26/11/2026. Continue o repositório existente. Este arquivo reúne
+as instruções e o estado necessário para retomar sem importar a conversa.
 
-## Objetivo e instruções permanentes
+## Objetivo e regras permanentes
 
-- Repositório: https://github.com/gabrielteiga/AntiPessimizerV2
-- Adaptar o funcionamento principal do Hoshoyo/AntiPessimizer para Go, com
-  contagens reais, tempos inclusivos/exclusivos, médias, threads e exceções.
-- Alvo: aplicações Delphi em Windows x64, Intel ou AMD. Linux valida o núcleo.
-- Continuar autonomamente até concluir as funcionalidades mapeadas, com testes
-  automatizados e comparação de comportamento. O usuário confirmou que só fará
-  validação manual quando o projeto estiver completamente finalizado.
-- Não pedir validação, compilação ou decisões rotineiras intermediárias.
-  Usar o original fixado e as fixtures como referência de comportamento.
-- Trabalhar em branch/PR. Nunca enviar implementação diretamente à main.
-  Antes do merge, exigir CI aprovado no commit exato: Linux/core/race e Windows,
-  incluindo nativo, referência Delphi, ETW, janela, executáveis e pacote.
-- Não enfraquecer testes para esconder regressões. Atualizar expectativas quando
-  o comportamento mudar com justificativa na referência. Diferenciar execução
-  real, elegibilidade estática e compatibilidade ainda não comprovada.
-- A certificação Delphi 10.4 depende da execução do fluxo de validação com o
-  compilador licenciado. A contagem dos itens do plano dá peso igual aos blocos
-  e serve para acompanhamento. A aceitação depende das validações de cada bloco.
+- https://github.com/gabrielteiga/AntiPessimizerV2. Adaptar o fluxo principal do
+  Hoshoyo/AntiPessimizer para Go, com chamadas reais, tempos inclusivos/exclusivos,
+  médias, threads, exceções e seleção de procedimentos/unidades.
+- Alvo: Delphi 10.4, Windows x64, Intel ou AMD. Linux valida o núcleo portável.
+- Continuar autonomamente até terminar as funcionalidades mapeadas ou esgotar o
+  contexto disponível. Não encerrar após um único incremento. Não pedir testes
+  ou validação manual intermediários: o usuário só fará isso quando estiver pronto.
+- Trabalhar por branch/PR, preservando alterações locais. Nunca enviar código
+  diretamente à main nem reaplicar entregas já integradas.
+- Merge somente com **todos os checks aprovados no SHA exato**, incluindo autoria,
+  Linux/race e Windows nativo, referência Delphi, ETW, GUI, executáveis e pacote.
+  Conferir head novamente, integrar com expected_head_sha, comparar a árvore
+  resultante com a aprovada e acompanhar a CI pós-merge antes da próxima integração.
+- Corrigir regressões; não enfraquecer testes. Distinguir análise estática,
+  execução real de fixtures e certificação de um compilador inteiro.
+- Autoria exclusiva do proprietário Gabriel Teiga (`gabrielteiga`). Nenhum nome
+  de assistente/modelo/ferramenta/provedor em autor, committer, assinatura ou
+  trailers automáticos. Executar `scripts/configure-owner-attribution.sh` em
+  cada sessão/clone; conferir `.githooks/owner-policy identity` antes de commits
+  e `.githooks/owner-policy commit HEAD` antes do push. Manter hooks e CI ativos.
+  A regra também está em AGENTS.md, nas instruções globais e do workspace.
 
-Leia AGENTS.md, README.md e docs/plan.md primeiro. Consulte também
-`docs/ESPECIFICACAO_GO_PROFILER.md` e
-`docs/phase0/antipessimizer-reference.md`. A especificação inicial dizia que
-instrumentação era futura; a decisão posterior do usuário tornou-a obrigatória.
-A auditoria hoshoyo-fidelity-audit.md é histórica: não reimplemente achados que
-já foram resolvidos. README/plano descrevem o estado atual.
+Leia a seguir AGENTS.md, README.md e docs/plan.md. Consulte a especificação,
+`docs/phase0/antipessimizer-reference.md` e os limites em instrumentation.md.
+A auditoria de fidelidade é histórica; não reimplemente achados já resolvidos.
 
-## Estado confirmado no remoto
+## Estado remoto confirmado
 
-A `main` integrou o PR #91 em `e1c8704dbe2eaa9814ad36f4d7cc3c1e8fc54c26`.
-[CI pós-merge](https://github.com/gabrielteiga/AntiPessimizerV2/actions/runs/45626333195).
+A main integrou os PRs #91 a #106. Último merge:
+`075704e0bd0cffa93e15ca978685e8171b84bc9a` (#106).
+O #105 integrou em `dc7c7bcb32b1f059456a1fe4e88364e77e65c977`, árvore idêntica
+ ao head aprovado `418b45dc8a8c1c0f472c69650f77e05f4fe9e42f`.
+Sua CI pós-merge Go **45864993399** e autoria **45864993596** passaram.
+Conferir a árvore e acompanhar o pós-merge do #106 antes de integrar #107.
 
-Entregas integradas após a CI do commit exato.
+O pós-merge do #104 (45702197290) falhou no E2E com ERROR_BAD_LENGTH ao iniciar
+a segunda sessão ETW. O #105 corrige snapshots Toolhelp durante mudanças do
+loader: até oito tentativas somente desse erro, espera total máxima de 127 ms,
+erros contextualizados e testes determinísticos. O E2E de encerramento/reinício
+foi preservado e passou nos dois runs do head corrigido e no pós-merge da main.
 
-- #53 classifica símbolos TD32 globais pelo início do procedimento nas
-  contribuições de código. `feat/unit-contributions` está integrada.
-- #54 substitui a busca linear de ID do callback por busca binária em um
-  índice imutável. A ordem de publicação continua vindo da seleção original.
-- #55 preserva unwind v1 de fragmentos contíguos que herdam o frame.
-- #56 resolve arquivo e linha TD32 com `symresolve --source` sob ASLR.
-- #57 automatiza o ensaio nativo de operação prolongada em pares baseline e
-  instrumentado. Uma hora por modo em Windows registrou 108.001 chamadas
-  instrumentadas, zero perdas e 12.683 snapshots durante a captura.
-  [Execução e relatório](https://github.com/gabrielteiga/AntiPessimizerV2/actions/runs/45257756767).
-- #58 adiciona o seletor de EXE à janela. #60 seleciona ou limpa a busca
-  inteira. #64 permite múltiplas unidades exatas e restaura a lista ao reabrir.
-- #59 conserva `RDTSC` e confere cem leituras de uma rotina da DLL Delphi.
-- #62 repete o teste tipado da referência e registra endereço de falhas.
-- #63 permite tail calls via R11 para um endereço estático comprovado.
-- #65 preserva tail calls via R11 que escolhem entre dois alvos comprovados
-  por CMOV. A fixture do handler tipado mantém a thread de envio do pipe viva
-  durante as chamadas, evitando alocações concorrentes nas notificações da DLL.
-- #66 resolve o segmento TD32 1 em BaseOfCode quando outra seção executável
-  está presente. A fixture Windows chama código das duas seções.
+Entregas recentes, todas com checks do head exato aprovados:
 
-- #68 preserva `CPUID` em frames com save de RBX no unwind. #69 amplia
-  os saltos via R11 para epílogos com restauração conferida.
-- #70 instrumenta folhas de até quatro bytes por breakpoint no alvo próprio.
-  #71 preserva a leitura do limite da pilha da thread. #72 cobre a sondagem
-  de páginas da pilha emitida pelo Delphi.
-- #73 mantém a identidade da entrada original em `LEA` relativo a RIP.
-  #74 acrescenta o filtro de RTL/JCL à seleção. #75 cobre lacunas de NOP
-  inalcançáveis entre fragmentos encadeados de unwind.
-- #76 preserva RBX no clone da consulta `CPUID` da DLL Delphi mesmo em
-  falha de escrita. #77 cobre capturas de contexto do chamador. #78
-  verifica a máscara de CPU e #79 verifica os controles x87/MXCSR.
-- #80 preserva saltos condicionais entre entradas exatas da seleção em folhas
-  sem frame. #81 adiciona o histórico de diagnóstico com cópia no viewer.
+| PR | Entrega | Pós-merge |
+|---|---|---|
+| #93 | MOVUPS nos saves XMM locais | 45630205132 aprovado |
+| #94 | ALLOC_LARGE e slots altos sem truncamento | 45632877136 aprovado |
+| #95 | Cleanup UHANDLER-only e scopes CRT em cadeias herdadas | 45635165860 aprovado |
+| #96 | Saves FAR, padding ímpar e rebasing do vínculo em outro stride | 45689513139 aprovado |
+| #97 | MOVAPD/MOVUPD/MOVDQA/MOVDQU de 128 bits | 45691071003 aprovado |
+| #98 | Desconto QPC por chamada, saturação, médias, comparação e persistência | 45692712032 aprovado |
+| #99 | Hooks e CI de autoria exclusiva do proprietário | 45695370423 e 45695372659 aprovados |
+| #100 | Pushes e frame register herdado, RBP/R12 com bias, APHOOKH | 45698002587 e 45698002492 aprovados |
+| #101 | Check de autoria com base ausente após force-update | 45698901691 e 45698902091 aprovados |
+| #102 | SAVE_NONVOL primário com saves locais GPR/XMM | 45700279165 e 45700279230 aprovados |
+| #103 | Saves primários GPR/XMM múltiplos/FAR com ALLOC_LARGE/frame pointer | Acompanhar acima |
 
-- #82 cobre um `SAVE_NONVOL` local num fragmento final. #83 grava largura e
-  ordem das colunas nas quatro tabelas de resultados e comparações.
-- #84 reloca tabelas de salto delimitadas com ponteiros `DIR64`. #85 aplica a
-  relocação ao preenchimento escalar, SSE e REP da DLL Delphi de referência e
-  confere a restauração de RDI no unwind.
-- #86 preserva unidade Pascal nos trechos de contribuição cobertos por um único
-  nome. Endereços ambíguos ficam sem associação quando o diretório é global.
+Já estão integrados TD32/TDS/linhas/aliases/unidades por contribuição,
+lançamento próprio sem SDK, tiny hooks, calls/tails conferidos, handlers Delphi
+revisados, Clear sincronizado, perdas, ETW, replay/comparação, GUI/preferências,
+filtro RTL/JCL, tabelas DIR64 verificadas, threads reutilizadas e endurance C.
+README e plano detalham as entregas anteriores (#53–#91). Não recomeçar a base.
 
-- #88 aceita NOPs de vários bytes e INT3 em lacunas inalcançáveis de unwind.
-  #89 cobre múltiplos saves locais de GPRs com slots distintos. #90 permite
-  ocultar colunas pelo menu da tabela e restaura a visibilidade ao reabrir.
+## PRs de implementação abertos
 
-- #91 combina `SAVE_NONVOL` e `SAVE_XMM128` em fragmento final, com slots
-  distintos e negociação APHOOKE. O Windows confere RBX e os 128 bits de XMM6
-  no catch após falha real. O head aprovado foi
-  `c8198706366400e8a8bee6b7e8d29c6700511051`.
-  [CI do head](https://github.com/gabrielteiga/AntiPessimizerV2/actions/runs/45625363710).
-  O run de push 45625350596 e a CI da main também terminaram aprovados.
+- **#107**, `feat/chained-frame-addressed-saves`, head
+  `df99c1b8bc37ccc59964cba89b4ad405affff5f8`: saves/reloads via RSP ou frame
+  register herdado, com bias e slots conferidos. Todos os oito checks passaram.
+  Aguardar a CI pós-merge do #106, reconferir head/checks e integrar.
+- Incremento em `test/reference-tiny-routines`, worktree
+  `/workspace/work/AntiPessimizerV2-reference-tiny`, baseado em #107.
+  Permite MOV RAX,RBP/RSP de 64 bits para leitura do contexto, preservando a
+  restrição de escrita/arithmetic desses registradores. O alvo C exige o slot
+  de retorno físico original e RBP sentinela através de breakpoints reais.
+  A DLL Delphi original adiciona getters/contexto pequenos: 26 rotinas e 2.600
+  pares exigidos, sem inicialização nem patch do original. O wrapper nativo
+  prevê o slot de retorno ou estabelece RBP conhecido. Exigir execução Windows
+  e checks do SHA exato antes de declarar a nova evidência integrada.
 
-Já existiam TD32/TDS, lançamento próprio sem SDK, coletor/viewer separados,
-ETW, métricas, Clear sincronizado, perdas explícitas, replay/comparação,
-preferências e empacotamento Windows. Não recomece essas partes.
+#105 integrou UHANDLER-only com saves locais, negociação APHOOKI e identidade
+original do fragmento/PC/dados. #106 integrou branches/loops limitados ao corpo
+após os saves, sem pular stores ou parte dos reloads. Os checks dos dois heads
+passaram antes do merge. Scopes CRT/Delphi com saves locais continuam recusados.
 
-## PRs em acompanhamento
+Branches sucessoras já contêm os commits das predecessoras. O merge da
+predecessora só acrescenta um commit de merge na main; não exige reaplicar
+código. Comparar a árvore do merge calculado e exigir os checks do head atual.
 
-- O #61 prepara o build e a validação do EXE `ProfilerLab` com `dcc64` 10.4.
-  Mantém-se em rascunho enquanto faltar um runner Windows com essa instalação
-  licenciada. O ensaio cobre TD32/linhas sob ASLR, capturas tipadas aninhadas e
-  unwind recursivo. O modo prolongado compara a mesma carga baseline e
-  instrumentada. Os leitores dos relatórios foram exercitados com dados
-  sintéticos. A suíte pública roda os alvos C e a DLL Delphi de referência.
-  [PR #61](https://github.com/gabrielteiga/AntiPessimizerV2/pull/61).
+## Validação Delphi 10.4: #61
 
-O head atual do #61 é `f83e63a06f50744aa043790a03f4f9affa677949`,
-branch `test/delphi104-owned`. A CI Go de push 45485190098 e de PR
-45485200761 passou. O job licenciado 138768575160, run 45485190283,
-permaneceu `queued`, sem runner atribuído, na conferência de 25/11/2026.
-Ele exige os labels `self-hosted, windows, x64, delphi-10-4`.
-[Execução licenciada](https://github.com/gabrielteiga/AntiPessimizerV2/actions/runs/45485190283).
+PR #61 continua em rascunho. Head atual:
+`d3f4eb4e0beb269971ff6ed4cef367f214ab3902`, branch `test/delphi104-owned`.
+Incorpora a main após #101. CI Go de push **45699043880** aprovada, incluindo
+Windows/pacote; conferir também o run de PR **45699060782**. Autoria aprovada.
 
-O workflow do #61 dispara em push da branch e permite workflow_dispatch.
-O push mede uma hora por modo. Há input manual de 6 a 7.200 segundos.
-A sintaxe PowerShell e os leitores de relatórios de exceções e endurance
-foram testados com dados sintéticos. Isso não comprova compilação Pascal.
-A API de inventário de self-hosted runners retornou HTTP 403 pela integração.
-Reavaliar a disponibilidade real na retomada. Não presumir que a ausência
-de atribuição de ontem continuará, nem pedir teste manual ao usuário.
+Execução licenciada **45699043814** aguardando runner na última consulta:
+labels `self-hosted, windows, x64, delphi-10-4`, sem atribuição.
+https://github.com/gabrielteiga/AntiPessimizerV2/actions/runs/45699043814
+Reconsultar o estado na retomada. A API de inventário de runners retornou 403.
+O workflow agora cancela execuções substituídas da mesma branch. Runs antigos
+45695501159 e 45631995894 foram cancelados. Manter apenas o SHA atual na fila.
 
-## Retomada após os PRs #93, #94 e #95
+O ensaio compila ProfilerLab com dcc64, confere TD32/linhas sob ASLR, catches
+tipados aninhados/reraise, finalizadores e unwind recursivo. Mede uma hora por
+modo baseline/instrumentado com checksums, chamadas, perdas, recursos e cadência.
+Os leitores de relatórios foram testados com dados sintéticos; isso não prova
+compilação Pascal. Nunca anunciar Delphi 10.4 certificado sem execução real.
+A autoria dos commits pendentes foi corrigida preservando a árvore; histórico
+já integrado de main não foi reescrito. Atualizar a branch com main quando
+necessário e exigir CI do novo SHA, incluindo o runner licenciado, antes do merge.
 
-- O #93 integrou MOVUPS nos saves XMM encadeados. A main `229a22d` passou
-  a CI pós-merge 45630205132, inclusive pacote.
-- O #94 foi integrado em `4b6c5c7960ad096abc4432a52a8fdee9271b4a06` após
-  todos os checks do head `96584d49197cefde288a4129f17c0063437951e5` aprovados.
-  Aceita ALLOC_LARGE no primário com SUB único conferido e verifica slots altos
-  GPR/XMM sem truncar ocupação. Fixture Windows usa frame de 552 bytes.
-  CI pós-merge 45632877136 concluída com sucesso, inclusive pacote.
-- O #95 foi integrado em `d69638de1115411c95476d24f0ff248daf0d390d`, após
-  todos os checks do head `9250a94f61e17c6efa58e651c5badfeed7cd3f7f` aprovados.
-  A árvore é idêntica ao head. A CI pós-merge 45635165860 passou, inclusive pacote.
-  Preserva cleanup UHANDLER-only e scopes CRT em fragmentos contíguos que herdam
-  o frame. O baseline mostrou que o dispatcher aponta para a entrada runtime
-  secundária e usa os dados do handler primário. O adaptador mantém essa identidade,
-  confere a cadeia original e negocia APHOOKF. Windows exige cleanup, captura e
-  captura/finally combinados, com métricas e finalizadores exatos.
-- O #96 foi integrado em `798e49429af76f2a540caeaaf9a4a30c50d8377a` após
-  todos os checks do head `e686d9b92bd98f656e285697990cfcfc337d5c0f` aprovados.
-  A árvore é idêntica ao head. CI pós-merge 45689513139 concluída com sucesso, inclusive pacote.
-  Acrescenta SAVE_NONVOL_FAR/SAVE_XMM128_FAR com offsets sem escala, alinhamento
-  dos códigos ímpares e negociação APHOOKG. A fixture ímpar encontrou e corrigiu
-  a realocação do vínculo para métodos num stride posterior. O teste Go confere
-  os três campos runtime após o padding com dois procedimentos na seleção.
-- O #97 foi integrado em `4733dcc8eebcdf148a0d11fae52536e2765936ef`, após
-  todos os checks do head `68c12d4de1f50333ebf2f8d775f0b6f388c3420d` aprovados.
-  Acrescenta MOVAPD/MOVUPD/MOVDQA/MOVDQU aos saves XMM de 128 bits, com quatro
-  fixtures Windows de baseline/unwind/registradores. CI pós-merge 45691071003
-  em acompanhamento.
-- O #98 foi integrado em `12c0754431fa3cb8521003d5b38a7e64b1451b39`, após
-  checks do head `0b950d242dd95c42d1b4a57d53974af71ff66188` aprovados.
-  Implementa o desconto QPC por chamada do viewer, com padrão zero, saturação,
-  médias/deltas recalculados, persistência e controle Win32 testado. CI pós-merge
-  45692712032 passou, inclusive pacote.
-- O #99 foi integrado em `7d8561f6db0d06ca9c6446f65e515949d07ac088` após todos
-  os checks do head `e7965e1d2d2d1e22b5a2c1f885d5ce5ee24e1aac` aprovados.
-  O usuário exige autoria exclusiva do proprietário em todas as sessões de código.
-  AGENTS.md, hooks de commit/push e CI de autoria registram e verificam a regra.
-  Execute `scripts/configure-owner-attribution.sh` em cada clone/sessão e confira
-  autor, committer e trailers antes de publicar. CI pós-merge Go 45695370423 em
-  acompanhamento; a CI de autoria 45695372659 já passou.
-- Próximo incremento em `feat/chained-frame-register-saves`, worktree
-  `/workspace/work/AntiPessimizerV2-frame-local-saves`. Aceita pushes no primário
-  antes da alocação e frame register herdado pelos saves locais; valida a liberação
-  por ADD/LEA e os POPs em ordem inversa usando a lógica das tail calls. Negocia
-  APHOOKH. Fixture Windows usa RBP com bias de 32 bytes e exige RBP, RBX e XMM6
-  após falha no secundário. Conferir o PR e seu último head antes do merge.
-- O MinGW local está em
-  `/workspace/work/toolchains/mingw/root/usr/bin/x86_64-w64-mingw32-gcc-posix`.
-- O #61 incorporou a main após #99 e corrigiu os autores dos commits pendentes.
-  Head `bc99ab201bb9afca7e9af8557a712e99406b542c`, branch `test/delphi104-owned`.
-  A correção de autoria preservou a árvore original, e a atualização com main
-  passou nos testes locais. Execução licenciada 45695501159 aguardando runner.
-  A worktree é `/workspace/work/AntiPessimizerV2-delphi104`. Exigir execução real
-  e os checks do novo head antes do merge.
-- Ambiente em `/workspace/work/AntiPessimizerV2`, Go em
-  `/workspace/work/toolchains/go/bin`, cache em `/workspace/work/cache`
-  e GOPATH em `/workspace/work/gopath`. Preservar alterações antes de trocar branch.
-- O usuário reforçou que a sessão deve continuar até concluir o projeto ou
-  esgotar o contexto disponível. Não encerrar após um único bloco integrado.
+## Lacunas materiais
 
-## Próxima ação na nova sessão
+- Outros layouts de unwind/código/tails e fragmentos encadeados além dos casos
+  conferidos. Scopes CRT/Delphi com saves locais continuam recusados; UHANDLER-only
+  com saves locais foi integrado no #105. Padding inacessível antes de saves locais sem handler é o próximo incremento.
+- Outras variantes de handlers Delphi, incluindo evidência de exceções
+  aninhadas/recursivas reais. Não liberar formatos sem fixtures executáveis.
+- Compilação e execução Delphi 10.4 e custo/operação prolongada em cargas Delphi
+  representativas. O único gate licenciado está no #61; avançar nas demais áreas
+  enquanto não houver runner, sem solicitar teste manual intermediário.
+- Não alegar suporte a attach arbitrário ou instrumentação de DLLs/BPLs pelo
+  launcher de EXE. Não declarar projeto finalizado com gates materiais abertos.
 
-1. Ler este arquivo, AGENTS.md, README.md e docs/plan.md. Conferir os commits
-   remotos, branches e alterações locais antes de editar.
-2. Conferir novamente o job Delphi e o #61. Quando houver execução real,
-   diagnosticar as falhas e corrigir a implementação, mantendo os critérios
-   de aceitação. Atualizar a branch com a main quando necessário e validar o
-   novo SHA antes do merge.
-3. Enquanto o runner estiver indisponível, avançar pelos casos concretos de
-   código, unwind, handlers e símbolos do plano usando fixtures automatizadas.
-   A lista abaixo continua aberta. Evitar aumentar a cobertura por simples
-   relaxamento do planejador.
-4. Atualizar o plano e esta retomada após blocos integrados, distinguindo testes
-   executados, elegibilidade estática e compatibilidade por compilador.
+A DLL Delphi original fixada continua com **8.656/8.777** entradas aceitas na
+análise estática, incluindo 523 métodos com scopes Delphi. Execução cobre vinte e seis
+rotinas/2.600 comparações, construtor e worker real com RTL inicializado. Esse
+número não é porcentagem de paridade nem certificação do compilador.
+A análise estática mantém 8.656 planos comuns e acrescenta separadamente 113
+folhas pequenas aceitas quando explicitamente selecionadas. A contagem do plano
+(29 blocos entregues e cinco abertos, cerca de 85%) tem pesos iguais e não mede
+esforço restante nem cobertura de execução.
 
-A porcentagem de cerca de 85% informada anteriormente vinha da contagem
-simples dos blocos do plano com peso igual. Ela não mede esforço restante,
-cobertura de execução ou certificação Delphi. Conferir os critérios materiais
-antes de declarar o objetivo concluído.
+## Ambiente persistente e comandos
 
-## Lacunas materiais que continuam abertas
-
-- Unwind encadeado além dos saves locais GPR/XMM conferidos, incluindo outras
-  ações, handlers ou fragmentos descontínuos.
-  Outros formatos, epílogos, instruções e alvos de tail calls além do
-  subconjunto conferido.
-- Outras variantes de handlers Delphi e testes de exceções aninhadas/recursivas.
-- Evidência completa e reproduzível de um EXE Delphi 10.4, seus símbolos e
-  overhead. Os testes C não provam essa certificação.
-- Operação prolongada e custo em cargas Delphi representativas; limites atuais
-  continuam explícitos. Attach arbitrário e instrumentação de DLLs/BPLs não são
-  funcionalidades do launcher atual.
-
-A verificação estática da DLL original fixada aceita 8.656 de 8.777 entradas
-runtime sem seleção, incluindo 523 métodos com scopes Delphi. Os ensaios de
-execução verificam 20 rotinas e 2.000 comparações, além do construtor e da
-worker com RTL real. A cobertura de execução depende dessas fixtures.
-
-## Ambiente e comandos
-
-Se as worktrees persistirem, use:
-
-- `/workspace/work/AntiPessimizerV2-unit-contributions` contém o clone inicial
-  compartilhado pelas worktrees. Consulte `git worktree list`.
-- `/workspace/work/reference`: original fixado em
-  `ab67a710f152a25deef7593b8b18e59fa7827979`.
-- `/workspace/work/chained-reference/AntiPessimizerDLL.dll` contém o asset original.
-
-A última implementação está em
-`/workspace/work/AntiPessimizerV2-chain-xmm`, branch
-`feat/chained-xmm-saves`, já integrada e limpa.
-O #61 tem worktree em `/workspace/work/AntiPessimizerV2-delphi104`.
-Esta atualização usa `docs/session-handoff-after-91`. Se seu PR ainda estiver
-aberto, aprová-lo somente depois dos checks do SHA exato.
-As demais worktrees guardam incrementos anteriores. Não reaplicar commits
-já presentes na main.
-
-Em ambiente novo, clone o remoto e parta da `main` confirmada. Preserve
-worktrees e alterações existentes ao retomar trabalho local.
-
-Toolchain local anterior:
+Git comum: `/workspace/work/AntiPessimizerV2/.git`. Worktrees limpas de incrementos
+anteriores devem ser preservadas. A worktree `AntiPessimizerV2` é main e pode estar
+atrasada; fazer fetch e fast-forward somente depois de conferir alterações locais.
+Worktrees atuais em `/workspace/work/`:
+`AntiPessimizerV2-primary-save-layout`, `AntiPessimizerV2-local-calls`,
+`AntiPessimizerV2-local-cleanup`, `AntiPessimizerV2-local-branches` e
+`AntiPessimizerV2-delphi104`.
 
 ```sh
 export PATH=/workspace/work/toolchains/go/bin:$PATH
-export GOPATH=/workspace/work/go GOCACHE=/workspace/work/cache/go-build
-export GOMODCACHE=/workspace/work/cache/go-mod
-
+export GOCACHE=/workspace/work/cache GOPATH=/workspace/work/gopath
 go test ./...
 go vet ./...
 go test -race ./...
@@ -256,28 +158,55 @@ GOOS=windows GOARCH=amd64 go vet ./...
 GOOS=windows GOARCH=amd64 go build ./cmd/...
 ```
 
-Go 1.27.4. MinGW anterior:
+Go 1.27.4. `/usr/bin/go` não é o toolchain instalado. MinGW:
 `/workspace/work/toolchains/mingw/root/usr/bin/x86_64-w64-mingw32-gcc-posix`.
-Scripts build-native.ps1/test-native.ps1/test-reference-delphi.ps1 e o workflow
-fazem a execução Windows real. Cross-build isolado não a substitui.
+O compilador produz avisos preexistentes de atributos .pdata/.xdata; os alvos
+compilam com -Wall -Wextra -Werror. Cross-build não substitui execução Windows.
 
-Hash SHA256 obrigatório da DLL original:
-`1c1bf9288a3bfd05303f2b9a86d29693c0a449e716f575a25a59059f1c0d02b5`.
-O script da referência baixa/confere o release; não adicione os binários ao Git.
+DLL original em `/workspace/work/reference/AntiPessimizerDLL.dll`:
+SHA256 `1c1bf9288a3bfd05303f2b9a86d29693c0a449e716f575a25a59059f1c0d02b5`.
+Fonte original em `/workspace/work/reference-source`, revisão
+`ab67a710f152a25deef7593b8b18e59fa7827979`. Não versionar binários de referência.
+Teste estático: `AP_REFERENCE_DELPHI_DLL=... go test -v ./internal/instrumentation/x64 -run TestReferenceDelphiStaticPlanCoverage`.
 
-Ao usar ferramentas de merge, publique primeiro o resultado dos checks em uma
-chamada concluída e só depois solicite o merge em outra chamada. A revisão
-automática já usou estado anterior quando os checks e o merge ocorreram dentro
-da mesma chamada agregadora. Não confunda esse caso com autorização para
-contornar um gate: sempre confira novamente head, checks e estado reais.
+GitHub: conector disponível, CLI autenticada como proprietário. Publicar os
+resultados dos checks numa chamada concluída e só então solicitar merge em outra
+chamada. Automatic review já usou estado antigo em uma chamada agregadora.
+Consultar check-runs do SHA e jobs por etapas; evitar despejar logs inteiros.
+Esperar até 60 segundos por consulta, com atualizações concisas ao usuário.
 
-Para consultar GitHub, usar o conector quando disponível. A CLI também
-funcionou no ambiente anterior com o credential helper do gh. Um HTTP 401
-transitório foi resolvido usando o conector e a API pública para leituras,
-sem expor credenciais. Pushes posteriores funcionaram normalmente.
-Não registrar tokens ou URLs assinadas de artefatos em arquivos ou respostas.
+## Saves locais endereçados pelo frame register
 
-Para economizar contexto, ler trechos relevantes com rg, evitar despejar logs
-inteiros e consultar passos da CI por etapa. Aguardar até 60 segundos entre
-conferências quando não houver trabalho independente. Aguardar sempre a CI
-pós-merge da main depois de conferir a equivalência da árvore com o head.
+Incremento `feat/chained-frame-addressed-saves`, worktree
+`/workspace/work/AntiPessimizerV2-frame-addressed-saves`, baseado em #106.
+Os stores/reloads locais usam RSP ou o frame register herdado com bias conferido.
+O mesmo resolvedor de slots do prólogo valida base/índice/segmento e deslocamento.
+Fixture Windows modo 26 usa RSI em [RBP+32] e XMM6 em [RBP-16], com bias 32,
+saves primários GPR/XMM, retorno e AV. Testes rejeitam base e bias incorretos.
+Conferir publicação/PR, CI do SHA exato e predecessores antes do merge.
+
+## Seleção de unidades independente da busca
+
+Incremento em `fix/independent-unit-selection-preferences`, worktree
+`/workspace/work/AntiPessimizerV2-unit-preferences`, baseado no #108.
+A referência salva UnitFilter e SelectedModules separadamente. O Go agora separa
+SymbolFilter e UnitSelection, troca o texto correto ao alternar o modo e migra
+preferências antigas em modo de unidades. Uma seleção explicitamente vazia não
+é substituída pela busca. Testes portáveis e smoke Win32 conferem alternância,
+fechamento/reabertura e preservação dos dois estados. Exigir a execução Windows
+antes de integrar. A auditoria `docs/phase0/preferences-parity.md` encerra o bloco
+5 do fluxo principal quando esse PR estiver aprovado: 30 blocos entregues e
+quatro abertos, aproximadamente 88% com pesos iguais; não é paridade medida.
+
+## Padding antes de saves locais
+
+Incremento `feat/chained-local-padding`, worktree
+`/workspace/work/AntiPessimizerV2-local-padding`, baseado no #109.
+Aceita um fragmento final com saves locais depois de padding NOP/INT3 comprovado
+inacessível. Usa o começo real do secundário (depois da lacuna) para validar os
+stores e registrar a CFI local. O corpo do clone normaliza apenas o padding já
+verificado; Source continua idêntico ao arquivo original. A fixture Windows
+modo 27 usa oito bytes mistos de padding, RBP com bias e saves primários/locais
+GPR/XMM. Testes portáveis rejeitam gap alcançável, byte fora do padrão, branch
+para a lacuna/parte do save e handler com lacuna. Exigir todos os checks e a
+comparação Windows real antes de integrar.

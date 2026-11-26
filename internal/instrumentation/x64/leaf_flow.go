@@ -285,7 +285,7 @@ func rewriteSelectedFunction(code []byte, source, base uint64, framed bool, prol
 				return fail("unsupported relative control flow")
 			case x86asm.Reg:
 				if !volatileLeafRegister(arg) && !(framed && nativeFrameRegister(arg)) &&
-					!(nativeFunction && operand == 1 && nonvolatileSnapshotStore(d.inst, arg)) {
+					!(nativeFunction && operand == 1 && nativeContextSnapshot(d.inst, arg)) {
 					return fail("stack, nonvolatile or unsupported register")
 				}
 			case x86asm.Mem:
@@ -430,7 +430,12 @@ func nativeFrameRegister(r x86asm.Reg) bool {
 	return r >= x86asm.AL && r <= x86asm.R15B || r >= x86asm.AX && r <= x86asm.R15W || r >= x86asm.EAX && r <= x86asm.R15L || r >= x86asm.RAX && r <= x86asm.R15 || r >= x86asm.X0 && r <= x86asm.X15
 }
 
-func nonvolatileSnapshotStore(inst x86asm.Inst, source x86asm.Reg) bool {
+func nativeContextSnapshot(inst x86asm.Inst, source x86asm.Reg) bool {
+	// Entry/exit probes restore the original RSP and preserve ABI nonvolatiles.
+	// Reading these into RAX does not change the frame or the caller's state.
+	if inst.Op == x86asm.MOV && inst.Args[0] == x86asm.RAX && (source == x86asm.RBP || source == x86asm.RSP) {
+		return true
+	}
 	if _, ok := inst.Args[0].(x86asm.Mem); !ok {
 		return false
 	}

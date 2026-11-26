@@ -321,6 +321,215 @@ __asm__(
  ".rva .Lmixed_saves_try,.Lmixed_saves_try_end,APFrameMemoryFilter,.Lmixed_saves_catch\n .text\n .seh_endproc\n"
 );
 
+extern uint64_t APFramePrimaryMemorySave(const uint64_t *),APFramePrimaryMemorySaveCatch(void);
+__asm__(
+ ".text\n .globl APFramePrimaryMemorySave\n .def APFramePrimaryMemorySave; .scl 2; .type 32; .endef\n"
+ "APFramePrimaryMemorySave:\n subq $56,%rsp\n movq %rbx,48(%rsp)\n movq %rcx,%rbx\n .fill 8,1,0x90\n"
+ ".globl APFramePrimaryMemorySaveCold\n .def APFramePrimaryMemorySaveCold; .scl 2; .type 32; .endef\n"
+ "APFramePrimaryMemorySaveCold:\n movq %rsi,40(%rsp)\n movaps %xmm6,16(%rsp)\n movq %rbx,%rsi\n pxor %xmm6,%xmm6\n movq (%rsi),%rax\n"
+ "movaps 16(%rsp),%xmm6\n movq 40(%rsp),%rsi\n movq 48(%rsp),%rbx\n addq $56,%rsp\n ret\n .Lprimary_memory_save_end:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n .Lprimary_memory_save_primary:\n .byte 1,12,3,0,9,0x34,6,0,4,0x62,0,0\n"
+ ".Lprimary_memory_save_secondary:\n .byte 33,10,4,0,10,0x68,1,0,5,0x64,5,0\n .rva APFramePrimaryMemorySave,APFramePrimaryMemorySaveCold,.Lprimary_memory_save_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n .rva APFramePrimaryMemorySave,APFramePrimaryMemorySaveCold,.Lprimary_memory_save_primary\n"
+ ".rva APFramePrimaryMemorySaveCold,.Lprimary_memory_save_end,.Lprimary_memory_save_secondary\n"
+ ".text\n .globl APFramePrimaryMemorySaveCatch\n .def APFramePrimaryMemorySaveCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFramePrimaryMemorySaveCatch\n APFramePrimaryMemorySaveCatch:\n pushq %rbx\n .seh_pushreg %rbx\n pushq %rsi\n .seh_pushreg %rsi\n subq $56,%rsp\n .seh_stackalloc 56\n movaps %xmm6,32(%rsp)\n .seh_savexmm %xmm6,32\n .seh_endprologue\n"
+ "movl $0x42012345,%ebx\n movl $0x12345678,%esi\n movl $0x44113322,%edx\n movq %rdx,%xmm6\n movl $0x55667788,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm6\n .Lprimary_memory_save_try:\n xorq %rcx,%rcx\n call APFramePrimaryMemorySave\n nop\n"
+ ".Lprimary_memory_save_try_end:\n xorl %eax,%eax\n jmp .Lprimary_memory_save_return\n"
+ ".Lprimary_memory_save_catch:\n xorl %eax,%eax\n cmpl $0x42012345,%ebx\n sete %al\n movq %xmm6,%rdx\n cmpl $0x44113322,%edx\n sete %cl\n andb %cl,%al\n movhlps %xmm6,%xmm0\n movq %xmm0,%rdx\n cmpl $0x55667788,%edx\n sete %cl\n andb %cl,%al\n"
+ "cmpl $0x12345678,%esi\n sete %cl\n andb %cl,%al\n .Lprimary_memory_save_return:\n movaps 32(%rsp),%xmm6\n addq $56,%rsp\n popq %rsi\n popq %rbx\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Lprimary_memory_save_try,.Lprimary_memory_save_try_end,APFrameMemoryFilter,.Lprimary_memory_save_catch\n .text\n .seh_endproc\n"
+);
+
+extern uint64_t APFramePrimaryMixedSaves(const uint64_t *),APFramePrimaryMixedSavesCatch(void);
+__asm__(
+ ".text\n .globl APFramePrimaryMixedSaves\n .def APFramePrimaryMixedSaves; .scl 2; .type 32; .endef\n"
+ "APFramePrimaryMixedSaves:\n subq $88,%rsp\n movq %rbx,80(%rsp)\n movaps %xmm7,48(%rsp)\n pxor %xmm7,%xmm7\n movq %rcx,%rbx\n .fill 8,1,0x90\n"
+ ".globl APFramePrimaryMixedSavesCold\n .def APFramePrimaryMixedSavesCold; .scl 2; .type 32; .endef\n"
+ "APFramePrimaryMixedSavesCold:\n movq %rsi,72(%rsp)\n movaps %xmm6,16(%rsp)\n movq %rbx,%rsi\n pxor %xmm6,%xmm6\n movq (%rsi),%rax\n"
+ "movaps 16(%rsp),%xmm6\n movq 72(%rsp),%rsi\n movaps 48(%rsp),%xmm7\n movq 80(%rsp),%rbx\n addq $88,%rsp\n ret\n .Lprimary_mixed_saves_end:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n .Lprimary_mixed_saves_primary:\n .byte 1,21,5,0,14,0x78,3,0,9,0x34,10,0,4,0xa2,0,0\n"
+ ".Lprimary_mixed_saves_secondary:\n .byte 33,10,4,0,10,0x68,1,0,5,0x64,9,0\n .rva APFramePrimaryMixedSaves,APFramePrimaryMixedSavesCold,.Lprimary_mixed_saves_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n .rva APFramePrimaryMixedSaves,APFramePrimaryMixedSavesCold,.Lprimary_mixed_saves_primary\n"
+ ".rva APFramePrimaryMixedSavesCold,.Lprimary_mixed_saves_end,.Lprimary_mixed_saves_secondary\n"
+ ".text\n .globl APFramePrimaryMixedSavesCatch\n .def APFramePrimaryMixedSavesCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFramePrimaryMixedSavesCatch\n APFramePrimaryMixedSavesCatch:\n pushq %rbx\n .seh_pushreg %rbx\n pushq %rsi\n .seh_pushreg %rsi\n subq $72,%rsp\n .seh_stackalloc 72\n movaps %xmm6,32(%rsp)\n .seh_savexmm %xmm6,32\n movaps %xmm7,48(%rsp)\n .seh_savexmm %xmm7,48\n .seh_endprologue\n"
+ "movl $0x42012345,%ebx\n movl $0x12345678,%esi\n movl $0x44113322,%edx\n movq %rdx,%xmm6\n movl $0x55667788,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm6\n movl $0x55331122,%edx\n movq %rdx,%xmm7\n movl $0x66778899,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm7\n .Lprimary_mixed_saves_try:\n xorq %rcx,%rcx\n call APFramePrimaryMixedSaves\n nop\n"
+ ".Lprimary_mixed_saves_try_end:\n xorl %eax,%eax\n jmp .Lprimary_mixed_saves_return\n"
+ ".Lprimary_mixed_saves_catch:\n xorl %eax,%eax\n cmpq $0x42012345,%rbx\n sete %al\n movq %xmm6,%rdx\n cmpq $0x44113322,%rdx\n sete %cl\n andb %cl,%al\n movhlps %xmm6,%xmm0\n movq %xmm0,%rdx\n cmpq $0x55667788,%rdx\n sete %cl\n andb %cl,%al\n"
+ "movq %xmm7,%rdx\n cmpq $0x55331122,%rdx\n sete %cl\n andb %cl,%al\n movhlps %xmm7,%xmm0\n movq %xmm0,%rdx\n cmpq $0x66778899,%rdx\n sete %cl\n andb %cl,%al\n cmpq $0x12345678,%rsi\n sete %cl\n andb %cl,%al\n .Lprimary_mixed_saves_return:\n movaps 32(%rsp),%xmm6\n movaps 48(%rsp),%xmm7\n addq $72,%rsp\n popq %rsi\n popq %rbx\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Lprimary_mixed_saves_try,.Lprimary_mixed_saves_try_end,APFrameMemoryFilter,.Lprimary_mixed_saves_catch\n .text\n .seh_endproc\n"
+);
+
+static volatile LONG local_cleanup_count,local_cleanup_bad;
+extern unsigned char APFrameLocalCleanupCold[],APFrameLocalCleanupEnd[],APFrameLocalCleanupFault[];
+EXCEPTION_DISPOSITION APFrameLocalCleanupHandler(PEXCEPTION_RECORD record,PVOID frame,PCONTEXT context,PDISPATCHER_CONTEXT dispatcher){
+ (void)frame;(void)context;
+ DWORD64 image=(DWORD64)(uintptr_t)GetModuleHandleW(NULL);
+ LONG mismatch=0;
+ if(!(record->ExceptionFlags&EXCEPTION_UNWINDING))mismatch|=1;
+ if(dispatcher->ImageBase!=image)mismatch|=2;
+ if(image+dispatcher->FunctionEntry->BeginAddress!=(DWORD64)(uintptr_t)APFrameLocalCleanupCold)mismatch|=4;
+ if(image+dispatcher->FunctionEntry->EndAddress!=(DWORD64)(uintptr_t)APFrameLocalCleanupEnd)mismatch|=8;
+ if(dispatcher->ControlPc!=(DWORD64)(uintptr_t)APFrameLocalCleanupFault)mismatch|=16;
+ if(*(uint32_t *)dispatcher->HandlerData!=0x31415926)mismatch|=32;
+ InterlockedOr(&local_cleanup_bad,mismatch);
+ InterlockedIncrement(&local_cleanup_count);
+ return ExceptionContinueSearch;
+}
+extern uint64_t APFrameLocalCleanup(const uint64_t *),APFrameLocalCleanupCatch(void);
+__asm__(
+ ".text\n .globl APFrameLocalCleanup\n .def APFrameLocalCleanup; .scl 2; .type 32; .endef\n"
+ "APFrameLocalCleanup:\n subq $88,%rsp\n movq %rbx,80(%rsp)\n movaps %xmm7,48(%rsp)\n pxor %xmm7,%xmm7\n movq %rcx,%rbx\n .fill 8,1,0x90\n"
+ ".globl APFrameLocalCleanupCold\n .def APFrameLocalCleanupCold; .scl 2; .type 32; .endef\n"
+ "APFrameLocalCleanupCold:\n movq %rsi,72(%rsp)\n movaps %xmm6,16(%rsp)\n movq %rbx,%rsi\n pxor %xmm6,%xmm6\n  .globl APFrameLocalCleanupFault\n APFrameLocalCleanupFault:\n movq (%rsi),%rax\n"
+ "movaps 16(%rsp),%xmm6\n movq 72(%rsp),%rsi\n movaps 48(%rsp),%xmm7\n movq 80(%rsp),%rbx\n addq $88,%rsp\n ret\n .Llocal_cleanup_end:\n .globl APFrameLocalCleanupEnd\n APFrameLocalCleanupEnd:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n .Llocal_cleanup_primary:\n .byte 17,21,5,0,14,0x78,3,0,9,0x34,10,0,4,0xa2,0,0\n .rva APFrameLocalCleanupHandler\n .long 0x31415926\n"
+ ".Llocal_cleanup_secondary:\n .byte 33,10,4,0,10,0x68,1,0,5,0x64,9,0\n .rva APFrameLocalCleanup,APFrameLocalCleanupCold,.Llocal_cleanup_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n .rva APFrameLocalCleanup,APFrameLocalCleanupCold,.Llocal_cleanup_primary\n"
+ ".rva APFrameLocalCleanupCold,.Llocal_cleanup_end,.Llocal_cleanup_secondary\n"
+ ".text\n .globl APFrameLocalCleanupCatch\n .def APFrameLocalCleanupCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameLocalCleanupCatch\n APFrameLocalCleanupCatch:\n pushq %rbx\n .seh_pushreg %rbx\n pushq %rsi\n .seh_pushreg %rsi\n subq $72,%rsp\n .seh_stackalloc 72\n movaps %xmm6,32(%rsp)\n .seh_savexmm %xmm6,32\n movaps %xmm7,48(%rsp)\n .seh_savexmm %xmm7,48\n .seh_endprologue\n"
+ "movl $0x42012345,%ebx\n movl $0x12345678,%esi\n movl $0x44113322,%edx\n movq %rdx,%xmm6\n movl $0x55667788,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm6\n movl $0x55331122,%edx\n movq %rdx,%xmm7\n movl $0x66778899,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm7\n .Llocal_cleanup_try:\n xorq %rcx,%rcx\n call APFrameLocalCleanup\n nop\n"
+ ".Llocal_cleanup_try_end:\n xorl %eax,%eax\n jmp .Llocal_cleanup_return\n"
+ ".Llocal_cleanup_catch:\n xorl %eax,%eax\n cmpq $0x42012345,%rbx\n sete %al\n movq %xmm6,%rdx\n cmpq $0x44113322,%rdx\n sete %cl\n andb %cl,%al\n movhlps %xmm6,%xmm0\n movq %xmm0,%rdx\n cmpq $0x55667788,%rdx\n sete %cl\n andb %cl,%al\n"
+ "movq %xmm7,%rdx\n cmpq $0x55331122,%rdx\n sete %cl\n andb %cl,%al\n movhlps %xmm7,%xmm0\n movq %xmm0,%rdx\n cmpq $0x66778899,%rdx\n sete %cl\n andb %cl,%al\n cmpq $0x12345678,%rsi\n sete %cl\n andb %cl,%al\n .Llocal_cleanup_return:\n movaps 32(%rsp),%xmm6\n movaps 48(%rsp),%xmm7\n addq $72,%rsp\n popq %rsi\n popq %rbx\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Llocal_cleanup_try,.Llocal_cleanup_try_end,APFrameMemoryFilter,.Llocal_cleanup_catch\n .text\n .seh_endproc\n"
+);
+
+extern uint64_t APFrameLocalCall(const uint64_t *),APFrameLocalCallCatch(void);
+__asm__(
+ ".text\n .globl APFrameLocalCall\n .def APFrameLocalCall; .scl 2; .type 32; .endef\n"
+ "APFrameLocalCall:\n subq $88,%rsp\n movq %rbx,80(%rsp)\n movaps %xmm7,48(%rsp)\n pxor %xmm7,%xmm7\n movq %rcx,%rbx\n .fill 8,1,0x90\n"
+ ".globl APFrameLocalCallCold\n .def APFrameLocalCallCold; .scl 2; .type 32; .endef\n"
+ "APFrameLocalCallCold:\n movq %rsi,72(%rsp)\n movaps %xmm6,32(%rsp)\n movq %rbx,%rsi\n pxor %xmm6,%xmm6\n movq %rsi,%rcx\n call APFrameChainedCallee\n nop\n"
+ "movaps 32(%rsp),%xmm6\n movq 72(%rsp),%rsi\n movaps 48(%rsp),%xmm7\n movq 80(%rsp),%rbx\n addq $88,%rsp\n ret\n .Llocal_call_end:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n .Llocal_call_primary:\n .byte 1,21,5,0,14,0x78,3,0,9,0x34,10,0,4,0xa2,0,0\n"
+ ".Llocal_call_secondary:\n .byte 33,10,4,0,10,0x68,2,0,5,0x64,9,0\n .rva APFrameLocalCall,APFrameLocalCallCold,.Llocal_call_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n .rva APFrameLocalCall,APFrameLocalCallCold,.Llocal_call_primary\n"
+ ".rva APFrameLocalCallCold,.Llocal_call_end,.Llocal_call_secondary\n"
+ ".text\n .globl APFrameLocalCallCatch\n .def APFrameLocalCallCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameLocalCallCatch\n APFrameLocalCallCatch:\n pushq %rbx\n .seh_pushreg %rbx\n pushq %rsi\n .seh_pushreg %rsi\n subq $72,%rsp\n .seh_stackalloc 72\n movaps %xmm6,32(%rsp)\n .seh_savexmm %xmm6,32\n movaps %xmm7,48(%rsp)\n .seh_savexmm %xmm7,48\n .seh_endprologue\n"
+ "movl $0x42012345,%ebx\n movl $0x12345678,%esi\n movl $0x44113322,%edx\n movq %rdx,%xmm6\n movl $0x55667788,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm6\n movl $0x55331122,%edx\n movq %rdx,%xmm7\n movl $0x66778899,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm7\n .Llocal_call_try:\n xorq %rcx,%rcx\n call APFrameLocalCall\n nop\n"
+ ".Llocal_call_try_end:\n xorl %eax,%eax\n jmp .Llocal_call_return\n"
+ ".Llocal_call_catch:\n xorl %eax,%eax\n cmpq $0x42012345,%rbx\n sete %al\n movq %xmm6,%rdx\n cmpq $0x44113322,%rdx\n sete %cl\n andb %cl,%al\n movhlps %xmm6,%xmm0\n movq %xmm0,%rdx\n cmpq $0x55667788,%rdx\n sete %cl\n andb %cl,%al\n"
+ "movq %xmm7,%rdx\n cmpq $0x55331122,%rdx\n sete %cl\n andb %cl,%al\n movhlps %xmm7,%xmm0\n movq %xmm0,%rdx\n cmpq $0x66778899,%rdx\n sete %cl\n andb %cl,%al\n cmpq $0x12345678,%rsi\n sete %cl\n andb %cl,%al\n .Llocal_call_return:\n movaps 32(%rsp),%xmm6\n movaps 48(%rsp),%xmm7\n addq $72,%rsp\n popq %rsi\n popq %rbx\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Llocal_call_try,.Llocal_call_try_end,APFrameMemoryFilter,.Llocal_call_catch\n .text\n .seh_endproc\n"
+);
+extern uint64_t APFrameLocalBranches(const uint64_t *),APFrameLocalBranchesCatch(void);
+__asm__(
+ ".text\n .globl APFrameLocalBranches\n .def APFrameLocalBranches; .scl 2; .type 32; .endef\n"
+ "APFrameLocalBranches:\n subq $88,%rsp\n movq %rbx,80(%rsp)\n movaps %xmm7,48(%rsp)\n pxor %xmm7,%xmm7\n movq %rcx,%rbx\n .fill 8,1,0x90\n"
+ ".globl APFrameLocalBranchesCold\n .def APFrameLocalBranchesCold; .scl 2; .type 32; .endef\n"
+ "APFrameLocalBranchesCold:\n movq %rsi,72(%rsp)\n movaps %xmm6,32(%rsp)\n movq %rbx,%rsi\n pxor %xmm6,%xmm6\n movl $3,%edx\n .Llocal_branches_loop:\n decl %edx\n jnz .Llocal_branches_loop\n testq %rsi,%rsi\n jz .Llocal_branches_fault\n movq %rsi,%rcx\n call APFrameChainedCallee\n nop\n jmp .Llocal_branches_restore\n .Llocal_branches_fault:\n movq (%rsi),%rax\n .Llocal_branches_restore:\n"
+ "movaps 32(%rsp),%xmm6\n movq 72(%rsp),%rsi\n movaps 48(%rsp),%xmm7\n movq 80(%rsp),%rbx\n addq $88,%rsp\n ret\n .Llocal_branches_end:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n .Llocal_branches_primary:\n .byte 1,21,5,0,14,0x78,3,0,9,0x34,10,0,4,0xa2,0,0\n"
+ ".Llocal_branches_secondary:\n .byte 33,10,4,0,10,0x68,2,0,5,0x64,9,0\n .rva APFrameLocalBranches,APFrameLocalBranchesCold,.Llocal_branches_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n .rva APFrameLocalBranches,APFrameLocalBranchesCold,.Llocal_branches_primary\n"
+ ".rva APFrameLocalBranchesCold,.Llocal_branches_end,.Llocal_branches_secondary\n"
+ ".text\n .globl APFrameLocalBranchesCatch\n .def APFrameLocalBranchesCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameLocalBranchesCatch\n APFrameLocalBranchesCatch:\n pushq %rbx\n .seh_pushreg %rbx\n pushq %rsi\n .seh_pushreg %rsi\n subq $72,%rsp\n .seh_stackalloc 72\n movaps %xmm6,32(%rsp)\n .seh_savexmm %xmm6,32\n movaps %xmm7,48(%rsp)\n .seh_savexmm %xmm7,48\n .seh_endprologue\n"
+ "movl $0x42012345,%ebx\n movl $0x12345678,%esi\n movl $0x44113322,%edx\n movq %rdx,%xmm6\n movl $0x55667788,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm6\n movl $0x55331122,%edx\n movq %rdx,%xmm7\n movl $0x66778899,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm7\n .Llocal_branches_try:\n xorq %rcx,%rcx\n call APFrameLocalBranches\n nop\n"
+ ".Llocal_branches_try_end:\n xorl %eax,%eax\n jmp .Llocal_branches_return\n"
+ ".Llocal_branches_catch:\n xorl %eax,%eax\n cmpq $0x42012345,%rbx\n sete %al\n movq %xmm6,%rdx\n cmpq $0x44113322,%rdx\n sete %cl\n andb %cl,%al\n movhlps %xmm6,%xmm0\n movq %xmm0,%rdx\n cmpq $0x55667788,%rdx\n sete %cl\n andb %cl,%al\n"
+ "movq %xmm7,%rdx\n cmpq $0x55331122,%rdx\n sete %cl\n andb %cl,%al\n movhlps %xmm7,%xmm0\n movq %xmm0,%rdx\n cmpq $0x66778899,%rdx\n sete %cl\n andb %cl,%al\n cmpq $0x12345678,%rsi\n sete %cl\n andb %cl,%al\n .Llocal_branches_return:\n movaps 32(%rsp),%xmm6\n movaps 48(%rsp),%xmm7\n addq $72,%rsp\n popq %rsi\n popq %rbx\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Llocal_branches_try,.Llocal_branches_try_end,APFrameMemoryFilter,.Llocal_branches_catch\n .text\n .seh_endproc\n"
+);
+
+extern uint64_t APFrameChainedCallee(const uint64_t *);
+__asm__(
+ ".text\n .globl APFrameChainedCallee\n .def APFrameChainedCallee; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameChainedCallee\n APFrameChainedCallee:\n .seh_endprologue\n"
+ "movq %rcx,8(%rsp)\n movq %rdx,16(%rsp)\n movq %r8,24(%rsp)\n movq %r9,32(%rsp)\n movq (%rcx),%rax\n ret\n .seh_endproc\n"
+);
+
+extern uint64_t APFramePrimaryFarSaves(const uint64_t *),APFramePrimaryFarSavesCatch(void);
+__asm__(
+ ".text\n .globl APFramePrimaryFarSaves\n .def APFramePrimaryFarSaves; .scl 2; .type 32; .endef\n"
+ "APFramePrimaryFarSaves:\n subq $152,%rsp\n movq %rbx,80(%rsp)\n movaps %xmm7,48(%rsp)\n pxor %xmm7,%xmm7\n movq %rcx,%rbx\n .fill 8,1,0x90\n"
+ ".globl APFramePrimaryFarSavesCold\n .def APFramePrimaryFarSavesCold; .scl 2; .type 32; .endef\n"
+ "APFramePrimaryFarSavesCold:\n movq %rsi,72(%rsp)\n movaps %xmm6,16(%rsp)\n movq %rbx,%rsi\n pxor %xmm6,%xmm6\n movq (%rsi),%rax\n"
+ "movaps 16(%rsp),%xmm6\n movq 72(%rsp),%rsi\n movaps 48(%rsp),%xmm7\n movq 80(%rsp),%rbx\n addq $152,%rsp\n ret\n .Lprimary_far_saves_end:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n .Lprimary_far_saves_primary:\n .byte 1,24,8,0,17,0x79,48,0,0,0,12,0x35,80,0,0,0,7,1,19,0\n"
+ ".Lprimary_far_saves_secondary:\n .byte 33,10,4,0,10,0x68,1,0,5,0x64,9,0\n .rva APFramePrimaryFarSaves,APFramePrimaryFarSavesCold,.Lprimary_far_saves_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n .rva APFramePrimaryFarSaves,APFramePrimaryFarSavesCold,.Lprimary_far_saves_primary\n"
+ ".rva APFramePrimaryFarSavesCold,.Lprimary_far_saves_end,.Lprimary_far_saves_secondary\n"
+ ".text\n .globl APFramePrimaryFarSavesCatch\n .def APFramePrimaryFarSavesCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFramePrimaryFarSavesCatch\n APFramePrimaryFarSavesCatch:\n pushq %rbx\n .seh_pushreg %rbx\n pushq %rsi\n .seh_pushreg %rsi\n subq $72,%rsp\n .seh_stackalloc 72\n movaps %xmm6,32(%rsp)\n .seh_savexmm %xmm6,32\n movaps %xmm7,48(%rsp)\n .seh_savexmm %xmm7,48\n .seh_endprologue\n"
+ "movl $0x42012345,%ebx\n movl $0x12345678,%esi\n movl $0x44113322,%edx\n movq %rdx,%xmm6\n movl $0x55667788,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm6\n movl $0x55331122,%edx\n movq %rdx,%xmm7\n movl $0x66778899,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm7\n .Lprimary_far_saves_try:\n xorq %rcx,%rcx\n call APFramePrimaryFarSaves\n nop\n"
+ ".Lprimary_far_saves_try_end:\n xorl %eax,%eax\n jmp .Lprimary_far_saves_return\n"
+ ".Lprimary_far_saves_catch:\n xorl %eax,%eax\n cmpq $0x42012345,%rbx\n sete %al\n movq %xmm6,%rdx\n cmpq $0x44113322,%rdx\n sete %cl\n andb %cl,%al\n movhlps %xmm6,%xmm0\n movq %xmm0,%rdx\n cmpq $0x55667788,%rdx\n sete %cl\n andb %cl,%al\n"
+ "movq %xmm7,%rdx\n cmpq $0x55331122,%rdx\n sete %cl\n andb %cl,%al\n movhlps %xmm7,%xmm0\n movq %xmm0,%rdx\n cmpq $0x66778899,%rdx\n sete %cl\n andb %cl,%al\n cmpq $0x12345678,%rsi\n sete %cl\n andb %cl,%al\n .Lprimary_far_saves_return:\n movaps 32(%rsp),%xmm6\n movaps 48(%rsp),%xmm7\n addq $72,%rsp\n popq %rsi\n popq %rbx\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Lprimary_far_saves_try,.Lprimary_far_saves_try_end,APFrameMemoryFilter,.Lprimary_far_saves_catch\n .text\n .seh_endproc\n"
+);
+
+extern uint64_t APFramePrimaryFrameSaves(const uint64_t *),APFramePrimaryFrameSavesCatch(void);
+__asm__(
+ ".text\n .globl APFramePrimaryFrameSaves\n .def APFramePrimaryFrameSaves; .scl 2; .type 32; .endef\n"
+ "APFramePrimaryFrameSaves:\n pushq %rbp\n subq $80,%rsp\n leaq 32(%rsp),%rbp\n movq %rbx,72(%rsp)\n movaps %xmm7,48(%rsp)\n pxor %xmm7,%xmm7\n movq %rcx,%rbx\n .fill 8,1,0x90\n"
+ ".globl APFramePrimaryFrameSavesCold\n .def APFramePrimaryFrameSavesCold; .scl 2; .type 32; .endef\n"
+ "APFramePrimaryFrameSavesCold:\n movq %rsi,64(%rsp)\n movaps %xmm6,16(%rsp)\n movq %rbx,%rsi\n pxor %xmm6,%xmm6\n movq (%rsi),%rax\n"
+ "movaps 16(%rsp),%xmm6\n movq 64(%rsp),%rsi\n movaps 48(%rsp),%xmm7\n movq 72(%rsp),%rbx\n leaq 48(%rbp),%rsp\n popq %rbp\n ret\n .Lprimary_frame_saves_end:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n .Lprimary_frame_saves_primary:\n .byte 1,27,7,0x25,20,0x78,3,0,15,0x34,9,0,10,3,5,0x92,1,0x50,0,0\n"
+ ".Lprimary_frame_saves_secondary:\n .byte 33,10,4,0x25,10,0x68,1,0,5,0x64,8,0\n .rva APFramePrimaryFrameSaves,APFramePrimaryFrameSavesCold,.Lprimary_frame_saves_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n .rva APFramePrimaryFrameSaves,APFramePrimaryFrameSavesCold,.Lprimary_frame_saves_primary\n"
+ ".rva APFramePrimaryFrameSavesCold,.Lprimary_frame_saves_end,.Lprimary_frame_saves_secondary\n"
+ ".text\n .globl APFramePrimaryFrameSavesCatch\n .def APFramePrimaryFrameSavesCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFramePrimaryFrameSavesCatch\n APFramePrimaryFrameSavesCatch:\n pushq %rbx\n .seh_pushreg %rbx\n pushq %rsi\n .seh_pushreg %rsi\n subq $72,%rsp\n .seh_stackalloc 72\n movaps %xmm6,32(%rsp)\n .seh_savexmm %xmm6,32\n movaps %xmm7,48(%rsp)\n .seh_savexmm %xmm7,48\n .seh_endprologue\n"
+ "movl $0x42012345,%ebx\n movl $0x12345678,%esi\n movl $0x44113322,%edx\n movq %rdx,%xmm6\n movl $0x55667788,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm6\n movl $0x55331122,%edx\n movq %rdx,%xmm7\n movl $0x66778899,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm7\n .Lprimary_frame_saves_try:\n xorq %rcx,%rcx\n call APFramePrimaryFrameSaves\n nop\n"
+ ".Lprimary_frame_saves_try_end:\n xorl %eax,%eax\n jmp .Lprimary_frame_saves_return\n"
+ ".Lprimary_frame_saves_catch:\n xorl %eax,%eax\n cmpq $0x42012345,%rbx\n sete %al\n movq %xmm6,%rdx\n cmpq $0x44113322,%rdx\n sete %cl\n andb %cl,%al\n movhlps %xmm6,%xmm0\n movq %xmm0,%rdx\n cmpq $0x55667788,%rdx\n sete %cl\n andb %cl,%al\n"
+ "movq %xmm7,%rdx\n cmpq $0x55331122,%rdx\n sete %cl\n andb %cl,%al\n movhlps %xmm7,%xmm0\n movq %xmm0,%rdx\n cmpq $0x66778899,%rdx\n sete %cl\n andb %cl,%al\n cmpq $0x12345678,%rsi\n sete %cl\n andb %cl,%al\n .Lprimary_frame_saves_return:\n movaps 32(%rsp),%xmm6\n movaps 48(%rsp),%xmm7\n addq $72,%rsp\n popq %rsi\n popq %rbx\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Lprimary_frame_saves_try,.Lprimary_frame_saves_try_end,APFrameMemoryFilter,.Lprimary_frame_saves_catch\n .text\n .seh_endproc\n"
+);
+extern uint64_t APFrameFrameAddressedSaves(const uint64_t *),APFrameFrameAddressedSavesCatch(void);
+__asm__(
+ ".text\n .globl APFrameFrameAddressedSaves\n .def APFrameFrameAddressedSaves; .scl 2; .type 32; .endef\n"
+ "APFrameFrameAddressedSaves:\n pushq %rbp\n subq $80,%rsp\n leaq 32(%rsp),%rbp\n movq %rbx,72(%rsp)\n movaps %xmm7,48(%rsp)\n pxor %xmm7,%xmm7\n movq %rcx,%rbx\n .fill 8,1,0x90\n"
+ ".globl APFrameFrameAddressedSavesCold\n .def APFrameFrameAddressedSavesCold; .scl 2; .type 32; .endef\n"
+ "APFrameFrameAddressedSavesCold:\n movq %rsi,32(%rbp)\n movaps %xmm6,-16(%rbp)\n movq %rbx,%rsi\n pxor %xmm6,%xmm6\n movq (%rsi),%rax\n"
+ "movaps -16(%rbp),%xmm6\n movq 32(%rbp),%rsi\n movaps 48(%rsp),%xmm7\n movq 72(%rsp),%rbx\n leaq 48(%rbp),%rsp\n popq %rbp\n ret\n .Lframe_addressed_saves_end:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n .Lframe_addressed_saves_primary:\n .byte 1,27,7,0x25,20,0x78,3,0,15,0x34,9,0,10,3,5,0x92,1,0x50,0,0\n"
+ ".Lframe_addressed_saves_secondary:\n .byte 33,8,4,0x25,8,0x68,1,0,4,0x64,8,0\n .rva APFrameFrameAddressedSaves,APFrameFrameAddressedSavesCold,.Lframe_addressed_saves_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n .rva APFrameFrameAddressedSaves,APFrameFrameAddressedSavesCold,.Lframe_addressed_saves_primary\n"
+ ".rva APFrameFrameAddressedSavesCold,.Lframe_addressed_saves_end,.Lframe_addressed_saves_secondary\n"
+ ".text\n .globl APFrameFrameAddressedSavesCatch\n .def APFrameFrameAddressedSavesCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFrameFrameAddressedSavesCatch\n APFrameFrameAddressedSavesCatch:\n pushq %rbx\n .seh_pushreg %rbx\n pushq %rsi\n .seh_pushreg %rsi\n subq $72,%rsp\n .seh_stackalloc 72\n movaps %xmm6,32(%rsp)\n .seh_savexmm %xmm6,32\n movaps %xmm7,48(%rsp)\n .seh_savexmm %xmm7,48\n .seh_endprologue\n"
+ "movl $0x42012345,%ebx\n movl $0x12345678,%esi\n movl $0x44113322,%edx\n movq %rdx,%xmm6\n movl $0x55667788,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm6\n movl $0x55331122,%edx\n movq %rdx,%xmm7\n movl $0x66778899,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm7\n .Lframe_addressed_saves_try:\n xorq %rcx,%rcx\n call APFrameFrameAddressedSaves\n nop\n"
+ ".Lframe_addressed_saves_try_end:\n xorl %eax,%eax\n jmp .Lframe_addressed_saves_return\n"
+ ".Lframe_addressed_saves_catch:\n xorl %eax,%eax\n cmpq $0x42012345,%rbx\n sete %al\n movq %xmm6,%rdx\n cmpq $0x44113322,%rdx\n sete %cl\n andb %cl,%al\n movhlps %xmm6,%xmm0\n movq %xmm0,%rdx\n cmpq $0x55667788,%rdx\n sete %cl\n andb %cl,%al\n"
+ "movq %xmm7,%rdx\n cmpq $0x55331122,%rdx\n sete %cl\n andb %cl,%al\n movhlps %xmm7,%xmm0\n movq %xmm0,%rdx\n cmpq $0x66778899,%rdx\n sete %cl\n andb %cl,%al\n cmpq $0x12345678,%rsi\n sete %cl\n andb %cl,%al\n .Lframe_addressed_saves_return:\n movaps 32(%rsp),%xmm6\n movaps 48(%rsp),%xmm7\n addq $72,%rsp\n popq %rsi\n popq %rbx\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Lframe_addressed_saves_try,.Lframe_addressed_saves_try_end,APFrameMemoryFilter,.Lframe_addressed_saves_catch\n .text\n .seh_endproc\n"
+);
+extern uint64_t APFramePaddedLocalSaves(const uint64_t *),APFramePaddedLocalSavesCatch(void);
+__asm__(
+ ".text\n .globl APFramePaddedLocalSaves\n .def APFramePaddedLocalSaves; .scl 2; .type 32; .endef\n"
+ "APFramePaddedLocalSaves:\n pushq %rbp\n subq $80,%rsp\n leaq 32(%rsp),%rbp\n movq %rbx,72(%rsp)\n movaps %xmm7,48(%rsp)\n pxor %xmm7,%xmm7\n movq %rcx,%rbx\n jmp APFramePaddedLocalSavesCold\n .Lpadded_local_saves_hot_end:\n .byte 0xcc,0x66,0x90,0x0f,0x1f,0,0xcc,0xcc\n"
+ ".globl APFramePaddedLocalSavesCold\n .def APFramePaddedLocalSavesCold; .scl 2; .type 32; .endef\n"
+ "APFramePaddedLocalSavesCold:\n movq %rsi,32(%rbp)\n movaps %xmm6,-16(%rbp)\n movq %rbx,%rsi\n pxor %xmm6,%xmm6\n movq (%rsi),%rax\n"
+ "movaps -16(%rbp),%xmm6\n movq 32(%rbp),%rsi\n movaps 48(%rsp),%xmm7\n movq 72(%rsp),%rbx\n leaq 48(%rbp),%rsp\n popq %rbp\n ret\n .Lpadded_local_saves_end:\n"
+ ".section .xdata,\"dr\"\n .p2align 2\n .Lpadded_local_saves_primary:\n .byte 1,27,7,0x25,20,0x78,3,0,15,0x34,9,0,10,3,5,0x92,1,0x50,0,0\n"
+ ".Lpadded_local_saves_secondary:\n .byte 33,8,4,0x25,8,0x68,1,0,4,0x64,8,0\n .rva APFramePaddedLocalSaves,.Lpadded_local_saves_hot_end,.Lpadded_local_saves_primary\n"
+ ".section .pdata,\"dr\"\n .p2align 2\n .rva APFramePaddedLocalSaves,.Lpadded_local_saves_hot_end,.Lpadded_local_saves_primary\n"
+ ".rva APFramePaddedLocalSavesCold,.Lpadded_local_saves_end,.Lpadded_local_saves_secondary\n"
+ ".text\n .globl APFramePaddedLocalSavesCatch\n .def APFramePaddedLocalSavesCatch; .scl 2; .type 32; .endef\n"
+ ".seh_proc APFramePaddedLocalSavesCatch\n APFramePaddedLocalSavesCatch:\n pushq %rbx\n .seh_pushreg %rbx\n pushq %rsi\n .seh_pushreg %rsi\n subq $72,%rsp\n .seh_stackalloc 72\n movaps %xmm6,32(%rsp)\n .seh_savexmm %xmm6,32\n movaps %xmm7,48(%rsp)\n .seh_savexmm %xmm7,48\n .seh_endprologue\n"
+ "movl $0x42012345,%ebx\n movl $0x12345678,%esi\n movl $0x44113322,%edx\n movq %rdx,%xmm6\n movl $0x55667788,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm6\n movl $0x55331122,%edx\n movq %rdx,%xmm7\n movl $0x66778899,%edx\n movq %rdx,%xmm0\n punpcklqdq %xmm0,%xmm7\n .Lpadded_local_saves_try:\n xorq %rcx,%rcx\n call APFramePaddedLocalSaves\n nop\n"
+ ".Lpadded_local_saves_try_end:\n xorl %eax,%eax\n jmp .Lpadded_local_saves_return\n"
+ ".Lpadded_local_saves_catch:\n xorl %eax,%eax\n cmpq $0x42012345,%rbx\n sete %al\n movq %xmm6,%rdx\n cmpq $0x44113322,%rdx\n sete %cl\n andb %cl,%al\n movhlps %xmm6,%xmm0\n movq %xmm0,%rdx\n cmpq $0x55667788,%rdx\n sete %cl\n andb %cl,%al\n"
+ "movq %xmm7,%rdx\n cmpq $0x55331122,%rdx\n sete %cl\n andb %cl,%al\n movhlps %xmm7,%xmm0\n movq %xmm0,%rdx\n cmpq $0x66778899,%rdx\n sete %cl\n andb %cl,%al\n cmpq $0x12345678,%rsi\n sete %cl\n andb %cl,%al\n .Lpadded_local_saves_return:\n movaps 32(%rsp),%xmm6\n movaps 48(%rsp),%xmm7\n addq $72,%rsp\n popq %rsi\n popq %rbx\n ret\n"
+ ".seh_handler __C_specific_handler,@except\n .seh_handlerdata\n .long 1\n"
+ ".rva .Lpadded_local_saves_try,.Lpadded_local_saves_try_end,APFrameMemoryFilter,.Lpadded_local_saves_catch\n .text\n .seh_endproc\n"
+);
+
 extern uint64_t APFrameBiasedLocalSaves(const uint64_t *),APFrameBiasedLocalSavesCatch(void);
 __asm__(
  ".text\n .globl APFrameBiasedLocalSaves\n .def APFrameBiasedLocalSaves; .scl 2; .type 32; .endef\n"
@@ -735,6 +944,24 @@ static DWORD WINAPI worker(void *unused){
   const uint64_t value=UINT64_C(0x1122334455667788);
   if(check_chain==3){
    if(APFrameLocalSave(&value)!=value || APFrameLocalSaveCatch()!=1)return 12;
+  }else if(check_chain==27){
+   if(APFramePaddedLocalSaves(&value)!=value || APFramePaddedLocalSavesCatch()!=1)return 12;
+  }else if(check_chain==26){
+   if(APFrameFrameAddressedSaves(&value)!=value || APFrameFrameAddressedSavesCatch()!=1)return 12;
+  }else if(check_chain==25){
+   if(APFrameLocalBranches(&value)!=value || APFrameLocalBranchesCatch()!=1)return 12;
+  }else if(check_chain==24){
+   if(APFrameLocalCleanup(&value)!=value || APFrameLocalCleanupCatch()!=1)return 12;
+  }else if(check_chain==23){
+   if(APFrameLocalCall(&value)!=value || APFrameLocalCallCatch()!=1)return 12;
+  }else if(check_chain==22){
+   if(APFramePrimaryFrameSaves(&value)!=value || APFramePrimaryFrameSavesCatch()!=1)return 12;
+  }else if(check_chain==21){
+   if(APFramePrimaryFarSaves(&value)!=value || APFramePrimaryFarSavesCatch()!=1)return 12;
+  }else if(check_chain==20){
+   if(APFramePrimaryMixedSaves(&value)!=value || APFramePrimaryMixedSavesCatch()!=1)return 12;
+  }else if(check_chain==19){
+   if(APFramePrimaryMemorySave(&value)!=value || APFramePrimaryMemorySaveCatch()!=1)return 12;
   }else if(check_chain==18){
    if(APFrameR12LocalSaves(&value)!=value || APFrameR12LocalSavesCatch()!=1)return 12;
   }else if(check_chain==17){
@@ -810,6 +1037,7 @@ int wmain(int argc,wchar_t **argv){
  }
  }
  CloseHandle(barrier);
+ if(check_chain==24 && (local_cleanup_bad || local_cleanup_count!=(LONG)(threads*rounds)))fprintf(stderr,"local cleanup mismatch=%ld count=%ld expected=%lu\n",local_cleanup_bad,local_cleanup_count,(unsigned long)(threads*rounds));
  if(check_chain==8 && (chain_cleanup_bad || chain_cleanup_count!=(LONG)(threads*rounds)))fprintf(stderr,"chain cleanup mismatch=%ld count=%ld expected=%lu\n",chain_cleanup_bad,chain_cleanup_count,(unsigned long)(threads*rounds));
  if(unselected_id){
   HMODULE adapter=GetModuleHandleW(L"AntiPessimizerNative.dll");
@@ -825,5 +1053,5 @@ int wmain(int argc,wchar_t **argv){
   int written=fprintf(file,"{\"version\":1,\"threads\":%u,\"batch_count\":%u,\"private_bytes\":%llu,\"handles\":%lu,\"frequency\":%llu,\"ticks\":%llu}\n",(unsigned)threads,(unsigned)batch_limit,(unsigned long long)memory.PrivateUsage,(unsigned long)handles,(unsigned long long)frequency.QuadPart,(unsigned long long)(finish.QuadPart-start.QuadPart));
   if(fclose(file)||written<=0)return 10;
  }
- return result||(check_chain==10&&(chain_finally_normal!=(LONG)(threads*rounds)||chain_finally_abnormal!=(LONG)(threads*rounds)))||(check_chain==8&&(chain_cleanup_bad||chain_cleanup_count!=(LONG)(threads*rounds)))||atomic128_total[0]!=(uint64_t)threads*rounds*(iterations+1)||atomic128_total[1]!=~atomic128_total[0]||atomic_total!=(uint64_t)threads*rounds*(iterations+1)||cleanup_count!=(LONG)(threads*rounds*2)||collision_seen<(LONG)(threads*rounds*(!!cleanup_throws+!!normal_cleanup_throws))?5:0;
+ return result||(check_chain==24&&(local_cleanup_bad||local_cleanup_count!=(LONG)(threads*rounds)))||(check_chain==10&&(chain_finally_normal!=(LONG)(threads*rounds)||chain_finally_abnormal!=(LONG)(threads*rounds)))||(check_chain==8&&(chain_cleanup_bad||chain_cleanup_count!=(LONG)(threads*rounds)))||atomic128_total[0]!=(uint64_t)threads*rounds*(iterations+1)||atomic128_total[1]!=~atomic128_total[0]||atomic_total!=(uint64_t)threads*rounds*(iterations+1)||cleanup_count!=(LONG)(threads*rounds*2)||collision_seen<(LONG)(threads*rounds*(!!cleanup_throws+!!normal_cleanup_throws))?5:0;
 }

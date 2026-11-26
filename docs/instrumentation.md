@@ -938,6 +938,51 @@ PUSHs na ordem inversa e retornar. O adaptador anuncia APHOOKH para saves locais
 com frame register. O ensaio Windows usa RBP com bias de 32 bytes e exige RBP,
 RBX e os 128 bits de XMM6 preservados após falha no fragmento secundário.
 
+Um fragmento final com saves locais também pode vir após uma lacuna de padding.
+A cadeia deve apontar para o primário, e o fluxo precisa saltar por cima de toda
+a lacuna: NOPs de vários bytes e INT3 são aceitos somente nesse trecho inacessível.
+O clone substitui esse preenchimento por NOPs, mantém os bytes originais intactos
+e inicia o registro de unwind local no começo real dos stores, após a lacuna.
+O ensaio Windows compara retorno e AV em um frame com saves primários GPR/XMM,
+frame register com bias e saves locais via RBP. Handlers combinados com essa
+lacuna continuam recusados.
+
+Os stores e reloads locais podem usar RSP ou o frame register herdado. O bias
+do frame register é somado ao deslocamento de memória antes de compará-lo ao
+slot do unwind. Base, índice, segmento e alinhamento continuam conferidos.
+A fixture Windows usa RBP com bias de 32 bytes, RSI em [RBP+32] e XMM6 em
+[RBP-16], exigindo retorno normal, exceção e os registradores completos.
+
+O primário também pode combinar saves GPR/XMM de memória com a alocação fixa,
+PUSHs anteriores e frame register conferidos. São aceitos SAVE_NONVOL e
+SAVE_XMM128, inclusive FAR, com ALLOC_SMALL/LARGE. Cada slot primário fica
+reservado ao verificar os saves locais; registradores duplicados ou slots
+sobrepostos são recusados. O epílogo repõe primeiro os saves locais e depois
+os primários na ordem inversa dos stores, antes de liberar a pilha. Cada reload
+confere operação, largura, registrador e endereço RSP/frame register. Os ensaios
+Windows exigem RBX, RSI e os 128 bits de XMM6/XMM7 no catch, retorno normal e
+contagens conhecidos, incluindo alocação grande/FAR e RBP com bias.
+
+O corpo após os saves locais também pode chamar diretamente outro procedimento.
+O planejador exige RSP alinhado a 16 bytes no CALL e mantém livres os 32 bytes
+da área de argumentos Win64: nenhum save primário ou local pode ocupá-los.
+O fluxo normal de relocação confere o destino e rejeita chamadas para o interior
+do método. O ensaio Windows usa um callee que escreve os quatro home slots e
+causa uma AV; retorno, unwind e registradores são comparados com o baseline.
+O corpo também aceita branches diretos e loops limitados às instruções depois
+dos saves, incluindo a entrada completa do epílogo. O planejador normal confere
+os limites das instruções; nenhum salto pode repetir saves, entrar no meio de
+um reload ou pular parte da restauração. Chamadas/saltos indiretos continuam
+recusados nesse corpo. O ensaio Windows percorre loop, branch normal com CALL
+e branch de falha, exigindo os mesmos resultados e registradores do baseline.
+
+Fragmentos com saves locais também podem encaminhar cleanup UHANDLER-only do
+primário. O adaptador APHOOKI verifica os registros da cadeia e usa o início do
+primário ao traduzir o PC do clone inteiro. O handler recebe a entrada runtime
+do fragmento original, seu PC e os dados do primário. O ensaio Windows exige
+uma chamada de cleanup por falha, dados/PC exatos e RBX/RSI/XMM6/XMM7 preservados.
+Scopes que capturam/retomam e padding com saves locais continuam recusados.
+
 Cadeias contíguas que herdam o frame também podem encaminhar o cleanup
 UHANDLER-only original ou traduzir scopes CRT reconhecidos, com APHOOKF. O
 handler original recebe o PC e a entrada runtime do fragmento de origem e os
@@ -1005,3 +1050,26 @@ recebem uma descrição unwind v1 para a alocação de oito bytes. O ensaio
 Windows compara os valores com leituras independentes dos registradores.
 Também verifica o PC e RSP do chamador com RtlVirtualUnwind antes do PUSH,
 dentro do corpo, no POP e na saída do clone.
+
+### Rotinas pequenas da DLL Delphi de referência
+
+O corpus fixado também compara os corpos relocados de três rotinas de três ou
+quatro bytes: getter de 64 bits, getter de 32 bits com deslocamento negativo e
+retorno do argumento truncado a 32 bits. Cada uma executa cem pares com buffers
+privados ou argumentos conhecidos, sob helpers que clobberam os GPRs voláteis.
+Os bytes originais ficam intactos. O teste confere o plano de entrada por
+breakpoint, mas chama diretamente o clone; a entrega do breakpoint pelo debugger
+continua coberta pelos alvos C do lançamento próprio. Isso não certifica o EXE
+Delphi 10.4 nem instrumentação arbitrária de DLLs.
+
+A análise estática mantém os 8.656 planos comuns e informa separadamente 113
+folhas pequenas aceitas quando explicitamente selecionadas. Essa contagem não
+é convertida em percentual de paridade ou execução.
+
+As leituras `MOV RAX,RBP` e `MOV RAX,RSP` também são aceitas no corpo nativo:
+os probes restauram o RSP de entrada e os helpers preservam RBP pelo ABI. A
+permissão cobre somente MOV de 64 bits para RAX; não libera alterações do frame
+nem outras operações com esses registradores. Três getters reais da DLL original
+executam mais cem pares cada. Um wrapper nativo estabelece RBP conhecido ou
+confere o retorno com o endereço previsto do slot de retorno. O alvo C confere
+os mesmos invariantes com a entrega real dos breakpoints pelo debugger.

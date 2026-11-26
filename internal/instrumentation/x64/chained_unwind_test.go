@@ -292,8 +292,13 @@ func TestInheritedChainPreservesOriginalCleanupDescriptor(t *testing.T) {
 	image, code = localSavePE()
 	image[0x480] = 17
 	binary.LittleEndian.PutUint32(image[0x488:], 0x1080)
-	if _, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7); !errors.Is(err, ErrUnsupported) {
-		t.Fatal("unverified combination of local saves and cleanup accepted", err)
+	plan, err = BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+	if err != nil || !plan.InheritedHandler || plan.RelocatedHandler || len(plan.Functions) != 4 {
+		t.Fatal("local saves with original cleanup rejected", err)
+	}
+	info = plan.Image[plan.Functions[1].Unwind:]
+	if binary.LittleEndian.Uint32(info[12+8*4:]) == 0 {
+		t.Fatal("cleanup lost its full-body PC map")
 	}
 }
 
@@ -501,5 +506,277 @@ func TestChainedLocalSavesUseHighFrameRegister(t *testing.T) {
 	}
 	if plan.Image[plan.Functions[1].Unwind+3] != 0x2c || plan.Image[plan.Functions[2].Unwind+3] != 0x2c {
 		t.Fatal("high frame-register identity changed")
+	}
+}
+
+func primaryAndLocalSavePE() ([]byte, []byte) {
+	code := []byte{0x48, 0x83, 0xec, 56, 0x48, 0x89, 0x5c, 0x24, 48, 0x48, 0x89, 0xcb}
+	code = append(code, bytes.Repeat([]byte{0x90}, 8)...)
+	code = append(code,
+		0x48, 0x89, 0x74, 0x24, 40, 0x0f, 0x29, 0x74, 0x24, 16,
+		0x48, 0x89, 0xde, 0x66, 0x0f, 0xef, 0xf6, 0x48, 0x8b, 0x06,
+		0x0f, 0x28, 0x74, 0x24, 16, 0x48, 0x8b, 0x74, 0x24, 40,
+		0x48, 0x8b, 0x5c, 0x24, 48, 0x48, 0x83, 0xc4, 56, 0xc3)
+	image := scalarImage(code)
+	put := binary.LittleEndian.PutUint32
+	put(image[0x404:], peLeafRVA+20)
+	put(image[0x40c:], peLeafRVA+20)
+	put(image[0x410:], peLeafRVA+uint32(len(code)))
+	put(image[0x414:], 0x20a0)
+	copy(image[0x480:], []byte{1, 12, 3, 0, 9, 0x34, 6, 0, 4, 0x62, 0, 0})
+	copy(image[0x4a0:], []byte{33, 10, 4, 0, 10, 0x68, 1, 0, 5, 0x64, 5, 0})
+	copy(image[0x4ac:], image[0x400:0x40c])
+	return image, code
+}
+
+func TestChainedLocalSavesPreservePrimaryMemorySave(t *testing.T) {
+	image, code := primaryAndLocalSavePE()
+	plan, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+	if err != nil || len(plan.Functions) != 4 {
+		t.Fatal("primary memory save rejected", err)
+	}
+	if !bytes.Equal(plan.Image[plan.Functions[1].Unwind+1:plan.Functions[1].Unwind+12], image[0x481:0x48c]) {
+		t.Fatal("primary unwind actions changed")
+	}
+	for name, change := range map[string]func([]byte){
+		"overlapping primary and local slots": func(b []byte) { b[0x4aa] = 6; b[0x220+24] = 48; b[0x220+49] = 48 },
+		"XMM slot outside the frame":          func(b []byte) { b[0x4a6] = 3 },
+		"primary reload reads another slot":   func(b []byte) { b[0x220+len(code)-6] = 40 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			bad := bytes.Clone(image)
+			change(bad)
+			if _, err := BuildPEFunction(bad, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7); !errors.Is(err, ErrUnsupported) {
+				t.Fatal("invalid primary/local save combination accepted", err)
+			}
+		})
+	}
+}
+
+func TestChainedMultiplePrimaryMemorySaves(t *testing.T) {
+	primary := []byte{0x48, 0x83, 0xec, 88, 0x48, 0x89, 0x5c, 0x24, 80,
+		0x0f, 0x29, 0x7c, 0x24, 48, 0x66, 0x0f, 0xef, 0xff, 0x48, 0x89, 0xcb}
+	secondary := []byte{0x48, 0x89, 0x74, 0x24, 72, 0x0f, 0x29, 0x74, 0x24, 16,
+		0x48, 0x89, 0xde, 0x66, 0x0f, 0xef, 0xf6, 0x48, 0x8b, 0x06,
+		0x0f, 0x28, 0x74, 0x24, 16, 0x48, 0x8b, 0x74, 0x24, 72,
+		0x0f, 0x28, 0x7c, 0x24, 48, 0x48, 0x8b, 0x5c, 0x24, 80, 0x48, 0x83, 0xc4, 88, 0xc3}
+	info := []byte{1, 21, 5, 0, 14, 0x78, 3, 0, 9, 0x34, 10, 0, 4, 0xa2, 0, 0}
+	local := []byte{33, 10, 4, 0, 10, 0x68, 1, 0, 5, 0x64, 9, 0}
+	build := func(prefix, suffix, unwind, chain []byte) ([]byte, []byte) {
+		code := append(bytes.Clone(prefix), bytes.Repeat([]byte{0x90}, 8)...)
+		start := len(code)
+		code = append(code, suffix...)
+		image := scalarImage(code)
+		put := binary.LittleEndian.PutUint32
+		put(image[0x404:], peLeafRVA+uint32(start))
+		put(image[0x40c:], peLeafRVA+uint32(start))
+		put(image[0x410:], peLeafRVA+uint32(len(code)))
+		put(image[0x414:], 0x20a0)
+		copy(image[0x480:], unwind)
+		copy(image[0x4a0:], chain)
+		copy(image[0x4ac:], image[0x400:0x40c])
+		return image, code
+	}
+	check := func(t *testing.T, prefix, suffix, unwind, chain []byte) {
+		t.Helper()
+		image, code := build(prefix, suffix, unwind, chain)
+		plan, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+		if err != nil || len(plan.Functions) != 4 {
+			t.Fatal("primary save combination rejected", err)
+		}
+		at := plan.Functions[1].Unwind
+		if !bytes.Equal(plan.Image[at+1:at+uint32(len(unwind))], unwind[1:]) {
+			t.Fatal("primary metadata changed")
+		}
+	}
+	t.Run("small mixed saves", func(t *testing.T) { check(t, primary, secondary, info, local) })
+	t.Run("large allocation and FAR saves", func(t *testing.T) {
+		prefix := append([]byte{0x48, 0x81, 0xec, 0x98, 0, 0, 0}, primary[4:]...)
+		suffix := append(bytes.Clone(secondary[:len(secondary)-5]), 0x48, 0x81, 0xc4, 0x98, 0, 0, 0, 0xc3)
+		unwind := []byte{1, 24, 8, 0, 17, 0x79, 48, 0, 0, 0, 12, 0x35, 80, 0, 0, 0, 7, 1, 19, 0}
+		check(t, prefix, suffix, unwind, local)
+	})
+	t.Run("frame pointer and pushes", func(t *testing.T) {
+		prefix := []byte{0x55, 0x48, 0x83, 0xec, 80, 0x48, 0x8d, 0x6c, 0x24, 32}
+		prefix = append(prefix, primary[4:]...)
+		prefix[14] = 72
+		suffix := bytes.Clone(secondary[:len(secondary)-5])
+		suffix[4], suffix[29], suffix[39] = 64, 64, 72
+		suffix = append(suffix, 0x48, 0x8d, 0x65, 48, 0x5d, 0xc3)
+		unwind := []byte{1, 27, 7, 0x25, 20, 0x78, 3, 0, 15, 0x34, 9, 0, 10, 3, 5, 0x92, 1, 0x50, 0, 0}
+		chain := bytes.Clone(local)
+		chain[3], chain[10] = 0x25, 8
+		check(t, prefix, suffix, unwind, chain)
+	})
+	for name, change := range map[string]func([]byte, []byte, []byte){
+		"primary save overlaps local": func(p, s, u []byte) { p[13] = 16; s[34] = 16; u[6] = 1 },
+		"primary XMM misalignment": func(p, s, u []byte) {
+			p[3] = 80
+			p[8] = 72
+			s[4] = 64
+			s[29] = 64
+			s[39] = 72
+			s[len(s)-2] = 80
+			u[10] = 9
+			u[13] = 0x92
+		},
+		"primary reload wrong register": func(p, s, u []byte) { s[32] = 0x74 },
+		"primary reload wrong width":    func(p, s, u []byte) { s[31] = 0x12 },
+		"primary reload wrong slot":     func(p, s, u []byte) { s[39] = 72 },
+		"duplicate primary register":    func(p, s, u []byte) { p[11] = 0x74; u[5] = 0x68 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			p, s, u := bytes.Clone(primary), bytes.Clone(secondary), bytes.Clone(info)
+			change(p, s, u)
+			code := append(p, bytes.Repeat([]byte{0x90}, 8)...)
+			start := len(code)
+			code = append(code, s...)
+			if err := validateLocalSave(code, u, start, local); !errors.Is(err, ErrUnsupported) {
+				t.Fatal("invalid primary save accepted", err)
+			}
+		})
+	}
+}
+
+func TestChainedLocalSaveDirectCallsReserveCalleeHomeSlots(t *testing.T) {
+	prefix := []byte{0x48, 0x83, 0xec, 88, 0x48, 0x89, 0x5c, 0x24, 80, 0x0f, 0x29, 0x7c, 0x24, 48, 0x66, 0x0f, 0xef, 0xff, 0x48, 0x89, 0xcb}
+	body := []byte{0x48, 0x89, 0x74, 0x24, 72, 0x0f, 0x29, 0x74, 0x24, 32, 0x48, 0x89, 0xde, 0x66, 0x0f, 0xef, 0xf6,
+		0x48, 0x89, 0xf1, 0xe8, 0, 1, 0, 0, 0x90,
+		0x0f, 0x28, 0x74, 0x24, 32, 0x48, 0x8b, 0x74, 0x24, 72,
+		0x0f, 0x28, 0x7c, 0x24, 48, 0x48, 0x8b, 0x5c, 0x24, 80, 0x48, 0x83, 0xc4, 88, 0xc3}
+	unwind := []byte{1, 21, 5, 0, 14, 0x78, 3, 0, 9, 0x34, 10, 0, 4, 0xa2, 0, 0}
+	local := []byte{33, 10, 4, 0, 10, 0x68, 2, 0, 5, 0x64, 9, 0}
+	check := func(p, b, u, l []byte) error {
+		code := append(bytes.Clone(p), bytes.Repeat([]byte{0x90}, 8)...)
+		start := len(code)
+		code = append(code, b...)
+		image := scalarImage(code)
+		put := binary.LittleEndian.PutUint32
+		put(image[0x404:], peLeafRVA+uint32(start))
+		put(image[0x40c:], peLeafRVA+uint32(start))
+		put(image[0x410:], peLeafRVA+uint32(len(code)))
+		put(image[0x414:], 0x20a0)
+		copy(image[0x480:], u)
+		copy(image[0x4a0:], l)
+		copy(image[0x4ac:], image[0x400:0x40c])
+		_, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+		return err
+	}
+	if err := check(prefix, body, unwind, local); err != nil {
+		t.Fatal("verified direct call rejected", err)
+	}
+	branched := append(bytes.Clone(body[:17]),
+		0xb9, 3, 0, 0, 0, 0xff, 0xc9, 0x75, 0xfc, 0x48, 0x85, 0xf6, 0x74, 11,
+		0x48, 0x89, 0xf1, 0xe8, 0, 1, 0, 0, 0x90, 0xeb, 3, 0x48, 0x8b, 6)
+	branched = append(branched, body[26:]...)
+	if err := check(prefix, branched, unwind, local); err != nil {
+		t.Fatal("bounded branches rejected", err)
+	}
+	for name, displacement := range map[string]byte{
+		"branch skips saves":          225, // target offset zero, from next PC 31
+		"branch enters a reload":      15,  // target offset 46, inside the first reload
+		"branch skips a reload":       19,  // target offset 50, second reload
+		"branch leaves the procedure": 100,
+	} {
+		t.Run(name, func(t *testing.T) {
+			bad := bytes.Clone(branched)
+			bad[30] = displacement
+			if err := check(prefix, bad, unwind, local); !errors.Is(err, ErrUnsupported) {
+				t.Fatal("unsafe branch accepted", err)
+			}
+		})
+	}
+	for name, change := range map[string]func([]byte, []byte, []byte, []byte){
+		"local save in callee home area":   func(p, b, u, l []byte) { b[9] = 16; b[30] = 16; l[6] = 1 },
+		"primary save in callee home area": func(p, b, u, l []byte) { p[13] = 16; b[40] = 16; u[6] = 1 },
+		"indirect call":                    func(p, b, u, l []byte) { copy(b[20:], []byte{0xff, 0xd0, 0x90, 0x90, 0x90}) },
+		"misaligned call stack": func(p, b, u, l []byte) {
+			p[3] = 96
+			p[10] = 0x11
+			b[6] = 0x11
+			b[27] = 0x10
+			b[37] = 0x10
+			b[len(b)-2] = 96
+			u[13] = 0xb2
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p, b, u, l := bytes.Clone(prefix), bytes.Clone(body), bytes.Clone(unwind), bytes.Clone(local)
+			change(p, b, u, l)
+			if err := check(p, b, u, l); !errors.Is(err, ErrUnsupported) {
+				t.Fatal("unsafe chained call accepted", err)
+			}
+		})
+	}
+}
+
+func TestChainedLocalSavesUseInheritedFrameBias(t *testing.T) {
+	prefix := []byte{0x55, 0x48, 0x83, 0xec, 80, 0x48, 0x8d, 0x6c, 0x24, 32,
+		0x48, 0x89, 0x5c, 0x24, 72, 0x0f, 0x29, 0x7c, 0x24, 48, 0x66, 0x0f, 0xef, 0xff, 0x48, 0x89, 0xcb}
+	unwind := []byte{1, 27, 7, 0x25, 20, 0x78, 3, 0, 15, 0x34, 9, 0, 10, 3, 5, 0x92, 1, 0x50, 0, 0}
+	local := []byte{33, 8, 4, 0x25, 8, 0x68, 1, 0, 4, 0x64, 8, 0}
+	body := []byte{0x48, 0x89, 0x75, 32, 0x0f, 0x29, 0x75, 0xf0,
+		0x48, 0x89, 0xde, 0x66, 0x0f, 0xef, 0xf6, 0x48, 0x8b, 6,
+		0x0f, 0x28, 0x75, 0xf0, 0x48, 0x8b, 0x75, 32,
+		0x0f, 0x28, 0x7c, 0x24, 48, 0x48, 0x8b, 0x5c, 0x24, 72, 0x48, 0x8d, 0x65, 48, 0x5d, 0xc3}
+	code := append(bytes.Clone(prefix), bytes.Repeat([]byte{0x90}, 8)...)
+	start := len(code)
+	code = append(code, body...)
+	if err := validateLocalSave(code, unwind, start, local); err != nil {
+		t.Fatal("inherited frame addressing rejected", err)
+	}
+	for name, change := range map[string]func([]byte){
+		"wrong base register":       func(b []byte) { b[start+2] = 0x73 },
+		"store ignores frame bias":  func(b []byte) { b[start+3] = 64 },
+		"reload ignores frame bias": func(b []byte) { b[start+25] = 64 },
+		"XMM reload wrong offset":   func(b []byte) { b[start+21] = 0 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			bad := bytes.Clone(code)
+			change(bad)
+			if err := validateLocalSave(bad, unwind, start, local); !errors.Is(err, ErrUnsupported) {
+				t.Fatal("invalid frame slot accepted", err)
+			}
+		})
+	}
+}
+
+func TestChainedLocalSavesAfterUnreachablePadding(t *testing.T) {
+	image, original := primaryAndLocalSavePE()
+	code := append(bytes.Clone(original[:20]), 0xeb, 8)
+	code = append(code, 0xcc, 0x66, 0x90, 0x0f, 0x1f, 0, 0xcc, 0xcc)
+	code = append(code, original[20:]...)
+	copy(image[0x220:], code)
+	put := binary.LittleEndian.PutUint32
+	put(image[0x404:], peLeafRVA+22)
+	put(image[0x40c:], peLeafRVA+30)
+	put(image[0x410:], peLeafRVA+uint32(len(code)))
+	copy(image[0x4ac:], image[0x400:0x40c])
+	plan, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+	if err != nil || len(plan.Functions) != 4 {
+		t.Fatal("verified padding before local saves rejected", err)
+	}
+	if !bytes.Equal(plan.Source, code) {
+		t.Fatal("source padding changed")
+	}
+	primary, secondary := plan.Functions[1], plan.Functions[2]
+	// The source JMP widens from two to five bytes; padding keeps its size.
+	if secondary.Begin != plan.BodyRVA+33 || primary.End != secondary.Begin {
+		t.Fatal("local CFI starts in the gap", plan.Functions)
+	}
+	for name, change := range map[string]func([]byte){
+		"reachable gap":                  func(b []byte) { b[0x220+20], b[0x220+21] = 0x90, 0x90 },
+		"non-padding byte":               func(b []byte) { b[0x220+22] = 0xc3 },
+		"branch into gap":                func(b []byte) { b[0x220+21] = 4 },
+		"branch into partial local save": func(b []byte) { b[0x220+21] = 9 },
+		"handler with padding":           func(b []byte) { b[0x480] = 17; put(b[0x48c:], 0x1080) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			bad := bytes.Clone(image)
+			change(bad)
+			if _, err := BuildPEFunction(bad, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7); !errors.Is(err, ErrUnsupported) {
+				t.Fatal("unverified local-save gap accepted", err)
+			}
+		})
 	}
 }

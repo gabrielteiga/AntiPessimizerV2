@@ -22,20 +22,44 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 	if validateUnwindCodes(info) != nil || info[4] != info[1] {
 		return fail()
 	}
-	allocation, pops, ok := stackFrameLayout(primary)
+	stackInfo, primarySaves, ok := primarySaveLayout(code, primary)
+	if !ok {
+		return fail()
+	}
+	allocation, pops, ok := stackFrameLayout(stackInfo)
 	if !ok || allocation == 0 {
 		return fail()
 	}
-
-	type savedRegister struct {
-		end  byte
-		reg  x86asm.Reg
-		disp int64
-		xmm  bool
-	}
-	var saves []savedRegister
+	primaryReloads := len(primarySaves)
+	var saves []chainedSavedRegister
 	var registers uint32
 	slots := make(map[uint32]bool)
+	reserve := func(save chainedSavedRegister) bool {
+		width, number := uint64(8), uint32(save.reg-x86asm.RAX)
+		if save.xmm {
+			width, number = 16, uint32(save.reg-x86asm.X0)+16
+		}
+		if save.disp < 0 || uint64(save.disp)%width != 0 || uint64(save.disp)+width > allocation || registers&(1<<number) != 0 {
+			return false
+		}
+		registers |= 1 << number
+		for slot := uint32(save.disp / 8); slot < uint32((uint64(save.disp)+width)/8); slot++ {
+			if slots[slot] {
+				return false
+			}
+			slots[slot] = true
+		}
+		return true
+	}
+	for _, reg := range pops {
+		registers |= 1 << uint32(reg-x86asm.RAX)
+	}
+	for _, save := range primarySaves {
+		if !reserve(save) || !alignedChainedSave(save.op, save.disp, allocation, len(pops)) {
+			return fail()
+		}
+	}
+
 	for at := 4; at < 4+int(local[2])*2; {
 		op, number := local[at+1]&15, uint32(local[at+1]>>4)
 		width, step := uint32(8), 4
@@ -43,7 +67,6 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 		xmm := op == 8 || op == 9
 		if xmm {
 			reg = x86asm.X0 + x86asm.Reg(number)
-			number += 16
 			width = 16
 		}
 		disp := uint32(binary.LittleEndian.Uint16(local[at+2:])) * width
@@ -55,17 +78,11 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 		default:
 			return fail()
 		}
-		if disp%width != 0 || uint64(disp)+uint64(width) > uint64(allocation) || registers&(1<<number) != 0 {
+		save := chainedSavedRegister{end: local[at], reg: reg, disp: int64(disp), xmm: xmm}
+		if !reserve(save) {
 			return fail()
 		}
-		registers |= 1 << number
-		for occupied := disp / 8; occupied < (disp+width)/8; occupied++ {
-			if slots[occupied] {
-				return fail()
-			}
-			slots[occupied] = true
-		}
-		saves = append(saves, savedRegister{local[at], reg, int64(disp), xmm})
+		saves = append(saves, save)
 		at += step
 	}
 
@@ -89,10 +106,10 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 		at = next
 	}
 	count := len(saves)
-	if len(fragment) < count*2+len(pops)+2 {
+	if len(fragment) < count*2+len(pops)+2+primaryReloads {
 		return fail()
 	}
-	restore := len(fragment) - count - len(pops) - 2
+	restore := len(fragment) - count - len(pops) - 2 - primaryReloads
 	offset := 0
 	for i := 0; i < count; i++ {
 		// Metadata lists saves from last to first. The epilogue reloads
@@ -108,14 +125,13 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 			}
 			// Win64 entry RSP includes an eight-byte return slot. The
 			// primary's allocation and pushes determine each save's alignment.
-			aligned := op == x86asm.MOVAPS || op == x86asm.MOVAPD || op == x86asm.MOVDQA
-			if aligned && (uint64(metadata.disp)+8)%16 != (allocation+uint64(len(pops))*8)%16 {
+			if !alignedChainedSave(op, metadata.disp, allocation, len(pops)) {
 				return fail()
 			}
 		}
 		matchesSlot := func(arg x86asm.Arg) bool {
 			mem, ok := arg.(x86asm.Mem)
-			return ok && mem.Base == x86asm.RSP && mem.Index == 0 && mem.Segment == 0 && mem.Disp == metadata.disp
+			return ok && savedAtOffset(mem, metadata.disp, 0, primary[3], primary[3]&15 != 0)
 		}
 		save, load := fragment[i], fragment[restore+count-1-i]
 		offset += save.Len
@@ -124,9 +140,46 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 			return fail()
 		}
 	}
+	bodyStart, bodyEnd := start+offset, start+offset
 	for _, inst := range fragment[count:restore] {
+		bodyEnd += inst.Len
+	}
+	bodyPC := bodyStart
+	for _, inst := range fragment[count:restore] {
+		bodyPC += inst.Len
+		if rel, relative := inst.Args[0].(x86asm.Rel); relative && inst.Op != x86asm.CALL {
+			op := inst.Op.String()
+			target := int64(bodyPC) + int64(rel)
+			if len(op) == 0 || op[0] != 'J' || target < int64(bodyStart) || target > int64(bodyEnd) {
+				return fail()
+			}
+			// The normal control-flow planner also requires instruction
+			// boundaries and a supported branch encoding. No path may enter
+			// a partial save or skip an epilogue reload.
+			continue
+		}
+		if inst.Op == x86asm.CALL {
+			if _, direct := inst.Args[0].(x86asm.Rel); !direct || inst.Len != 5 || (allocation+uint64(len(pops))*8)%16 != 8 || allocation < 32 {
+				return fail()
+			}
+			// A callee owns the first four eight-byte home slots. Saves
+			// must survive a callee that writes every Win64 argument slot.
+			for slot := uint32(0); slot < 4; slot++ {
+				if slots[slot] {
+					return fail()
+				}
+			}
+			continue
+		}
 		if _, relative := inst.Args[0].(x86asm.Rel); relative || inst.Op == x86asm.RET || frameOperations[inst.Op.String()] ||
 			inst.Args[0] == x86asm.RSP || inst.Args[1] == x86asm.RSP {
+			return fail()
+		}
+	}
+	for i, save := range primarySaves {
+		load := fragment[restore+count+i]
+		mem, ok := load.Args[1].(x86asm.Mem)
+		if load.Op != save.op || load.Args[0] != save.reg || !ok || !savedAtOffset(mem, save.disp, 0, primary[3], primary[3]&15 != 0) {
 			return fail()
 		}
 	}
@@ -142,4 +195,66 @@ func validateLocalSave(code, primary []byte, start int, local []byte) error {
 		}
 	}
 	return nil
+}
+
+// Memory saves are removed only for stack-layout calculation. The original
+// metadata still describes each copied instruction and is emitted unchanged.
+type chainedSavedRegister struct {
+	end  byte
+	reg  x86asm.Reg
+	disp int64
+	xmm  bool
+	op   x86asm.Op
+}
+
+func alignedChainedSave(op x86asm.Op, disp int64, allocation uint64, pushes int) bool {
+	aligned := op == x86asm.MOVAPS || op == x86asm.MOVAPD || op == x86asm.MOVDQA
+	return !aligned || (uint64(disp)+8)%16 == (allocation+uint64(pushes)*8)%16
+}
+
+func primarySaveLayout(code, info []byte) ([]byte, []chainedSavedRegister, bool) {
+	stack := append([]byte(nil), info[:4]...)
+	stack[0], stack[2] = 1, 0
+	var saves []chainedSavedRegister
+	ends := make(map[byte]x86asm.Inst)
+	for at := 0; at < int(info[1]); {
+		inst, err := x86asm.Decode(code[at:], 64)
+		if err != nil || inst.Len == 0 {
+			return nil, nil, false
+		}
+		at += inst.Len
+		ends[byte(at)] = inst
+	}
+	for at := 4; at < 4+int(info[2])*2; {
+		op, number := info[at+1]&15, info[at+1]>>4
+		step := 2
+		switch op {
+		case 1:
+			step += 2 + int(number)*2
+		case 4, 8:
+			step = 4
+		case 5, 9:
+			step = 6
+		}
+		if op == 4 || op == 5 || op == 8 || op == 9 {
+			xmm := op == 8 || op == 9
+			width, reg := int64(8), x86asm.RAX+x86asm.Reg(number)
+			if xmm {
+				width, reg = 16, x86asm.X0+x86asm.Reg(number)
+			}
+			disp := int64(binary.LittleEndian.Uint16(info[at+2:])) * width
+			if step == 6 {
+				disp = int64(binary.LittleEndian.Uint32(info[at+2:]))
+			}
+			saves = append(saves, chainedSavedRegister{end: info[at], reg: reg, disp: disp, xmm: xmm, op: ends[info[at]].Op})
+		} else {
+			stack = append(stack, info[at:at+step]...)
+			stack[2] += byte(step / 2)
+		}
+		at += step
+	}
+	if stack[2]&1 != 0 {
+		stack = append(stack, 0, 0)
+	}
+	return stack, saves, true
 }

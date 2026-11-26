@@ -8,7 +8,7 @@ ETW e lançamento instrumentado com contagens reais de chamadas, tempos e média
 
 ## Estado atual
 
-Revisado em 18 de novembro de 2026.
+Revisado em 26 de novembro de 2026.
 
 | Capacidade | Implementação e evidência |
 |---|---|
@@ -24,7 +24,7 @@ Revisado em 18 de novembro de 2026.
 | Tail calls indiretas | O chamador sem frame ou handler pode saltar via R11 para um destino calculado por LEA ou escolher entre dois destinos comprovados com CMOV. O teste Windows confere argumentos, contagens, tempos e unwind |
 | Métodos maiores | Até 8 KiB de código por procedimento, com alocação limitada de 32 KiB para código/metadados; integração Windows exige retornos e unwind reais |
 | Estado SSE | Probes preservam controle/status MXCSR dos callbacks; setter/getter instrumentados conferem os quatro modos de arredondamento |
-| Preferências da janela | Restaura EXE, filtro de resultados, busca de símbolos e unidade de tempo por usuário ao reabrir |
+| Preferências da janela | Restaura EXE, filtro de resultados, busca de procedimentos, unidades selecionadas independentemente e unidade de tempo por usuário ao reabrir |
 | Controle pela interface | Catálogo pesquisável, seleção de até 256 procedimentos ou uma unidade Pascal inteira, argumentos, prazo, iniciar/parar pelo coletor e métricas ao vivo na janela |
 | Pré-validação | Imagem/tabela PE preparadas uma vez por lote, seleção por intervalo e snapshot independente; catálogo identifica funções fora do subconjunto aceito; serviço e launcher recusam a seleção antes de abrir o programa |
 | Independência do viewer | Fechar a janela/desconectar observador não encerra a captura; Parar cancela explicitamente o novo processo instrumentado |
@@ -32,7 +32,7 @@ Revisado em 18 de novembro de 2026.
 | Arquivos e histórico | Salvar/replay, acompanhamento de arquivo crescente, filtros, ordenação e histórico limitado; comparação entre sessões de sampling e instrumentação |
 | Ciclos de vida de threads | Encerramento pelo evento real do Windows e reutilização do pool nativo; teste de 300 instâncias sem mesclar contagens |
 | Drenagem cooperativa | Worker ocioso desperta por evento coalescido, com rescan contra despertar perdido; entrega ao vivo conferida antes de encerrar a captura |
-| Evidência do original | Vinte rotinas conferidas (2.000 pares), incluindo push/pop atômicos de 128 bits e RDTSC, sem inicialização; ensaio separado inicializa o RTL em filho próprio e exige 100 pares normal/falha, 200 chamadas e 100 unwinds de uma rotina com handler Delphi real; worker original com 100 falhas EReadError capturadas por Exception, 200 retornos e métricas Go; sem certificação de Delphi 10.4 |
+| Evidência do original | Vinte e seis rotinas conferidas (2.600 pares), incluindo push/pop atômicos de 128 bits e RDTSC, sem inicialização; ensaio separado inicializa o RTL em filho próprio e exige 100 pares normal/falha, 200 chamadas e 100 unwinds de uma rotina com handler Delphi real; worker original com 100 falhas EReadError capturadas por Exception, 200 retornos e métricas Go; sem certificação de Delphi 10.4 |
 | Qualidade | Testes Go/race, integração nativa Windows, ETW, janela Win32, executáveis e empacotamento; merge somente com CI aprovado no commit exato |
 | Carga e recursos | 320 vidas de thread/32.001 chamadas, 32 capturas por bloco, dez repetições com heap/handles/goroutines limitados e zero objetos de depuração restantes e perda explícita sob saturação; dados no CI |
 | Contadores nativos | Leituras atômicas sequencialmente consistentes; CI compara DLLs com/sem RMW no mesmo alvo e runner |
@@ -44,7 +44,7 @@ continuam fora do subconjunto aceito. A limpeza de métricas já usa uma barreir
 preservando as chamadas em andamento e o histórico das épocas anteriores. A compatibilidade com todas as
 variantes do Delphi 10.4 e o overhead nesse ambiente ainda não foram comprovados.
 Fixtures C e TDS sintéticos não são apresentados como binários compilados no Delphi.
-O ensaio adicional da DLL original executa vinte rotinas conferidas com buffers privados, estado da thread e um limite do preenchimento em memória controlada;
+O ensaio adicional da DLL original executa vinte e seis rotinas conferidas com buffers privados, estado da thread e um limite do preenchimento em memória controlada;
 não comprova integração completa ou a versão do compilador. O ensaio de exceções separado
 usa uma rotina e o handler real da mesma DLL, com RTL inicializado num processo filho.
 
@@ -101,7 +101,9 @@ marca a captura interrompida como incompleta; fechar o viewer mantém o coletor 
 o alvo independentes. O prazo padrão é 60 segundos. **Limpar métricas** zera os resultados e reinicia o tempo das chamadas abertas
 numa nova época, sem encerrar o programa. A tabela mostra chamadas,
 totais e médias inclusivas/exclusivas, thread, unidade, unwind e frames abertos.
-Ao fechar, a janela salva caminho do EXE, filtros, unidade de tempo e layout das
+Ao alternar entre procedimentos e unidades inteiras, a janela preserva a busca e
+os nomes das unidades de forma independente. Ao fechar, salva caminho do EXE,
+filtros, seleção de unidades, unidade de tempo e layout das
 colunas em `%AppData%\AntiPessimizerV2\viewer.json`. **Diagnóstico** abre o
 histórico recente de estados e falhas da janela, com opção de copiar.
 

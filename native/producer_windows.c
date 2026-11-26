@@ -382,11 +382,15 @@ static void function_exit(uint32_t procedure,uintptr_t entry_sp){record_frame(AP
 /* Only verified v1 actions reach this callback. EstablisherFrame is the frame
  * base after allocation (including the documented frame-register bias); sum
  * original stack actions to recover the unmodified entry return-slot address. */
-static const unsigned char *function_unwind_info(PDISPATCHER_CONTEXT dispatcher){
+static RUNTIME_FUNCTION *function_unwind_entry(PDISPATCHER_CONTEXT dispatcher){
     const unsigned char *base=(const unsigned char *)(uintptr_t)dispatcher->ImageBase;
     const unsigned char *info=base+dispatcher->FunctionEntry->UnwindData;
-    if(info[0]==33)return base+hook_u32(info+12+((info[2]+1)&~1)*2); // verified local saves link to the primary
-    return info;
+    if(info[0]==33)return (RUNTIME_FUNCTION *)(uintptr_t)(info+4+((info[2]+1)&~1)*2);
+    return dispatcher->FunctionEntry;
+}
+static const unsigned char *function_unwind_info(PDISPATCHER_CONTEXT dispatcher){
+    const unsigned char *base=(const unsigned char *)(uintptr_t)dispatcher->ImageBase;
+    return base+function_unwind_entry(dispatcher)->UnwindData;
 }
 static uintptr_t unwind_entry_sp(PVOID frame,PDISPATCHER_CONTEXT dispatcher){
     const unsigned char *info=function_unwind_info(dispatcher);
@@ -450,8 +454,9 @@ static EXCEPTION_DISPOSITION WINAPI function_unwind(PEXCEPTION_RECORD exception,
         }
         return result;
     }
-    DWORD64 image=(DWORD64)(uintptr_t)GetModuleHandleW(NULL),source=image+hook_u32(data+8),clone=dispatcher->ImageBase+dispatcher->FunctionEntry->BeginAddress;
-    uint32_t source_size=hook_u32(data+12),clone_size=dispatcher->FunctionEntry->EndAddress-dispatcher->FunctionEntry->BeginAddress;
+    RUNTIME_FUNCTION *primary=function_unwind_entry(dispatcher);
+    DWORD64 image=(DWORD64)(uintptr_t)GetModuleHandleW(NULL),source=image+hook_u32(data+8),clone=dispatcher->ImageBase+primary->BeginAddress;
+    uint32_t source_size=hook_u32(data+12),clone_size=dispatcher->FunctionEntry->EndAddress-primary->BeginAddress;
     DISPATCHER_CONTEXT saved=*dispatcher;
     union {uintptr_t address;PEXCEPTION_ROUTINE routine;} handler;
     handler.address=(uintptr_t)(image+hook_u32(data+24));

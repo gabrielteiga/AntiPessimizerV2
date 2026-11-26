@@ -1,6 +1,6 @@
 # Plano e estado de implementação
 
-Atualizado em 24 de novembro de 2026. O alvo é **Delphi 10.4, Windows 10/11 x64**
+Atualizado em 26 de novembro de 2026. O alvo é **Delphi 10.4, Windows 10/11 x64**
 (Intel ou AMD). Linux valida o núcleo portável. O README é a entrada de uso;
 este documento organiza as entregas e os critérios que ainda faltam.
 
@@ -37,10 +37,21 @@ este documento organiza as entregas e os critérios que ainda faltam.
 | Carga e limites de recursos | Baseline/instrumentado com 320 vidas de thread/32.001 chamadas; 32 capturas por bloco, dez repetições com recursos do coletor medidos e observador limitado | CI Windows exige zero DebugObjects após retirada; grava Native-stress; saturação deliberada deve falhar com perda explícita e métricas incompletas |
 | Leituras de contadores nativos | Loads lock-free com ordenação seq_cst; atualizações/barreiras Interlocked mantidas | Comparação Windows com variante RMW, ordem alternada e contagens/checksums completos |
 | Custo em carga controlada | Três pares baseline/instrumentado, ordem alternada, uma/três threads; relógio interno ao loop e artefato bruto | Checksums iguais, chamadas/finalizador exatos e captura completa; sem limite artificial de desempenho do runner |
+| Preferências e diagnóstico da referência | Chaves do config e nomes de unidades selecionadas preservados independentemente, layout e diagnóstico | [Mapa conferido](phase0/preferences-parity.md), migração, alternância e reabertura Win32 automatizadas |
 
 As métricas instrumentadas são cumulativas por época de Clear. Navegar no
 histórico nunca soma snapshots cumulativos. Sampling continua contando amostras,
 sem converter esse valor em chamadas ou duração por chamada.
+
+## Acompanhamento do progresso
+
+A tabela acima reúne 30 blocos entregues no subconjunto documentado; os quatro
+blocos abaixo ainda têm critérios abertos. A contagem simples dá 30/34, cerca
+de 88%, com peso igual por bloco. Esse índice não mede esforço restante,
+cobertura de execução, compatibilidade de compilador nem porcentagem de
+paridade com o original. Novos casos de código podem ampliar um bloco sem
+encerrar seu critério de aceitação. A conclusão exige fechar os gates materiais,
+incluindo a execução Delphi 10.4 e suas medições de custo/operação prolongada.
 
 ## Próximos blocos para paridade
 
@@ -50,7 +61,7 @@ sem converter esse valor em chamadas ou duração por chamada.
    preservar a busca do handler, seu cleanup e a retomada de execução, incluindo
    exceções aninhadas/recursivas, sem falsificar métricas nem quebrar o programa.
 2. **Cobertura de código e metadados.** Ampliar somente com casos conferidos:
-   unwind encadeado com ações além de saves locais `SAVE_NONVOL`, `SAVE_NONVOL_FAR`, `SAVE_XMM128` e `SAVE_XMM128_FAR` (MOVAPS/MOVUPS/MOVAPD/MOVUPD/MOVDQA/MOVDQU, com alocação primária ALLOC_SMALL/ALLOC_LARGE e pushes/frame register conferidos), handlers além do cleanup UHANDLER-only e dos scopes CRT conferidos em fragmentos que herdam o frame, ou lacunas além de padding inalcançável,
+   unwind encadeado com ações além de saves locais `SAVE_NONVOL`, `SAVE_NONVOL_FAR`, `SAVE_XMM128` e `SAVE_XMM128_FAR` (MOVAPS/MOVUPS/MOVAPD/MOVUPD/MOVDQA/MOVDQU, com alocação primária ALLOC_SMALL/ALLOC_LARGE, saves primários GPR/XMM e pushes/frame register conferidos; CALL direto com área Win64 livre e branches limitados ao corpo depois dos saves), handlers além do cleanup UHANDLER-only (inclusive com saves locais) e dos scopes CRT conferidos em fragmentos que herdam o frame, ou lacunas além de padding inalcançável (inclusive antes de saves locais sem handler),
    outras versões de unwind, epílogos e instruções ainda recusados. Saltos diretos
    e saltos por R11 para destinos estáticos já aceitam epílogos ADD/LEA e POPs
    conferidos. Sem frame, dois LEAs e CMOV permitem escolher entre entradas
@@ -58,7 +69,7 @@ sem converter esse valor em chamadas ou duração por chamada.
    conferidos. Outros formatos de tabelas, destinos dinâmicos e layouts TD32
    adicionais continuam pendentes.
 3. **Compatibilidade Delphi demonstrada.** As fixtures de integração atuais são
-   C/GCC para o fluxo completo. Um ensaio separado compara vinte rotinas conferidas
+   C/GCC para o fluxo completo. Um ensaio separado compara vinte e seis rotinas conferidas
    da DLL Delphi original com seus corpos relocados; não inclui TDS. Um ensaio separado exige captura/retomada/reraise com o handler real da mesma DLL, inicializando seu RTL num filho próprio; ele cobre um construtor e a worker real com catch tipado Exception, sem certificar uma versão inteira do compilador.
    Exigir evidência reproduzível
    para prólogos, métodos, exceções e bibliotecas efetivamente suportados. A fixture
@@ -82,11 +93,10 @@ sem converter esse valor em chamadas ou duração por chamada.
    e instrumentação mantêm metodologias próprias. Limites atuais de seleção e
    buffer só aumentam junto dessas medições.
    [PR #61](https://github.com/gabrielteiga/AntiPessimizerV2/pull/61).
-5. **Complementos do fluxo principal.** Demais preferências/diagnósticos do
-   original, conforme a auditoria de fidelidade. O desconto por chamada na apresentação usa ticks QPC,
-   saturação em zero, médias e comparação recalculadas e preferência persistida,
-   conforme `Cycle discount`/`FixedCycleDiscount` da revisão fixada. Attach a processo arbitrário e
-   DLLs/BPLs não são apresentados como implementados pelo lançamento do EXE.
+O bloco de preferências/diagnósticos do fluxo principal foi reconciliado com o
+config e a seleção de unidades da referência e está entregue. O mapa e os testes
+estão em [Preferências da referência](phase0/preferences-parity.md). Attach a
+processo arbitrário e DLLs/BPLs continuam fora do launcher de EXE acordado.
 
 Não há paridade completa enquanto esses gates materiais estiverem abertos.
 

@@ -151,10 +151,40 @@ func TestNativeProducerUnwindsLocalSavesWithHighFrameRegister(t *testing.T) {
 	testNativeInheritedChainedFrame(t, "APFrameR12LocalSaves", 0, "18")
 }
 
+func TestNativeProducerUnwindsPrimaryAndLocalMemorySaves(t *testing.T) {
+	testNativeInheritedChainedFrame(t, "APFramePrimaryMemorySave", 0, "19")
+}
+
+func TestNativeProducerUnwindsPrimaryMixedAndLocalMemorySaves(t *testing.T) {
+	for _, tc := range []struct{ symbol, mode string }{{"APFramePrimaryMixedSaves", "20"}, {"APFramePrimaryFarSaves", "21"}, {"APFramePrimaryFrameSaves", "22"}} {
+		t.Run(tc.symbol, func(t *testing.T) { testNativeInheritedChainedFrame(t, tc.symbol, 0, tc.mode) })
+	}
+}
+
+func TestNativeProducerUnwindsCallsFromLocalSaveFragment(t *testing.T) {
+	testNativeInheritedChainedFrame(t, "APFrameLocalCall", 0, "23")
+}
+
+func TestNativeProducerForwardsCleanupFromLocalSaveFragment(t *testing.T) {
+	testNativeInheritedChainedFrame(t, "APFrameLocalCleanup", 0, "24")
+}
+
+func TestNativeProducerPreservesBranchesInsideLocalSaveBody(t *testing.T) {
+	testNativeInheritedChainedFrame(t, "APFrameLocalBranches", 0, "25")
+}
+
+func TestNativeProducerUnwindsFrameAddressedLocalSaves(t *testing.T) {
+	testNativeInheritedChainedFrame(t, "APFrameFrameAddressedSaves", 0, "26")
+}
+
+func TestNativeProducerUnwindsLocalSavesAfterUnreachablePadding(t *testing.T) {
+	testNativeInheritedChainedFrame(t, "APFramePaddedLocalSaves", 8, "27")
+}
+
 func testNativeInheritedChainedFrame(t *testing.T, symbol string, gap uint32, mode string) {
 	t.Helper()
 	names := map[string]uint32{symbol: 1, symbol + "Cold": 2}
-	withStackProbe := mode == "3" || mode == "4" || mode == "5" || mode == "6" || mode == "7" || mode == "11" || mode == "12" || mode == "13" || mode == "14" || mode == "15" || mode == "16" || mode == "17" || mode == "18"
+	withStackProbe := mode == "3" || mode == "4" || mode == "5" || mode == "6" || mode == "7" || mode == "11" || mode == "12" || mode == "13" || mode == "14" || mode == "15" || mode == "16" || mode == "17" || mode == "18" || mode == "19" || mode == "20" || mode == "21" || mode == "22" || mode == "23" || mode == "24" || mode == "25" || mode == "26" || mode == "27"
 	if withStackProbe {
 		names["APFrameStackProbe"] = 3
 	}

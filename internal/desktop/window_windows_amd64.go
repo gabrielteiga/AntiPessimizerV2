@@ -445,7 +445,7 @@ func (a *window) open() error {
 func (a *window) applyPreferences() {
 	text(a.imagePath, a.preferences.ImagePath)
 	text(a.filter, a.preferences.ResultFilter)
-	text(a.symbolSearch, a.preferences.SymbolFilter)
+	text(a.symbolSearch, a.preferences.catalogQuery())
 	if a.preferences.ExcludeRuntime {
 		send.Call(a.excludeRuntime, 0xf1, 1, 0)
 	}
@@ -473,7 +473,8 @@ func (a *window) persistPreferences() {
 	if current, err := parseCallDiscount(value(a.callDiscount)); err == nil {
 		discount = current
 	}
-	p := Preferences{CallDiscountTicks: discount, Columns: a.preferences.Columns, ExcludeRuntime: a.excludesRuntime(), WholeUnit: whole == 1, Version: 1, ImagePath: value(a.imagePath), ResultFilter: value(a.filter), SymbolFilter: value(a.symbolSearch), TimeUnit: Milliseconds}
+	p := Preferences{CallDiscountTicks: discount, Columns: a.preferences.Columns, ExcludeRuntime: a.excludesRuntime(), WholeUnit: whole == 1, Version: 1, ImagePath: value(a.imagePath), ResultFilter: value(a.filter), SymbolFilter: a.preferences.SymbolFilter, UnitSelection: a.preferences.UnitSelection, TimeUnit: Milliseconds}
+	p.setCatalogQuery(value(a.symbolSearch))
 	index, _, _ := send.Call(a.metricUnits, 0x147, 0, 0)
 	units := []MetricTimeUnit{Nanoseconds, Microseconds, Milliseconds, Seconds, ClockTicks}
 	if index < uintptr(len(units)) {
@@ -661,6 +662,13 @@ func (a *window) command(id int) {
 			send.Call(a.diagnosticText, 0xb1, ^uintptr(0), 0)
 		}
 	case 26:
+		whole, _, _ := send.Call(a.wholeUnit, 0xf0, 0, 0)
+		if a.preferences.WholeUnit != (whole == 1) {
+			text(a.symbolSearch, a.preferences.switchCatalogMode(whole == 1, value(a.symbolSearch)))
+			a.catalog = nil
+			send.Call(a.procedureList, 0x184, 0, 0)
+			a.setStatus("Leia os símbolos com o filtro atual.")
+		}
 		a.layout()
 	case 30:
 		a.catalog = nil
