@@ -35,13 +35,14 @@ base atual: não reimplementar achados já resolvidos.
 
 ## Main e qualidade confirmadas
 
-A main integrou **#114**, em
-`523d3955dcbc906a10a2b2c06033bbd4b3525f7a`.
+A main integrou **#115**, em
+`2f1df13930aac6072ce10f931ca64e52d44c4ead`.
 A árvore é idêntica ao head aprovado
-`bb88e3dc16a716de0d4d67ee0497ad83af2bca7d`.
-CI pós-merge Go **45876946974**: consultar o resultado atual.
-Autoria pós-merge **45876947064** aprovada.
-Todos os oito checks dos heads #113/#114 passaram antes de seus merges.
+`3e3fb7e29ae7e3f4b6158d49448379a58b41f26a`.
+CI pós-merge Go **45877932675**: consultar o resultado atual.
+Autoria pós-merge **45877932568** aprovada.
+CI pós-merge #114 **45876946974** e autoria **45876947064** aprovadas.
+Todos os oito checks dos heads #113/#114/#115 passaram antes de seus merges.
 CI pós-merge Go #113 **45876106655** e autoria **45876106596** aprovadas.
 
 Todos os oito checks dos heads abaixo passaram antes do merge. As árvores
@@ -88,7 +89,7 @@ Continuam quatro gates materiais:
 2. Outros layouts de código/unwind/tails além dos casos conferidos. Scopes
    Delphi combinados com saves locais continuam recusados; CRT com saves locais
    foi integrado no #112, com CFI shadow composta e teste direto de RtlVirtualUnwind. Padding com
-   saves locais sem handler já foi integrado no #110; CRT com gap curto de NOP/INT3 está no incremento pendente descrito abaixo;
+   saves locais sem handler já foi integrado no #110; CRT com gap curto de NOP/INT3 foi integrado no #115;
    outras combinações de handler/gap permanecem recusadas. Destinos de tail calls dinâmicos não comprovados continuam fora.
 3. Compilação e execução do EXE próprio no Delphi 10.4, com símbolos reais.
 4. Custo/operação prolongada em cargas Delphi representativas. C não certifica
@@ -232,7 +233,25 @@ O adaptador verifica a região carregada e a entrada runtime local, sem supor
 adjacência com o primário. O protocolo recusa DLL antiga antes do payload.
 Modo 31 exige retorno, catch interno, finally normal/excepcional e os saves
 completos de RBX/RSI/XMM6/XMM7, em um stride posterior ao método auxiliar.
-Oráculo RtlVirtualUnwind repetido com gap. Testes portáveis/cross-build locais
-passaram; exigir comparação Windows e todos os checks do head antes de integrar.
+Oráculo RtlVirtualUnwind repetido com gap. Testes portáveis/cross-build e os oito checks do SHA passaram, incluindo Windows.
+Integrado no #115. Não reaplicar; conferir a CI pós-merge listada abaixo.
 Handler Delphi e UHANDLER-only com gap continuam recusados. Não reaplicar
 #112/#113/#114; estes já estão integrados.
+
+## Cleanup com padding após #115
+
+#115 integrou CRT com padding no SHA de merge
+`2f1df13930aac6072ce10f931ca64e52d44c4ead`, árvore igual ao head aprovado
+`3e3fb7e29ae7e3f4b6158d49448379a58b41f26a`. Todos os oito checks passaram;
+CI Go pós-merge **45877932675** e autoria **45877932568**: consultar resultado.
+CI pós-merge #114 **45876946974** aprovada.
+O modo 32 também exige catch/finally com gap sem saves locais adicionais.
+
+Novo incremento em `/workspace/work/AntiPessimizerV2-cleanup-padding`, branch
+`feat/chained-cleanup-padding`, habilita o mesmo gap de até 16 NOP/INT3 para
+UHANDLER-only. O adaptador APHOOKK do #115 já verifica e encaminha esse formato;
+o gate Go de padding passa a ser comum ao cleanup e aos scopes CRT.
+Modo 33 exige PC e metadados originais no handler, uma limpeza por exceção,
+saves completos e contabilidade. Testes portáveis e de negociação incluem
+UHANDLER com gap e recusam DLL anterior ao K. Exigir execução Windows real e
+todos os checks do SHA antes do merge. Scopes Delphi com gap continuam recusados.

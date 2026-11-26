@@ -287,8 +287,17 @@ func (p *PEImage) readCode(rva, size uint32, collectedUnwind *functionUnwind) ([
 					if _, ok := p.mapped(collectedUnwind.handlerRVA, 1, true); !ok || collectedUnwind.handlerRVA >= rva && uint64(collectedUnwind.handlerRVA) < uint64(rva)+uint64(size) {
 						return fail("invalid or self-referential original unwind handler")
 					}
-					if len(chainGaps) != 0 && info[0]&8 == 0 {
-						return fail("padding with handlers requires verified CRT scopes")
+					if len(chainGaps) != 0 {
+						for _, gap := range chainGaps {
+							if gap.end-gap.begin > 16 {
+								return fail("handler chain padding exceeds 16 bytes")
+							}
+							for _, b := range code[gap.begin:gap.end] {
+								if b != 0x90 && b != 0xcc {
+									return fail("handler chain padding requires single-byte NOP/INT3")
+								}
+							}
+						}
 					}
 					if info[0]&8 != 0 {
 						switch {
@@ -298,18 +307,6 @@ func (p *PEImage) readCode(rva, size uint32, collectedUnwind *functionUnwind) ([
 							collectedUnwind.scopeStyle = 2
 						default:
 							return fail("unrecognized exception handler; requires a recognized CRT or reviewed Delphi handler")
-						}
-						if len(chainGaps) != 0 {
-							for _, gap := range chainGaps {
-								if gap.end-gap.begin > 16 {
-									return fail("CRT chain padding exceeds 16 bytes")
-								}
-								for _, b := range code[gap.begin:gap.end] {
-									if b != 0x90 && b != 0xcc {
-										return fail("CRT chain padding requires single-byte NOP/INT3")
-									}
-								}
-							}
 						}
 						if len(chainBoundaries) != 0 && collectedUnwind.scopeStyle != 1 {
 							return fail("inherited exception scopes require the verified CRT handler")

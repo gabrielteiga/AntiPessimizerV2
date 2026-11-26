@@ -165,3 +165,17 @@ func TestScopedChainPaddingLengthAndEncodingAreBounded(t *testing.T) {
 		t.Fatal("multi-byte CRT padding accepted", err)
 	}
 }
+
+func TestPaddedLocalSavesForwardOriginalCleanup(t *testing.T) {
+	image, code := scopedPaddedLocalPE()
+	image[0x480] = 17
+	plan, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+	if err != nil || !plan.PaddedHandler || !plan.InheritedHandler || plan.RelocatedHandler || len(plan.Functions) != 4 {
+		t.Fatal("padded original cleanup rejected", err)
+	}
+	info := plan.Image[plan.Functions[1].Unwind:]
+	descriptor := info[16:]
+	if binary.LittleEndian.Uint32(descriptor[4:]) != 1 || binary.LittleEndian.Uint32(descriptor[20:]) != 0x2080 || binary.LittleEndian.Uint32(descriptor[24:]) != 0x1080 || !bytes.Equal(plan.Source, code) {
+		t.Fatal("cleanup source metadata changed", descriptor[:36])
+	}
+}
