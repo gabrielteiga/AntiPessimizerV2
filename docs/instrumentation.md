@@ -1041,3 +1041,26 @@ recebem uma descrição unwind v1 para a alocação de oito bytes. O ensaio
 Windows compara os valores com leituras independentes dos registradores.
 Também verifica o PC e RSP do chamador com RtlVirtualUnwind antes do PUSH,
 dentro do corpo, no POP e na saída do clone.
+
+### Rotinas pequenas da DLL Delphi de referência
+
+O corpus fixado também compara os corpos relocados de três rotinas de três ou
+quatro bytes: getter de 64 bits, getter de 32 bits com deslocamento negativo e
+retorno do argumento truncado a 32 bits. Cada uma executa cem pares com buffers
+privados ou argumentos conhecidos, sob helpers que clobberam os GPRs voláteis.
+Os bytes originais ficam intactos. O teste confere o plano de entrada por
+breakpoint, mas chama diretamente o clone; a entrega do breakpoint pelo debugger
+continua coberta pelos alvos C do lançamento próprio. Isso não certifica o EXE
+Delphi 10.4 nem instrumentação arbitrária de DLLs.
+
+A análise estática mantém os 8.656 planos comuns e informa separadamente 113
+folhas pequenas aceitas quando explicitamente selecionadas. Essa contagem não
+é convertida em percentual de paridade ou execução.
+
+As leituras `MOV RAX,RBP` e `MOV RAX,RSP` também são aceitas no corpo nativo:
+os probes restauram o RSP de entrada e os helpers preservam RBP pelo ABI. A
+permissão cobre somente MOV de 64 bits para RAX; não libera alterações do frame
+nem outras operações com esses registradores. Três getters reais da DLL original
+executam mais cem pares cada. Um wrapper nativo estabelece RBP conhecido ou
+confere o retorno com o endereço previsto do slot de retorno. O alvo C confere
+os mesmos invariantes com a entrega real dos breakpoints pelo debugger.

@@ -1,6 +1,6 @@
 # Plano e estado de implementação
 
-Atualizado em 25 de novembro de 2026. O alvo é **Delphi 10.4, Windows 10/11 x64**
+Atualizado em 26 de novembro de 2026. O alvo é **Delphi 10.4, Windows 10/11 x64**
 (Intel ou AMD). Linux valida o núcleo portável. O README é a entrada de uso;
 este documento organiza as entregas e os critérios que ainda faltam.
 
@@ -42,6 +42,16 @@ As métricas instrumentadas são cumulativas por época de Clear. Navegar no
 histórico nunca soma snapshots cumulativos. Sampling continua contando amostras,
 sem converter esse valor em chamadas ou duração por chamada.
 
+## Acompanhamento do progresso
+
+A tabela acima reúne 29 blocos entregues no subconjunto documentado; os cinco
+blocos abaixo ainda têm critérios abertos. A contagem simples dá 29/34, cerca
+de 85%, com peso igual por bloco. Esse índice não mede esforço restante,
+cobertura de execução, compatibilidade de compilador nem porcentagem de
+paridade com o original. Novos casos de código podem ampliar um bloco sem
+encerrar seu critério de aceitação. A conclusão exige fechar os gates materiais,
+incluindo a execução Delphi 10.4 e suas medições de custo/operação prolongada.
+
 ## Próximos blocos para paridade
 
 1. **Handlers de linguagem Delphi.** O plano aceita unwind v1 sem handler ou
@@ -58,7 +68,7 @@ sem converter esse valor em chamadas ou duração por chamada.
    conferidos. Outros formatos de tabelas, destinos dinâmicos e layouts TD32
    adicionais continuam pendentes.
 3. **Compatibilidade Delphi demonstrada.** As fixtures de integração atuais são
-   C/GCC para o fluxo completo. Um ensaio separado compara vinte rotinas conferidas
+   C/GCC para o fluxo completo. Um ensaio separado compara vinte e seis rotinas conferidas
    da DLL Delphi original com seus corpos relocados; não inclui TDS. Um ensaio separado exige captura/retomada/reraise com o handler real da mesma DLL, inicializando seu RTL num filho próprio; ele cobre um construtor e a worker real com catch tipado Exception, sem certificar uma versão inteira do compilador.
    Exigir evidência reproduzível
    para prólogos, métodos, exceções e bibliotecas efetivamente suportados. A fixture

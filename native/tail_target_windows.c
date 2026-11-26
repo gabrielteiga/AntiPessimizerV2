@@ -12,6 +12,16 @@ TINY_LEAF(APTinyRet,"")
 TINY_LEAF(APTinyNop,"nop")
 TINY_LEAF(APTinyZero,"xorl %eax,%eax")
 TINY_LEAF(APTinyAdd,"leal 1(%rcx),%eax")
+TINY_LEAF(APTinyCallerRBP,"movq %rbp,%rax")
+TINY_LEAF(APTinyCallerRSP,"movq %rsp,%rax")
+extern uint64_t APCheckTinyCallerContext(void);
+__asm__(
+ ".text\n .globl APCheckTinyCallerContext\n .def APCheckTinyCallerContext; .scl 2; .type 32; .endef\n"
+ ".seh_proc APCheckTinyCallerContext\n APCheckTinyCallerContext:\n pushq %rbp\n .seh_pushreg %rbp\n subq $48,%rsp\n .seh_stackalloc 48\n .seh_endprologue\n"
+ "leaq -8(%rsp),%rax\n movq %rax,32(%rsp)\n call APTinyCallerRSP\n cmpq 32(%rsp),%rax\n jne .Ltiny_context_bad\n"
+ "movabsq $0x123456789abcdef0,%rbp\n call APTinyCallerRBP\n cmpq %rbp,%rax\n jne .Ltiny_context_bad\n movl $1,%eax\n jmp .Ltiny_context_done\n"
+ ".Ltiny_context_bad:\n xorl %eax,%eax\n .Ltiny_context_done:\n addq $48,%rsp\n popq %rbp\n ret\n .seh_endproc\n"
+);
 TINY_LEAF(APTinyNeighbor,"movl $123,%eax")
 TINY_LEAF(APTinyApplicationBreak,"int3")
 extern void APTinyRet(void),APTinyNop(void),APTinyApplicationBreak(void);
@@ -97,7 +107,10 @@ static uint32_t iterations=10;
 static DWORD WINAPI worker(void *unused){
  (void)unused;if(WaitForSingleObject(barrier,5000)!=WAIT_OBJECT_0)return 1;
  for(uint32_t i=0;i<iterations;i++){
-  if(check_tiny){
+  if(check_tiny==2){
+   if(APCheckTinyCallerContext()!=1)return 6;
+   APTinyApplicationBreak();
+  }else if(check_tiny){
    APTinyRet();APTinyNop();
    if(APTinyZero()!=0 || APTinyAdd(i)!=i+1 || APTinyNeighbor()!=123)return 6;
    APTinyApplicationBreak();

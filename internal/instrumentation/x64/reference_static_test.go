@@ -56,17 +56,23 @@ func TestReferenceDelphiStaticPlanCoverage(t *testing.T) {
 	const loaded = uint64(0x100000000)
 	allocation := loaded + ((uint64(image.ImageSize()) + 0xffff) &^ 0xffff) + 0x10000
 	evidence := struct {
-		Version  int            `json:"version"`
-		ImageSHA string         `json:"image_sha256"`
-		Total    int            `json:"runtime_functions"`
-		Accepted int            `json:"static_plans_accepted"`
-		Delphi   int            `json:"delphi_scopes_accepted"`
-		Rejected map[string]int `json:"rejected"`
+		Version        int            `json:"version"`
+		ImageSHA       string         `json:"image_sha256"`
+		Total          int            `json:"runtime_functions"`
+		Accepted       int            `json:"static_plans_accepted"`
+		Delphi         int            `json:"delphi_scopes_accepted"`
+		TinySelections int            `json:"selected_tiny_plans_accepted"`
+		Rejected       map[string]int `json:"rejected"`
 	}{Version: 1, ImageSHA: referenceDLLSHA, Total: len(table) / 12, Rejected: map[string]int{}}
 	for at := 0; at < len(table); at += 12 {
 		rva, end := binary.LittleEndian.Uint32(table[at:]), binary.LittleEndian.Uint32(table[at+4:])
 		plan, err := image.BuildFunction(rva, end-rva, loaded, allocation, allocation+0x10000000, allocation+0x10000100, allocation+0x10000200, uint32(at/12+1))
 		if err != nil {
+			if end-rva < NearJumpSize {
+				if _, selectedErr := image.BuildSelectedFunction(rva, end-rva, loaded, allocation, allocation+0x10000000, allocation+0x10000100, allocation+0x10000200, uint32(at/12+1), []uint32{rva}); selectedErr == nil {
+					evidence.TinySelections++
+				}
+			}
 			evidence.Rejected[err.Error()]++
 			continue
 		}
@@ -75,7 +81,7 @@ func TestReferenceDelphiStaticPlanCoverage(t *testing.T) {
 			evidence.Delphi++
 		}
 	}
-	if evidence.Total != 8777 || evidence.Accepted != 8656 || evidence.Delphi != 523 {
+	if evidence.Total != 8777 || evidence.Accepted != 8656 || evidence.Delphi != 523 || evidence.TinySelections != 113 {
 		t.Fatal("static eligibility changed; review the actual corpus before changing expectations", evidence)
 	}
 	if output := os.Getenv("AP_REFERENCE_DELPHI_REPORT"); output != "" {
@@ -87,5 +93,5 @@ func TestReferenceDelphiStaticPlanCoverage(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	t.Logf("static only: %d/%d plans, including %d reviewed Delphi scope methods; no runtime parity percentage", evidence.Accepted, evidence.Total, evidence.Delphi)
+	t.Logf("static only: %d/%d ordinary plans, %d additional explicitly selected tiny leaves, including %d reviewed Delphi scope methods; no runtime parity percentage", evidence.Accepted, evidence.Total, evidence.TinySelections, evidence.Delphi)
 }
