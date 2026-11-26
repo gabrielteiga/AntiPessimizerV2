@@ -740,3 +740,43 @@ func TestChainedLocalSavesUseInheritedFrameBias(t *testing.T) {
 		})
 	}
 }
+
+func TestChainedLocalSavesAfterUnreachablePadding(t *testing.T) {
+	image, original := primaryAndLocalSavePE()
+	code := append(bytes.Clone(original[:20]), 0xeb, 8)
+	code = append(code, 0xcc, 0x66, 0x90, 0x0f, 0x1f, 0, 0xcc, 0xcc)
+	code = append(code, original[20:]...)
+	copy(image[0x220:], code)
+	put := binary.LittleEndian.PutUint32
+	put(image[0x404:], peLeafRVA+22)
+	put(image[0x40c:], peLeafRVA+30)
+	put(image[0x410:], peLeafRVA+uint32(len(code)))
+	copy(image[0x4ac:], image[0x400:0x40c])
+	plan, err := BuildPEFunction(image, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7)
+	if err != nil || len(plan.Functions) != 4 {
+		t.Fatal("verified padding before local saves rejected", err)
+	}
+	if !bytes.Equal(plan.Source, code) {
+		t.Fatal("source padding changed")
+	}
+	primary, secondary := plan.Functions[1], plan.Functions[2]
+	// The source JMP widens from two to five bytes; padding keeps its size.
+	if secondary.Begin != plan.BodyRVA+33 || primary.End != secondary.Begin {
+		t.Fatal("local CFI starts in the gap", plan.Functions)
+	}
+	for name, change := range map[string]func([]byte){
+		"reachable gap":                  func(b []byte) { b[0x220+20], b[0x220+21] = 0x90, 0x90 },
+		"non-padding byte":               func(b []byte) { b[0x220+22] = 0xc3 },
+		"branch into gap":                func(b []byte) { b[0x220+21] = 4 },
+		"branch into partial local save": func(b []byte) { b[0x220+21] = 9 },
+		"handler with padding":           func(b []byte) { b[0x480] = 17; put(b[0x48c:], 0x1080) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			bad := bytes.Clone(image)
+			change(bad)
+			if _, err := BuildPEFunction(bad, peLeafRVA, uint32(len(code)), 0x100000, 0x180000, 0x300000, 0x400000, 0x500000, 7); !errors.Is(err, ErrUnsupported) {
+				t.Fatal("unverified local-save gap accepted", err)
+			}
+		})
+	}
+}

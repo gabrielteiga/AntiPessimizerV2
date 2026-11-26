@@ -938,6 +938,15 @@ PUSHs na ordem inversa e retornar. O adaptador anuncia APHOOKH para saves locais
 com frame register. O ensaio Windows usa RBP com bias de 32 bytes e exige RBP,
 RBX e os 128 bits de XMM6 preservados após falha no fragmento secundário.
 
+Um fragmento final com saves locais também pode vir após uma lacuna de padding.
+A cadeia deve apontar para o primário, e o fluxo precisa saltar por cima de toda
+a lacuna: NOPs de vários bytes e INT3 são aceitos somente nesse trecho inacessível.
+O clone substitui esse preenchimento por NOPs, mantém os bytes originais intactos
+e inicia o registro de unwind local no começo real dos stores, após a lacuna.
+O ensaio Windows compara retorno e AV em um frame com saves primários GPR/XMM,
+frame register com bias e saves locais via RBP. Handlers combinados com essa
+lacuna continuam recusados.
+
 Os stores e reloads locais podem usar RSP ou o frame register herdado. O bias
 do frame register é somado ao deslocamento de memória antes de compará-lo ao
 slot do unwind. Base, índice, segmento e alinhamento continuam conferidos.

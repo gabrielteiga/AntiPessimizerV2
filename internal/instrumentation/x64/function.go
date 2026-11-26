@@ -131,7 +131,7 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 		entry = []byte{0xcc}
 	}
 	if len(metadata.localSave) != 0 {
-		if err := validateLocalSave(code, originalInfo, metadata.chainBoundaries[0], metadata.localSave); err != nil {
+		if err := validateLocalSave(body, originalInfo, metadata.chainBoundaries[len(metadata.chainBoundaries)-1], metadata.localSave); err != nil {
 			return FunctionPlan{}, err
 		}
 	}
@@ -299,7 +299,7 @@ func (p *PEImage) buildSelectedFunction(rva, size uint32, loadedBase, base, ente
 		if err != nil {
 			return FunctionPlan{}, err
 		}
-		localStart, ok := translate(rva + uint32(metadata.chainBoundaries[0]))
+		localStart, ok := translate(rva + uint32(metadata.chainBoundaries[len(metadata.chainBoundaries)-1]))
 		if !ok {
 			return fail("local unwind chain boundary is not an instruction start")
 		}
