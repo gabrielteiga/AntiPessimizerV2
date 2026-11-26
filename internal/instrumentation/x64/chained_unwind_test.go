@@ -709,3 +709,34 @@ func TestChainedLocalSaveDirectCallsReserveCalleeHomeSlots(t *testing.T) {
 		})
 	}
 }
+
+func TestChainedLocalSavesUseInheritedFrameBias(t *testing.T) {
+	prefix := []byte{0x55, 0x48, 0x83, 0xec, 80, 0x48, 0x8d, 0x6c, 0x24, 32,
+		0x48, 0x89, 0x5c, 0x24, 72, 0x0f, 0x29, 0x7c, 0x24, 48, 0x66, 0x0f, 0xef, 0xff, 0x48, 0x89, 0xcb}
+	unwind := []byte{1, 27, 7, 0x25, 20, 0x78, 3, 0, 15, 0x34, 9, 0, 10, 3, 5, 0x92, 1, 0x50, 0, 0}
+	local := []byte{33, 8, 4, 0x25, 8, 0x68, 1, 0, 4, 0x64, 8, 0}
+	body := []byte{0x48, 0x89, 0x75, 32, 0x0f, 0x29, 0x75, 0xf0,
+		0x48, 0x89, 0xde, 0x66, 0x0f, 0xef, 0xf6, 0x48, 0x8b, 6,
+		0x0f, 0x28, 0x75, 0xf0, 0x48, 0x8b, 0x75, 32,
+		0x0f, 0x28, 0x7c, 0x24, 48, 0x48, 0x8b, 0x5c, 0x24, 72, 0x48, 0x8d, 0x65, 48, 0x5d, 0xc3}
+	code := append(bytes.Clone(prefix), bytes.Repeat([]byte{0x90}, 8)...)
+	start := len(code)
+	code = append(code, body...)
+	if err := validateLocalSave(code, unwind, start, local); err != nil {
+		t.Fatal("inherited frame addressing rejected", err)
+	}
+	for name, change := range map[string]func([]byte){
+		"wrong base register":       func(b []byte) { b[start+2] = 0x73 },
+		"store ignores frame bias":  func(b []byte) { b[start+3] = 64 },
+		"reload ignores frame bias": func(b []byte) { b[start+25] = 64 },
+		"XMM reload wrong offset":   func(b []byte) { b[start+21] = 0 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			bad := bytes.Clone(code)
+			change(bad)
+			if err := validateLocalSave(bad, unwind, start, local); !errors.Is(err, ErrUnsupported) {
+				t.Fatal("invalid frame slot accepted", err)
+			}
+		})
+	}
+}

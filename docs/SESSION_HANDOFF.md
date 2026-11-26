@@ -36,7 +36,9 @@ A auditoria de fidelidade é histórica; não reimplemente achados já resolvido
 A main integrou os PRs #91 a #103. Último merge:
 `c5fc24134c8d167b3dc9b7cecf9f7e6676bd9099` (#103).
 A árvore é idêntica ao head aprovado `768ada028472fb54e8d753a0cc9e45674d404e77`.
-CI pós-merge Go **45701450557** em acompanhamento; autoria **45701450278** passou.
+CI pós-merge Go **45701450557** e autoria **45701450278** aprovadas.
+O #104 também integrou em `509c41bb7b1fa0fef5c37777aa675c65fa779dd5`;
+conferir árvore e acompanhar sua CI pós-merge.
 
 Entregas recentes, todas com checks do head exato aprovados:
 
@@ -62,18 +64,19 @@ README e plano detalham as entregas anteriores (#53–#91). Não recomeçar a ba
 
 ## PRs de implementação abertos
 
-- **#104**, `feat/chained-local-calls`, head
+- **#104** já integrado, `feat/chained-local-calls`, head
   `53c1de05c25158596cc1ce3ad8c39cd5bd8aedb6`: CALL direto no fragmento com saves
   locais, RSP alinhado e 32 bytes de home slots livres. Fixture modo 23 escreve
   todos os home slots e causa AV no callee. Todos os oito checks passaram.
-  Aguardar a CI pós-merge do #103, reconferir head/checks e integrar.
+  A CI pós-merge do #103 passou antes dessa integração.
 - **#105**, `feat/chained-local-cleanup`, head
   `3deabbf94575c08a683d6888d0d36248d1f576fe`: UHANDLER-only com saves locais,
   APHOOKI, extensão/PC map completo e tradução a partir do começo primário mesmo
   com dispatcher secundário. Fixture modo 24 exige cleanup único com entrada
   runtime/PC/dados originais e RBX/RSI/XMM6/XMM7 completos. Checks em andamento;
   integração nativa Windows já passou. Aguardar #104 e todos os checks atuais.
-- Incremento **feat/chained-local-branches**, baseado em #105: branches diretos
+- **#106**, head `81f336ea61f2049f1f1b6b1c23eb50d11f1970f5`,
+  branch **feat/chained-local-branches**, baseado em #105: branches diretos
   e loops no corpo depois dos saves, incluindo a entrada completa do epílogo.
   O fluxo normal verifica instruções/destinos. Saltos que repetem saves, entram
   em reloads, pulam restauração ou escapam são recusados. Fixture modo 25 cobre
@@ -160,3 +163,13 @@ resultados dos checks numa chamada concluída e só então solicitar merge em ou
 chamada. Automatic review já usou estado antigo em uma chamada agregadora.
 Consultar check-runs do SHA e jobs por etapas; evitar despejar logs inteiros.
 Esperar até 60 segundos por consulta, com atualizações concisas ao usuário.
+
+## Saves locais endereçados pelo frame register
+
+Incremento `feat/chained-frame-addressed-saves`, worktree
+`/workspace/work/AntiPessimizerV2-frame-addressed-saves`, baseado em #106.
+Os stores/reloads locais usam RSP ou o frame register herdado com bias conferido.
+O mesmo resolvedor de slots do prólogo valida base/índice/segmento e deslocamento.
+Fixture Windows modo 26 usa RSI em [RBP+32] e XMM6 em [RBP-16], com bias 32,
+saves primários GPR/XMM, retorno e AV. Testes rejeitam base e bias incorretos.
+Conferir publicação/PR, CI do SHA exato e predecessores antes do merge.
