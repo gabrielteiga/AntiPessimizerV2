@@ -692,8 +692,8 @@ de saturação exige contador positivo junto de ErrLoss e incomplete=true.
 
 ## Corpus de execução da DLL Delphi original
 
-O CI Windows inclui um ensaio separado de dezenove rotinas com bytes conferidos na
-DLL v0.3 do Hoshoyo, comparando 1.900 pares original/corpo relocado com resultados
+O CI Windows inclui um ensaio separado de vinte e seis rotinas com bytes conferidos na
+DLL v0.3 do Hoshoyo, comparando 2.600 pares original/corpo relocado com resultados
 esperados e um helper nativo que altera GPR voláteis. Inclui push/pop com CMPXCHG16B
 sobre buffers privados e cem leituras RDTSC relocalizadas, cada uma entre leituras
 do corpo original na mesma CPU lógica. A leitura de StackBase via GS é comparada
@@ -1090,3 +1090,54 @@ e excepcional, RBX/RSI e os 128 bits de XMM6/XMM7. A seleção inclui outro mét
 antes do método com scopes para conferir o segundo stride. A captura deve
 registrar os dois retornos por thread e zero frames abandonados/unwind do
 método que capturou a falha. O finally executa uma vez em cada caminho.
+
+### Exceções Delphi reentrantes no binário original
+
+O ensaio `TestReferenceDelphiNestedExceptionSearchPreservesReentrantFrames`
+reentra no construtor conferido da DLL fixada a partir do filtro CRT do chamador,
+enquanto a busca da exceção externa ainda está ativa. Três níveis de filtros
+exigem quatro frames físicos simultâneos da mesma rotina Delphi. Cada nível
+provoca outra exceção real e também confere um retorno normal do construtor.
+O código original permanece intacto, com RTL e handler reais.
+
+O baseline exige quatro pares; a cópia exige cem pares com 800 entradas,
+400 retornos e 400 saídas excepcionais. O consumidor Go precisa terminar sem
+frames abertos ou abandonados e sem perdas. Os eventos brutos devem comprovar
+profundidade quatro; os ticks inclusivos/exclusivos precisam coincidir com a
+soma independente dos intervalos externos, sem multiplicar tempo pela recursão.
+Os relatórios `reference-delphi-nested.json` e
+`reference-delphi-nested-metrics.ndjson` ficam nos artefatos Windows.
+Isso cobre reentrada durante busca de exceção na revisão fixada; a recursão é
+conduzida pelo chamador C e não certifica código Pascal compilado no Delphi 10.4.
+
+### Padding inacessível com scopes CRT
+
+APHOOKK acrescenta gaps de até 16 bytes de NOP/INT3 de um byte entre fragmentos
+que herdam o mesmo frame com scopes CRT reconhecidos. A validação de fluxo
+exige salto ou retorno antes do gap e rejeita branches, começos/fins de scopes
+e landings dentro dele. Um scope pode terminar exatamente no começo do gap.
+Scopes Delphi com gaps continuam recusados. O cleanup UHANDLER-only é
+encaminhado com os metadados e PCs da origem, também exigindo APHOOKK.
+
+A imagem de origem conserva os fillers; o clone mantém os offsets com NOPs.
+Com saves locais, a CFI secundária e os CodeOffsets do shadow começam no
+secundário real, após o gap e o alargamento do salto. O adaptador verifica os
+bytes do gap no EXE carregado e deriva a posição dos stores da entrada runtime
+secundária, sem supor adjacência com o primário. DLL anterior recusa o plano
+antes do payload.
+
+O modo 31 da fixture Windows exige retorno, catch interno e finally normal e
+excepcional, preservando RBX/RSI e os 128 bits de XMM6/XMM7. Um procedimento
+selecionado precede o alvo para exercitar o segundo stride. O teste direto
+RtlVirtualUnwind também confere o shadow composto após esse padding. O modo 32
+confere catch/finally com gap e CFI apenas herdada, sem saves locais.
+
+O modo 33 compara cleanup UHANDLER-only após o gap com saves locais GPR/XMM.
+O handler exige flags de unwind, módulo, entrada runtime do secundário,
+PC exato da falha e o sentinela original de HandlerData. O retorno normal não
+executa cleanup; a exceção precisa executá-lo uma vez, preservar RBX/RSI e
+XMM6/XMM7 completos e fechar o frame por unwind. APHOOKK já contém a validação
+nativa necessária; o incremento habilita o mesmo formato no planejador Go.
+
+O modo 34 confere o mesmo encaminhamento com gap e apenas CFI herdada,
+sem saves locais; o handler exige também PC, runtime entry e HandlerData originais.

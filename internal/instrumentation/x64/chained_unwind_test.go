@@ -769,7 +769,7 @@ func TestChainedLocalSavesAfterUnreachablePadding(t *testing.T) {
 		"non-padding byte":               func(b []byte) { b[0x220+22] = 0xc3 },
 		"branch into gap":                func(b []byte) { b[0x220+21] = 4 },
 		"branch into partial local save": func(b []byte) { b[0x220+21] = 9 },
-		"handler with padding":           func(b []byte) { b[0x480] = 17; put(b[0x48c:], 0x1080) },
+		"self-referential handler":       func(b []byte) { b[0x480] = 17; put(b[0x48c:], peLeafRVA) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			bad := bytes.Clone(image)
