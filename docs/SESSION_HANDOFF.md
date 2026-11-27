@@ -19,7 +19,11 @@ não reaplicar PRs integrados. Leia AGENTS.md, README.md e docs/plan.md.
   Merge somente com **todos os checks aprovados no SHA exato**, incluindo autoria,
   Linux/race, Windows nativo/ETW/GUI, executáveis e pacote. Usar expected_head_sha,
   comparar a árvore com o head aprovado e conferir a CI pós-merge. A instrução de
-  agrupar testes não dispensa esses gates. Corrigir falhas sem enfraquecer testes.
+  agrupar testes não dispensa esses gates. A suíte Go completa passa a rodar
+  uma vez por candidato de PR e em cada SHA pós-merge da main. Checkout e pacote
+  usam o head explícito; o head deve conter a base atual. Concurrency cancela
+  apenas candidatos antigos do mesmo PR; cada SHA da main mantém seu run.
+  Autoria segue em todo push e PR. Corrigir falhas sem enfraquecer testes.
 - Autoria exclusiva de Gabriel Teiga (`gabrielteiga`) em todos os projetos.
   Nenhum assistente/modelo/ferramenta/provedor em autor, committer, assinatura ou
   trailers automáticos. Executar `scripts/configure-owner-attribution.sh` e manter

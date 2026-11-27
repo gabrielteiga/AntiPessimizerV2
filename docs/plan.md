@@ -117,7 +117,11 @@ A pipeline tem timeout e diagnóstico para impedir esperas indefinidas.
 Por instrução do usuário em 27/11, agrupar implementação e regressões por bloco
 funcional; ajustes triviais não disparam novas suítes locais. Executar verificações
 locais nos blocos complexos e nos pontos de integração relevantes. A CI obrigatória
-do head exato e o pós-merge continuam sendo exigidos.
+do head exato e o pós-merge continuam sendo exigidos. A suíte Go completa roda
+uma vez por candidato de PR e em cada merge da main, eliminando a duplicação
+push/PR nas branches. Checkout e pacote usam o SHA candidato explicitamente;
+o candidato precisa incorporar a base atual do PR. Autoria permanece verificada
+em todo push e PR.
 
 A política de qualidade inclui gofmt/vet, limites de memória e cardinalidade,
 ownership das goroutines, cancelamento com espera de encerramento, dados imutáveis
