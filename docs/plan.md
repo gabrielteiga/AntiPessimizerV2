@@ -121,7 +121,10 @@ do head exato e o pós-merge continuam sendo exigidos. A suíte Go completa roda
 uma vez por candidato de PR e em cada merge da main, eliminando a duplicação
 push/PR nas branches. Checkout e pacote usam o SHA candidato explicitamente;
 o candidato precisa incorporar a base atual do PR. Autoria permanece verificada
-em todo push e PR.
+em todo push e PR. A suíte Windows habilita as fixtures nativas no teste global;
+o script de integração reaproveita esse pré-requisito e mantém os cenários CLI
+e as repetições dirigidas de startup/retirada, sem repetir toda a família Producer.
+Executado isoladamente, o script continua rodando essa família por padrão.
 
 A política de qualidade inclui gofmt/vet, limites de memória e cardinalidade,
 ownership das goroutines, cancelamento com espera de encerramento, dados imutáveis
