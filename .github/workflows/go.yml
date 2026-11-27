@@ -1,9 +1,14 @@
 name: Go
 on:
   push:
+    branches: [main]
   pull_request:
 permissions:
   contents: read
+# Superseded PR heads can stop; each main SHA keeps its own post-merge run.
+concurrency:
+  group: go-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
 jobs:
   test:
     strategy:
@@ -13,6 +18,24 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Verify exact candidate and integrated base
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+        run: |
+          actual=$(git rev-parse HEAD)
+          if [ "$actual" != "$EXPECTED_SHA" ]; then
+            echo "Unexpected checkout: $actual; expected $EXPECTED_SHA"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$BASE_SHA" HEAD; then
+            echo "Update this branch with the current PR base before validation: $BASE_SHA"
+            exit 1
+          fi
       - uses: actions/setup-go@v5
         with:
           go-version: '1.27.4'
@@ -30,7 +53,7 @@ jobs:
             gofmt -d cmd internal experiments
             exit 1
           fi
-      - run: go test -v -timeout=120s ./...
+      - run: go test -v -count=1 -timeout=120s ./...
       - run: go vet ./...
       - run: go build ./cmd/...
       - if: runner.os == 'Linux'
@@ -38,7 +61,7 @@ jobs:
 
       - if: runner.os == 'Windows'
         name: Native event producer integration
-        run: ./scripts/test-native.ps1
+        run: ./scripts/test-native.ps1 -ProducerSuiteAlreadyPassed
 
       - if: runner.os == 'Windows'
         name: Controlled x64 code and unwind
@@ -131,6 +154,13 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact package candidate
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - uses: actions/setup-go@v5
         with:
           go-version: '1.27.4'
