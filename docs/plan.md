@@ -1,6 +1,6 @@
 # Plano e estado de implementação
 
-Atualizado em 26 de novembro de 2026. O alvo é **Delphi 10.4, Windows 10/11 x64**
+Atualizado em 27 de novembro de 2026. O alvo é **Delphi 10.4, Windows 10/11 x64**
 (Intel ou AMD). Linux valida o núcleo portável. O README é a entrada de uso;
 este documento organiza as entregas e os critérios que ainda faltam.
 
@@ -61,7 +61,7 @@ incluindo a execução Delphi 10.4 e suas medições de custo/operação prolong
    preservar a busca do handler, seu cleanup e a retomada de execução, incluindo
    exceções aninhadas/recursivas, sem falsificar métricas nem quebrar o programa. O #113 já exige quatro frames reentrantes do construtor Delphi fixado durante a busca da exceção, com 800 chamadas/400 unwinds e ticks conferidos por eventos brutos; a reentrada é conduzida por C e não certifica recursão Pascal.
 2. **Cobertura de código e metadados.** Ampliar somente com casos conferidos:
-   unwind encadeado com ações além de saves locais `SAVE_NONVOL`, `SAVE_NONVOL_FAR`, `SAVE_XMM128` e `SAVE_XMM128_FAR` (MOVAPS/MOVUPS/MOVAPD/MOVUPD/MOVDQA/MOVDQU, com alocação primária ALLOC_SMALL/ALLOC_LARGE, saves primários GPR/XMM e pushes/frame register conferidos; CALL direto com área Win64 livre e branches limitados ao corpo depois dos saves), handlers além do cleanup UHANDLER-only e dos scopes CRT conferidos (inclusive com saves locais e CFI shadow limitada a unwind v1) em fragmentos que herdam o frame, ou lacunas além de padding inalcançável (inclusive antes de saves locais sem handler; CRT com gaps de NOP/INT3 até 16 bytes exige APHOOKK),
+   unwind encadeado com ações além de saves locais `SAVE_NONVOL`, `SAVE_NONVOL_FAR`, `SAVE_XMM128` e `SAVE_XMM128_FAR` (MOVAPS/MOVUPS/MOVAPD/MOVUPD/MOVDQA/MOVDQU, com alocação primária ALLOC_SMALL/ALLOC_LARGE, saves primários GPR/XMM e pushes/frame register conferidos; CALL direto com área Win64 livre e branches limitados ao corpo depois dos saves), handlers além do cleanup UHANDLER-only e dos scopes CRT conferidos (inclusive com saves locais e CFI shadow limitada a unwind v1) em fragmentos que herdam o frame, ou lacunas além de padding inalcançável (inclusive antes de saves locais sem handler; cleanup UHANDLER-only e CRT com gaps de NOP/INT3 até 16 bytes exigem APHOOKK),
    outras versões de unwind, epílogos e instruções ainda recusados. Saltos diretos
    e saltos por R11 para destinos estáticos já aceitam epílogos ADD/LEA e POPs
    conferidos. Sem frame, dois LEAs e CMOV permitem escolher entre entradas
@@ -113,6 +113,18 @@ nativo, ETW, GUI, executáveis e empacotamento aprovados no **commit exato** ant
 do merge. Falhas de comportamento são corrigidas; testes desatualizados são
 atualizados quando a especificação do recurso muda, preservando sua cobertura.
 A pipeline tem timeout e diagnóstico para impedir esperas indefinidas.
+
+Por instrução do usuário em 27/11, agrupar implementação e regressões por bloco
+funcional; ajustes triviais não disparam novas suítes locais. Executar verificações
+locais nos blocos complexos e nos pontos de integração relevantes. A CI obrigatória
+do head exato e o pós-merge continuam sendo exigidos. A suíte Go completa roda
+uma vez por candidato de PR e em cada merge da main, eliminando a duplicação
+push/PR nas branches. Checkout e pacote usam o SHA candidato explicitamente;
+o candidato precisa incorporar a base atual do PR. Autoria permanece verificada
+em todo push e PR. A suíte Windows habilita as fixtures nativas no teste global;
+o script de integração reaproveita esse pré-requisito e mantém os cenários CLI
+e as repetições dirigidas de startup/retirada, sem repetir toda a família Producer.
+Executado isoladamente, o script continua rodando essa família por padrão.
 
 A política de qualidade inclui gofmt/vet, limites de memória e cardinalidade,
 ownership das goroutines, cancelamento com espera de encerramento, dados imutáveis

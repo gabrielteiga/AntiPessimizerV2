@@ -3,8 +3,8 @@
 - Target: Delphi applications on Windows amd64. Linux tests validate the portable core only.
 - Continue implementation autonomously using the original AntiPessimizer as the behavioral reference. Do not request intermediate manual validation from the user.
 - Work on a branch and open a PR. Never push implementation changes directly to main.
-- Before merging the exact PR head, require passing Linux core checks and Windows checks, including ETW integration and native viewer smoke. Fix genuine behavior failures; do not weaken tests to make CI pass.
-- Add regression tests for defects, run gofmt, go vet, tests and race checks appropriate to the change. Cross-compile/vet Windows code before pushing a branch.
+- Before merging the exact PR head, require passing Linux core checks and Windows checks, including ETW integration and native viewer smoke. The Go workflow runs once per PR candidate, verifies its exact checkout and base ancestry, then runs again on each main merge. Authorship checks remain on every push and PR. Fix genuine behavior failures; do not weaken tests to make CI pass.
+- Group related implementation and regression tests into complete functional blocks. Do not rerun suites after each trivial edit; batch trivial changes and defer local execution until a complex block or a meaningful verification point. Run appropriate checks for complex changes (especially ABI, unwind, exception handling and concurrency), including Windows cross-vet/build. Required exact-head CI and post-merge checks remain mandatory.
 - Keep measured evidence distinct from unsupported formats and untested Delphi compiler versions. Do not claim instrumentation metrics from sampling.
 
 ## Owner attribution

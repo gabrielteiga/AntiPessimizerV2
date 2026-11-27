@@ -1,4 +1,4 @@
-// Command collector runs the portable sampling pipeline using an explicit demo source.
+// Command collector serves profiling requests or emits an explicit synthetic demo.
 package main
 
 import (
@@ -50,7 +50,7 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer) error {
 		return service.Serve(ctx, listener, service.New())
 	}
 	if !*demo {
-		return fmt.Errorf("Windows collection is not implemented yet; use --demo explicitly")
+		return fmt.Errorf("choose --serve for Windows profiling requests or --demo for synthetic output")
 	}
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	source, err := sampling.NewFake(start, *width, *windows, *samples)
@@ -79,7 +79,7 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer) error {
 func main() {
 	// Keep the OS interrupt behavior for this replay CLI: an inherited blocking
 	// stdout cannot be assumed to support Close/deadline cancellation. The library
-	// session accepts contexts; a live Windows adapter will own its cleanup path.
+	// session accepts contexts; the --serve service owns live capture cleanup.
 	ctx := context.Background()
 	// Demo retains immediate OS interrupt behavior for inherited blocked stdout.
 	for _, arg := range os.Args[1:] {
