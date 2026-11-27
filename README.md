@@ -8,7 +8,7 @@ ETW e lançamento instrumentado com contagens reais de chamadas, tempos e média
 
 ## Estado atual
 
-Revisado em 26 de novembro de 2026.
+Revisado em 27 de novembro de 2026.
 
 | Capacidade | Implementação e evidência |
 |---|---|
@@ -39,7 +39,7 @@ Revisado em 26 de novembro de 2026.
 | Medição de custo | Pares baseline/instrumentado no mesmo alvo C, com checksums e contagens exatas; relatório QPC bruto nos artefatos do CI |
 
 **Ainda não há paridade completa com o original.** Variantes de handlers Delphi
-não reconhecidas, unwind encadeado com ações adicionais ou lacunas entre fragmentos, tail calls com destinos dinâmicos ou restauração/handlers não reconhecidos e outros formatos/instruções
+não reconhecidas, unwind encadeado com ações adicionais ou lacunas fora do padding conferido (NOP/INT3 de um byte, até 16 bytes com cleanup/scopes CRT), tail calls com destinos dinâmicos ou restauração/handlers não reconhecidos e outros formatos/instruções
 continuam fora do subconjunto aceito. A limpeza de métricas já usa uma barreira sincronizada na captura nativa,
 preservando as chamadas em andamento e o histórico das épocas anteriores. A compatibilidade com todas as
 variantes do Delphi 10.4 e o overhead nesse ambiente ainda não foram comprovados.
